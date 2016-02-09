@@ -1,8 +1,6 @@
-# crispy-octo-eureka
-Tales of Symphonia Fix (tentative name)
-
-_Ignore the crazy temporary repository name, it was done to dissuade people from linking directly to the project rather than the developmen thread ;)_
-
+# TSFix
+<h5>Tales of Symphonia "Fix"</h5>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_(I cannot shake this silly name in my projects, sorry ;))_
 
 This project serves the same purpose as Tales of Zestiria "Fix" did; solve a couple of crash bugs and Namco's framerate limiter. I do not expect it will take off like TZFix did because working with the problems VMProtect creates is enough of a headache to make me think twice about most things.
 
