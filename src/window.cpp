@@ -62,6 +62,11 @@ MoveWindow_Detour(
     return TRUE;
 }
 
+//
+// Lord oh mighty, why are all these special case exceptions necessary?
+//
+//   * Something is seriously borked either on my end or Namco's
+//
 BOOL
 WINAPI
 SetWindowPos_Detour(
@@ -73,24 +78,23 @@ SetWindowPos_Detour(
     _In_     int  cy,
     _In_     UINT uFlags)
 {
-  //dll_log.Log ( L" [!] SetWindowPos (...)");
+#if 0
+  dll_log.Log ( L" [!] SetWindowPos (...)");
+#endif
 
   // Ignore this, because it's invalid.
   if (cy == 0 || cx == 0 && (! (uFlags & SWP_NOSIZE))) {
-    tsf::window.window_rect.left  = 0;
-    tsf::window.window_rect.right = tsf::RenderFix::width;
-
-    tsf::window.window_rect.top    = 0;
-    tsf::window.window_rect.bottom = tsf::RenderFix::height;
+    tsf::window.window_rect.right  = tsf::window.window_rect.left + tsf::RenderFix::width;
+    tsf::window.window_rect.bottom = tsf::window.window_rect.top  + tsf::RenderFix::height;
 
     return TRUE;
   }
 
-  /*
+#if 0
   dll_log.Log ( L"  >> Before :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
                   tsf::window.window_rect.left, tsf::window.window_rect.top,
                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
-  */
+#endif
 
   int original_width  = tsf::window.window_rect.right -
                         tsf::window.window_rect.left;
@@ -103,20 +107,35 @@ SetWindowPos_Detour(
   }
 
   if (! (uFlags & SWP_NOSIZE)) {
-    tsf::window.window_rect.left = tsf::window.window_rect.left + cx;
-    tsf::window.window_rect.top  = tsf::window.window_rect.top  + cy;
+    tsf::window.window_rect.right  = tsf::window.window_rect.left + cx;
+    tsf::window.window_rect.bottom = tsf::window.window_rect.top  + cy;
   } else {
-    tsf::window.window_rect.left = tsf::window.window_rect.left +
-                                      original_width;
-    tsf::window.window_rect.top  = tsf::window.window_rect.top  +
-                                      original_height;
+    tsf::window.window_rect.right  = tsf::window.window_rect.left +
+                                       original_width;
+    tsf::window.window_rect.bottom = tsf::window.window_rect.top  +
+                                       original_height;
   }
 
-  /*
+#if 0
   dll_log.Log ( L"  >> After :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
                   tsf::window.window_rect.left, tsf::window.window_rect.top,
                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
-  */
+#endif
+
+  //
+  // Fix an invalid scenario that happens for some reason...
+  //
+  if (tsf::window.window_rect.left == tsf::window.window_rect.right)
+    tsf::window.window_rect.left = 0;
+  if (tsf::window.window_rect.left == tsf::window.window_rect.right)
+    tsf::window.window_rect.right = tsf::window.window_rect.left + original_width;
+
+  if (tsf::window.window_rect.top == tsf::window.window_rect.bottom)
+    tsf::window.window_rect.top = 0;
+  if (tsf::window.window_rect.top == tsf::window.window_rect.bottom)
+    tsf::window.window_rect.bottom = tsf::window.window_rect.top + original_height;
+
+
 
   // Let the game manage its window position...
   if (! config.render.borderless)
@@ -151,11 +170,11 @@ SetWindowLongA_Detour (
                       dwNewLong );
   }
 
+  tsf::RenderFix::hWndDevice = hWnd;
+  tsf::window.hwnd           = hWnd;
+
   // Setup window message detouring as soon as a window is created..
   if (tsf::window.WndProc_Original == nullptr) {
-    tsf::RenderFix::hWndDevice = hWnd;
-    tsf::window.hwnd           = hWnd;
-
     tsf::window.WndProc_Original =
       (WNDPROC)GetWindowLong (tsf::RenderFix::hWndDevice, GWL_WNDPROC);
 
@@ -218,11 +237,11 @@ tsf::WindowManager::BorderManager::Disable (void)
   // Handle window style on creation
   //
   //   This should be figured out at window creation time instead
-  if (window.style == 0)
-    window.style = GetWindowLong (window.hwnd, GWL_STYLE);
+  //if (window.style == 0)
+    //window.style = GetWindowLong (window.hwnd, GWL_STYLE);
 
-  if (window.style_ex == 0)
-    window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
+  //if (window.style_ex == 0)
+    //window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
 
   DWORD dwNewLong = window.style;
 
@@ -252,11 +271,11 @@ tsf::WindowManager::BorderManager::Enable (void)
   // Handle window style on creation
   //
   //   This should be figured out at window creation time instead
-  if (window.style == 0)
-    window.style = GetWindowLong (window.hwnd, GWL_STYLE);
+  //if (window.style == 0)
+    //window.style = GetWindowLong (window.hwnd, GWL_STYLE);
 
-  if (window.style_ex == 0)
-    window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
+  //if (window.style_ex == 0)
+    //window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
 
   SetWindowLongW (window.hwnd, GWL_STYLE,   window.style);
   SetWindowLongW (window.hwnd, GWL_EXSTYLE, window.style_ex);
@@ -267,17 +286,17 @@ tsf::WindowManager::BorderManager::Enable (void)
 void
 tsf::WindowManager::BorderManager::AdjustWindow (void)
 {
+  HMONITOR hMonitor =
+    MonitorFromWindow ( tsf::RenderFix::hWndDevice,
+                          MONITOR_DEFAULTTONEAREST );
+
+  MONITORINFO mi;
+  mi.cbSize = sizeof (mi);
+
+  GetMonitorInfo (hMonitor, &mi);
+
   if (tsf::RenderFix::fullscreen) {
     //dll_log.Log (L"BorderManager::AdjustWindow - Fullscreen");
-
-    HMONITOR hMonitor =
-      MonitorFromWindow ( tsf::RenderFix::hWndDevice,
-                            MONITOR_DEFAULTTONEAREST );
-
-    MONITORINFO mi;
-    mi.cbSize = sizeof (mi);
-
-    GetMonitorInfo (hMonitor, &mi);
 
     SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
                               HWND_TOP,
@@ -289,11 +308,11 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
   } else {
     //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
 
-    window.window_rect.left = 0;
-    window.window_rect.top  = 0;
+    window.window_rect.left = mi.rcWork.left;
+    window.window_rect.top  = mi.rcWork.top;
 
-    window.window_rect.right  = tsf::RenderFix::width;
-    window.window_rect.bottom = tsf::RenderFix::height;
+    window.window_rect.right  = window.window_rect.left + tsf::RenderFix::width;
+    window.window_rect.bottom = window.window_rect.top  + tsf::RenderFix::height;
 
     SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
                               HWND_TOP,
@@ -514,11 +533,12 @@ DetourWindowProc ( _In_  HWND   hWnd,
 }
 
 
+
 void
 tsf::WindowManager::Init (void)
 {
   if (config.render.borderless)
-    window.style = 0x90080000;
+    window.style = 0x10000000;
   else
     window.style = 0x90CA0000;
 

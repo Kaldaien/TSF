@@ -208,18 +208,21 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     }
   }
 
-  if (! tsf::RenderFix::fullscreen) {
-    RECT window_rect;
-
+  //if (! tsf::RenderFix::fullscreen) {
     //GetWindowRect      (tsf::RenderFix::hWndDevice, &window_rect)
     //AdjustWindowRectEx (&window_rect, style, FALSE, style_ex);
 
-    window_rect.left = 0;
-    window_rect.top = 0;
+    tsf::window.window_rect.left = 0;
+    tsf::window.window_rect.top  = 0;
 
-    window_rect.right  = tsf::RenderFix::width;
-    window_rect.bottom = tsf::RenderFix::height;
-  }
+    tsf::window.window_rect.right  = tsf::RenderFix::width;
+    tsf::window.window_rect.bottom = tsf::RenderFix::height;
+    SetWindowPos_Original (
+      tsf::RenderFix::hWndDevice, HWND_TOP,
+        0, 0,
+          tsf::RenderFix::width, tsf::RenderFix::height,
+            0x00 );
+  //}
 
   if (config.render.borderless)
     tsf::WindowManager::border.Disable ();
