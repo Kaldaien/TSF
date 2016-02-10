@@ -971,8 +971,9 @@ tsf::InputManager::ShutdownTouchServices (void)
     SC_HANDLE tablet_svc =
       OpenServiceW ( svc_ctl,
                        L"TabletInputService",
-                         SERVICE_STOP |
-                         SERVICE_QUERY_STATUS );
+                         SERVICE_STOP         |
+                         SERVICE_QUERY_STATUS |
+                         SERVICE_CHANGE_CONFIG );
 
     err = _com_error (HRESULT_FROM_WIN32 (GetLastError ()));
 
@@ -1000,9 +1001,22 @@ tsf::InputManager::ShutdownTouchServices (void)
                               (wchar_t *)err.ErrorMessage (),
                                 __FILEW__, __LINE__ );
         }
-        else
-          dll_log.LogEx ( false,
-                            L" success!\n");
+        else {
+          if (config.input.disable_touch) {
+            ChangeServiceConfig ( tablet_svc,
+                                  SERVICE_NO_CHANGE,
+                                    SERVICE_DISABLED,
+                                      SERVICE_NO_CHANGE,
+                                        nullptr, nullptr,
+                                          nullptr, nullptr,
+                                            nullptr, nullptr, nullptr );
+            dll_log.LogEx ( false,
+                              L" success! (Temporarily: Disabled)\n");
+          } else {
+            dll_log.LogEx ( false,
+                              L" success!\n");
+          }
+        }
       } else {
         dll_log.LogEx ( false,
                           L" service not running.\n" );
@@ -1048,7 +1062,8 @@ tsf::InputManager::RestoreTouchServices (void)
       OpenServiceW ( svc_ctl,
                        L"TabletInputService",
                          SERVICE_START        |
-                         SERVICE_QUERY_STATUS );
+                         SERVICE_QUERY_STATUS |
+                         SERVICE_CHANGE_CONFIG );
 
     err = _com_error (HRESULT_FROM_WIN32 (GetLastError ()));
 
@@ -1060,7 +1075,15 @@ tsf::InputManager::RestoreTouchServices (void)
     }
 
     if (tablet_svc) {
-      SERVICE_STATUS status;
+       if (config.input.disable_touch && config.input.pause_touch)
+          ChangeServiceConfig ( tablet_svc,
+                                  SERVICE_NO_CHANGE,
+                                    SERVICE_AUTO_START,
+                                      SERVICE_NO_CHANGE,
+                                        nullptr, nullptr,
+                                          nullptr, nullptr,
+                                            nullptr, nullptr, nullptr );
+
       StartServiceW (tablet_svc, 0, nullptr);
 
       err = _com_error (HRESULT_FROM_WIN32 (GetLastError ()));
@@ -1071,9 +1094,15 @@ tsf::InputManager::RestoreTouchServices (void)
                             (wchar_t *)err.ErrorMessage (),
                               __FILEW__, __LINE__ );
       }
-      else
-        dll_log.LogEx ( false,
-                        L" success!\n" );
+      else {
+        if (config.input.disable_touch) {
+          dll_log.LogEx ( false,
+                          L" success! (Restored: Auto-Start)\n" );
+        } else {
+          dll_log.LogEx ( false,
+                          L" success!\n" );
+        }
+      }
 
       CloseServiceHandle (tablet_svc);
     }
