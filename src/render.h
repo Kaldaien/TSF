@@ -131,4 +131,12 @@ typedef D3DPRESENT_PARAMETERS* (__stdcall *BMF_SetPresentParamsD3D9_pfn)
   D3DPRESENT_PARAMETERS *pParams
 );
 
+typedef HRESULT (STDMETHODCALLTYPE *SetSamplerState_pfn)
+(
+  IDirect3DDevice9    *This,
+  DWORD                Sampler,
+  D3DSAMPLERSTATETYPE  Type,
+  DWORD                Value
+);
+
 #endif /* __TSFIX__RENDER_H__ */

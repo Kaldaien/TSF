@@ -22,6 +22,15 @@
 #ifndef __TSFIX__WINDOW_H__
 #define __TSFIX__WINDOW_H__
 
+typedef BOOL (WINAPI *MoveWindow_pfn)(
+  _In_ HWND hWnd,
+  _In_ int  X,
+  _In_ int  Y,
+  _In_ int  nWidth,
+  _In_ int  nHeight,
+  _In_ BOOL bRepaint
+);
+
 typedef BOOL (WINAPI *SetWindowPos_pfn)(
   _In_ HWND hWnd,
   _In_opt_ HWND hWndInsertAfter,
@@ -52,6 +61,8 @@ typedef HWND
   void
 );
 
+extern MoveWindow_pfn          MoveWindow_Original;
+extern SetWindowPos_pfn        SetWindowPos_Original;
 extern GetForegroundWindow_pfn GetForegroundWindow_Original;
 extern SetWindowLongA_pfn      SetWindowLongA_Original;
 extern IsIconic_pfn            IsIconic_Original;
@@ -68,16 +79,19 @@ namespace tsf
     bool    active           = true;
     bool    activating       = false;
 
-    DWORD   proc_id;
-    HWND    hwnd;
+    DWORD   proc_id = 0;
+    HWND    hwnd    = nullptr;
 
     RECT    window_rect;
     RECT    cursor_clip;
     POINT   cursor_pos; // The cursor position when the game isn't screwing
                         //   with it...
 
-    DWORD   style;      // Style before we removed the border
-    DWORD   style_ex;   // StyleEX before removing the border
+    HICON   large_icon;
+    HICON   small_icon;
+
+    DWORD   style    = 0x90080000; // Style before we removed the border
+    DWORD   style_ex = 0x00000000; // StyleEX before removing the border
 
     bool    borderless = false;
   } extern window;
@@ -114,6 +128,8 @@ namespace tsf
       void Enable  (void);
       void Disable (void);
       void Toggle  (void);
+
+      void AdjustWindow (void);
     } static border;
   }
 }

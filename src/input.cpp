@@ -390,11 +390,6 @@ typedef BOOL (WINAPI *GetCursorInfo_pfn)(
   _Inout_ PCURSORINFO pci
 );
 
-typedef BOOL (WINAPI *SetCursorPos_pfn)(
-  _In_ int X,
-  _In_ int Y
-);
-
 typedef BOOL (WINAPI *GetCursorPos_pfn)(
   _Out_ LPPOINT lpPoint
 );
@@ -490,17 +485,24 @@ GetCursorInfo_Detour (PCURSORINFO pci)
 
   return ret;
 }
+#endif
 
 BOOL
 WINAPI
 SetCursorPos_Detour (_In_ int X, _In_ int Y)
 {
-  POINT pt { X, Y };
-  tsf::InputManager::CalcCursorPos (&pt);
+  //POINT pt { X, Y };
+  //tsf::InputManager::CalcCursorPos (&pt);
 
-  return SetCursorPos_Original (pt.x, pt.y);
+  // DO NOT let this stupid game capture the cursor while
+  //   it is not active. UGH!
+  if (tsf::window.active)
+    return SetCursorPos_Original (X, Y);
+  else
+    return TRUE;
 }
 
+#if 0
 BOOL
 WINAPI
 GetCursorPos_Detour (LPPOINT lpPoint)
@@ -556,11 +558,11 @@ tsf::InputManager::Init (void)
   TSFix_CreateDLLHook ( L"user32.dll", "GetCursorPos",
                         GetCursorPos_Detour,
               (LPVOID*)&GetCursorPos_Original );
+#endif
 
   TSFix_CreateDLLHook ( L"user32.dll", "SetCursorPos",
                         SetCursorPos_Detour,
               (LPVOID*)&SetCursorPos_Original );
-#endif
 
   tsf::InputManager::Hooker* pHook =
     tsf::InputManager::Hooker::getInstance ();
@@ -876,7 +878,7 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           BMF_SteamAPI_SetOverlayState (visible);
 
           // Prevent the Steam Overlay from being a real pain
-          return 1;
+          return -1;
         }
 
         if (keys_ [VK_MENU] && vkCode == 'L' && new_press) {
@@ -919,7 +921,7 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
       keys_ [vkCode] = 0x00;
     }
 
-    if (visible) return 1;
+    if (visible) return -1;
   }
 
   return CallNextHookEx (Hooker::getInstance ()->hooks.keyboard, nCode, wParam, lParam);

@@ -37,11 +37,14 @@ struct tsf_config_s
 {
   struct {
     bool     allow_background  = true;
+    bool     borderless        = true;
     float    foreground_fps    = 30.0f; // 0.0 = Unlimited
     float    background_fps    = 30.0f;
     int      outline_technique = OUTLINE_KALDAIEN;
     float    postproc_ratio    = 0.5f;
-
+    int      msaa_samples      = 0;
+    int      msaa_quality      = 0;
+    int      max_anisotropy    = 16;
     bool     durante_scissor   = false;
   } render;
 

@@ -24,8 +24,10 @@
 #include <Windows.h>
 #include "log.h"
 
+#include <malloc.h>
+
 WORD
-AD_Timestamp (wchar_t* const out)
+TSF_Timestamp (wchar_t* const out)
 {
   SYSTEMTIME stLogTime;
 
@@ -152,7 +154,7 @@ tsf_logger_s::LogEx (bool                 _Timestamp,
   if (_Timestamp) {
     wchar_t wszLogTime [128];
 
-    WORD ms = AD_Timestamp (wszLogTime);
+    WORD ms = TSF_Timestamp (wszLogTime);
 
     fwprintf (fLog, L"%s%03u: ", wszLogTime, ms);
   }
@@ -186,7 +188,7 @@ tsf_logger_s::Log   (_In_z_ _Printf_format_string_
 
   wchar_t wszLogTime [128];
 
-  WORD ms = AD_Timestamp (wszLogTime);
+  WORD ms = TSF_Timestamp (wszLogTime);
 
   fwprintf (fLog, L"%s%03u: ", wszLogTime, ms);
 
@@ -220,7 +222,7 @@ tsf_logger_s::Log   (_In_z_ _Printf_format_string_
 
   wchar_t wszLogTime [128];
 
-  WORD ms = AD_Timestamp (wszLogTime);
+  WORD ms = TSF_Timestamp (wszLogTime);
 
   fwprintf (fLog, L"%s%03u: ", wszLogTime, ms);
 

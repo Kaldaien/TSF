@@ -114,6 +114,12 @@ typedef BOOL (WINAPI *ClipCursor_pfn)(
   _In_opt_ const RECT *lpRect
 );
 
-extern ClipCursor_pfn ClipCursor_Original;
+typedef BOOL (WINAPI *SetCursorPos_pfn)(
+  _In_ int X,
+  _In_ int Y
+);
+
+extern ClipCursor_pfn   ClipCursor_Original;
+extern SetCursorPos_pfn SetCursorPos_Original;
 
 #endif /* __TSFIX__INPUT_H__ */

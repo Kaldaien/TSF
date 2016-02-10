@@ -34,22 +34,92 @@ tsf::window_state_s tsf::window;
 IsIconic_pfn            IsIconic_Original            = nullptr;
 GetForegroundWindow_pfn GetForegroundWindow_Original = nullptr;
 GetFocus_pfn            GetFocus_Original            = nullptr;
+MoveWindow_pfn          MoveWindow_Original          = nullptr;
 SetWindowPos_pfn        SetWindowPos_Original        = nullptr;
 SetWindowLongA_pfn      SetWindowLongA_Original      = nullptr;
 
 BOOL
 WINAPI
-SetWindowPos_Detour(
+MoveWindow_Detour(
     _In_ HWND hWnd,
-    _In_opt_ HWND hWndInsertAfter,
-    _In_ int X,
-    _In_ int Y,
-    _In_ int cx,
-    _In_ int cy,
-    _In_ UINT uFlags)
+    _In_ int  X,
+    _In_ int  Y,
+    _In_ int  nWidth,
+    _In_ int  nHeight,
+    _In_ BOOL bRedraw )
 {
-  // Let the game manage its window position...
+  dll_log.Log (L" [!] MoveWindow (...)");
+
+  tsf::window.window_rect.left = X;
+  tsf::window.window_rect.top  = Y;
+
+  tsf::window.window_rect.right  = X + nWidth;
+  tsf::window.window_rect.bottom = Y + nHeight;
+
   if (! config.render.allow_background)
+    return MoveWindow_Original (hWnd, X, Y, nWidth, nHeight, bRedraw);
+  else
+    return TRUE;
+}
+
+BOOL
+WINAPI
+SetWindowPos_Detour(
+    _In_     HWND hWnd,
+    _In_opt_ HWND hWndInsertAfter,
+    _In_     int  X,
+    _In_     int  Y,
+    _In_     int  cx,
+    _In_     int  cy,
+    _In_     UINT uFlags)
+{
+  //dll_log.Log ( L" [!] SetWindowPos (...)");
+
+  // Ignore this, because it's invalid.
+  if (cy == 0 || cx == 0 && (! (uFlags & SWP_NOSIZE))) {
+    tsf::window.window_rect.left  = 0;
+    tsf::window.window_rect.right = tsf::RenderFix::width;
+
+    tsf::window.window_rect.top    = 0;
+    tsf::window.window_rect.bottom = tsf::RenderFix::height;
+
+    return TRUE;
+  }
+
+  /*
+  dll_log.Log ( L"  >> Before :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
+                  tsf::window.window_rect.left, tsf::window.window_rect.top,
+                    tsf::window.window_rect.right, tsf::window.window_rect.bottom );
+  */
+
+  int original_width  = tsf::window.window_rect.right -
+                        tsf::window.window_rect.left;
+  int original_height = tsf::window.window_rect.bottom -
+                        tsf::window.window_rect.top;
+
+  if (! (uFlags & SWP_NOMOVE)) {
+    tsf::window.window_rect.left = X;
+    tsf::window.window_rect.top  = Y;
+  }
+
+  if (! (uFlags & SWP_NOSIZE)) {
+    tsf::window.window_rect.left = tsf::window.window_rect.left + cx;
+    tsf::window.window_rect.top  = tsf::window.window_rect.top  + cy;
+  } else {
+    tsf::window.window_rect.left = tsf::window.window_rect.left +
+                                      original_width;
+    tsf::window.window_rect.top  = tsf::window.window_rect.top  +
+                                      original_height;
+  }
+
+  /*
+  dll_log.Log ( L"  >> After :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
+                  tsf::window.window_rect.left, tsf::window.window_rect.top,
+                    tsf::window.window_rect.right, tsf::window.window_rect.bottom );
+  */
+
+  // Let the game manage its window position...
+  if (! config.render.borderless)
     return SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
   else
     return TRUE;
@@ -77,15 +147,15 @@ SetWindowLongA_Detour (
     dll_log.Log ( L"SetWindowLongA (0x%06X, %s, 0x%06X)",
                     hWnd,
               nIndex == GWL_EXSTYLE ? L"GWL_EXSTYLE" :
-                                      L"GWL_STYLE",
+                                      L" GWL_STYLE ",
                       dwNewLong );
   }
 
-  tsf::RenderFix::hWndDevice = hWnd;
-  tsf::window.hwnd           = hWnd;
-
   // Setup window message detouring as soon as a window is created..
   if (tsf::window.WndProc_Original == nullptr) {
+    tsf::RenderFix::hWndDevice = hWnd;
+    tsf::window.hwnd           = hWnd;
+
     tsf::window.WndProc_Original =
       (WNDPROC)GetWindowLong (tsf::RenderFix::hWndDevice, GWL_WNDPROC);
 
@@ -97,7 +167,7 @@ SetWindowLongA_Detour (
   //
   // Sort of a dirty hack, but this is an opportune place to call this
   //
-    RegisterTouchWindow (hWnd, 0);
+  RegisterTouchWindow (hWnd, 0);
 
   const DWORD dwDieTablet =
     TABLET_DISABLE_FLICKFALLBACKKEYS |
@@ -112,95 +182,93 @@ SetWindowLongA_Detour (
               SetProp (hWnd, MICROSOFT_TABLETPENSERVICE_PROPERTY, reinterpret_cast<HANDLE>(dwDieTablet));
      GlobalDeleteAtom (atom);
 
-  if (config.render.allow_background) {
-    if (nIndex == GWL_STYLE) {
-      tsf::window.borderless = true;
-      tsf::window.style      = dwNewLong;
-      dwNewLong &= ~( WS_BORDER           | WS_CAPTION  | WS_THICKFRAME |
-                      WS_OVERLAPPEDWINDOW | WS_MINIMIZE | WS_MAXIMIZE   |
-                      WS_SYSMENU          | WS_GROUP );
-    }
+  // Override window styles
+  if (nIndex == GWL_STYLE || nIndex == GWL_EXSTYLE) {
+    // For proper return behavior
+    DWORD dwOldStyle = GetWindowLong (hWnd, nIndex);
 
-    if (nIndex == GWL_EXSTYLE) {
-      tsf::window.borderless = true;
-      tsf::window.style_ex   = dwNewLong;
-      dwNewLong &= ~( WS_EX_DLGMODALFRAME    | WS_EX_CLIENTEDGE    |
-                      WS_EX_STATICEDGE       | WS_EX_WINDOWEDGE    |
-                      WS_EX_OVERLAPPEDWINDOW | WS_EX_PALETTEWINDOW |
-                      WS_EX_MDICHILD );
-    }
+    //
+    // Ignore in Tales of Symphonia, we know the style that is always used
+    //
+    //if (nIndex == GWL_STYLE)
+      //tsf::window.style = dwNewLong;
 
-    LONG ret =
-      SetWindowLongA_Original (hWnd, nIndex, dwNewLong);
+    if (nIndex == GWL_EXSTYLE)
+      tsf::window.style_ex = dwNewLong;
 
-    HMONITOR hMonitor =
-      MonitorFromWindow ( tsf::RenderFix::hWndDevice,
-                            MONITOR_DEFAULTTOPRIMARY );
+    BringWindowToTop (hWnd);
 
-    MONITORINFO mi;
-    mi.cbSize = sizeof (mi);
+    // Allow the game to change its frame
+    if (! config.render.borderless)
+      return SetWindowLongA_Original (hWnd, nIndex, dwNewLong);
 
-    GetMonitorInfo (hMonitor, &mi);
-
-    if (tsf::RenderFix::fullscreen) {
-      SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
-                                HWND_NOTOPMOST,
-                                  mi.rcMonitor.left,
-                                  mi.rcMonitor.top,
-                                    mi.rcMonitor.right  - mi.rcMonitor.left,
-                                    mi.rcMonitor.bottom - mi.rcMonitor.top,
-                                      SWP_FRAMECHANGED );
-    } else {
-      // Don't support windowed borderless windows -- kinda funny notion, right? :P
-    }
-
-    return ret;
-  } else {
-    tsf::window.borderless = false;
-    return SetWindowLongA_Original (hWnd, nIndex, dwNewLong);
+    return dwOldStyle;
   }
-}
 
-void
-tsf::WindowManager::BorderManager::Enable (void)
-{
-  if (! tsf::window.borderless)
-    Toggle ();
+  return SetWindowLongA_Original (hWnd, nIndex, dwNewLong);
 }
 
 void
 tsf::WindowManager::BorderManager::Disable (void)
 {
-  if (! tsf::window.borderless)
-    Toggle ();
+  //dll_log.Log (L"BorderManager::Disable");
+
+  window.borderless = true;
+
+  // Handle window style on creation
+  //
+  //   This should be figured out at window creation time instead
+  if (window.style == 0)
+    window.style = GetWindowLong (window.hwnd, GWL_STYLE);
+
+  if (window.style_ex == 0)
+    window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
+
+  DWORD dwNewLong = window.style;
+
+  dwNewLong &= ~( WS_BORDER           | WS_CAPTION  | WS_THICKFRAME |
+                  WS_OVERLAPPEDWINDOW | WS_MINIMIZE | WS_MAXIMIZE   |
+                  WS_SYSMENU          | WS_GROUP );
+
+  SetWindowLongW (window.hwnd, GWL_STYLE,   dwNewLong);
+
+  dwNewLong = window.style_ex;
+
+  dwNewLong &= ~( WS_EX_DLGMODALFRAME    | WS_EX_CLIENTEDGE    |
+                  WS_EX_STATICEDGE       | WS_EX_WINDOWEDGE    |
+                  WS_EX_OVERLAPPEDWINDOW | WS_EX_PALETTEWINDOW |
+                  WS_EX_MDICHILD );
+
+  SetWindowLongW (window.hwnd, GWL_EXSTYLE, dwNewLong);
+
+  AdjustWindow ();
 }
 
 void
-tsf::WindowManager::BorderManager::Toggle (void)
+tsf::WindowManager::BorderManager::Enable (void)
 {
-  tsf::window.borderless = (! window.borderless);
+  window.borderless = false;
 
-  if (! window.borderless) {
-    SetWindowLongW (window.hwnd, GWL_STYLE,   window.style);
-    SetWindowLongW (window.hwnd, GWL_EXSTYLE, window.style_ex);
-  } else {
-    DWORD dwNewLong = window.style;
+  // Handle window style on creation
+  //
+  //   This should be figured out at window creation time instead
+  if (window.style == 0)
+    window.style = GetWindowLong (window.hwnd, GWL_STYLE);
 
-    dwNewLong &= ~( WS_BORDER           | WS_CAPTION  | WS_THICKFRAME |
-                    WS_OVERLAPPEDWINDOW | WS_MINIMIZE | WS_MAXIMIZE   |
-                    WS_SYSMENU          | WS_GROUP );
+  if (window.style_ex == 0)
+    window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
 
-    SetWindowLongW (window.hwnd, GWL_STYLE,   dwNewLong);
+  SetWindowLongW (window.hwnd, GWL_STYLE,   window.style);
+  SetWindowLongW (window.hwnd, GWL_EXSTYLE, window.style_ex);
 
-    dwNewLong = window.style_ex;
+  AdjustWindow ();
+}
 
-    dwNewLong &= ~( WS_EX_DLGMODALFRAME    | WS_EX_CLIENTEDGE    |
-                    WS_EX_STATICEDGE       | WS_EX_WINDOWEDGE    |
-                    WS_EX_OVERLAPPEDWINDOW | WS_EX_PALETTEWINDOW |
-                    WS_EX_MDICHILD );
-
-    SetWindowLongW (window.hwnd, GWL_EXSTYLE, dwNewLong);
-  }
+void
+tsf::WindowManager::BorderManager::AdjustWindow (void)
+{
+  if (tsf::RenderFix::fullscreen) {
+    //dll_log.Log (L"BorderManager::AdjustWindow - Fullscreen");
 
     HMONITOR hMonitor =
       MonitorFromWindow ( tsf::RenderFix::hWndDevice,
@@ -211,11 +279,34 @@ tsf::WindowManager::BorderManager::Toggle (void)
 
     GetMonitorInfo (hMonitor, &mi);
 
-    SetWindowPos  ( tsf::RenderFix::hWndDevice,
-                      HWND_NOTOPMOST,
-                        mi.rcMonitor.left, mi.rcMonitor.top,
-                          tsf::RenderFix::width, tsf::RenderFix::height,
-                            SWP_FRAMECHANGED | SWP_NOSIZE | SWP_NOMOVE );
+    SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
+                              HWND_TOP,
+                                mi.rcMonitor.left,
+                                mi.rcMonitor.top,
+                                  mi.rcMonitor.right  - mi.rcMonitor.left,
+                                  mi.rcMonitor.bottom - mi.rcMonitor.top,
+                                    SWP_FRAMECHANGED );
+  } else {
+    //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
+
+    SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
+                              HWND_TOP,
+                                window.window_rect.left, window.window_rect.top,
+                                  window.window_rect.right  - window.window_rect.left,
+                                  window.window_rect.bottom - window.window_rect.top,
+                                    SWP_FRAMECHANGED );
+  }
+
+  BringWindowToTop (tsf::RenderFix::hWndDevice);
+}
+
+void
+tsf::WindowManager::BorderManager::Toggle (void)
+{
+  if (window.borderless)
+    BorderManager::Enable ();
+  else
+    BorderManager::Disable ();
 }
 
 BOOL
@@ -232,6 +323,8 @@ HWND
 WINAPI
 GetForegroundWindow_Detour (void)
 {
+  //dll_log.Log (L" [!] GetForegroundWindow (...)");
+
   if (config.render.allow_background) {
     return tsf::RenderFix::hWndDevice;
   }
@@ -280,6 +373,15 @@ DetourWindowProc ( _In_  HWND   hWnd,
     if (uMsg == WM_INPUT)
       return 0;
       //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+  }
+
+  // Block the menu key from messing with stuff
+  if (config.input.block_left_alt &&
+      (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP)) {
+    // Make an exception for Alt+Enter, for fullscreen mode toggle.
+    //   F4 as well for exit
+    if (wParam != VK_RETURN && wParam != VK_F4)
+      return 0;
   }
 
   const int32_t  WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS  = 0x02D2;
@@ -409,6 +511,11 @@ DetourWindowProc ( _In_  HWND   hWnd,
 void
 tsf::WindowManager::Init (void)
 {
+  if (config.render.borderless)
+    window.style = 0x90080000;
+  else
+    window.style = 0x90CA0000;
+
   // Stupid game is using the old ANSI API
   TSFix_CreateDLLHook ( L"user32.dll", "SetWindowLongA",
                         SetWindowLongA_Detour,
@@ -417,6 +524,10 @@ tsf::WindowManager::Init (void)
   TSFix_CreateDLLHook ( L"user32.dll", "SetWindowPos",
                         SetWindowPos_Detour,
               (LPVOID*)&SetWindowPos_Original );
+
+  TSFix_CreateDLLHook ( L"user32.dll", "MoveWindow",
+                        MoveWindow_Detour,
+              (LPVOID*)&MoveWindow_Original );
 
 // Not used by ToS
   TSFix_CreateDLLHook ( L"user32.dll", "GetForegroundWindow",

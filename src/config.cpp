@@ -28,15 +28,19 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.1.1";
+std::wstring TSFIX_VER_STR = L"0.2.0";
 tsf_config_s config;
 
 struct {
   tsf::ParameterBool*    allow_background;
+  tsf::ParameterBool*    borderless;
   tsf::ParameterFloat*   foreground_fps;
   tsf::ParameterFloat*   background_fps;
   tsf::ParameterInt*     outline_technique;
   tsf::ParameterFloat*   postproc_ratio;
+  tsf::ParameterInt*     msaa_samples;
+  tsf::ParameterInt*     msaa_quality;
+  tsf::ParameterInt*     max_anisotropy;
 } render;
 
 struct {
@@ -84,6 +88,16 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Render",
         L"AllowBackground" );
 
+  render.borderless =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Borderless mode")
+      );
+  render.borderless->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"BorderlessWindow" );
+
   render.foreground_fps =
     static_cast <tsf::ParameterFloat *>
       (g_ParameterFactory.create_parameter <float> (
@@ -123,6 +137,36 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Render",
         L"PostProcessRatio" );
+
+  render.msaa_samples =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"MSAA Sample Count")
+      );
+  render.msaa_samples->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"MSAA_Samples" );
+
+  render.msaa_quality =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"MSAA Quality")
+      );
+  render.msaa_quality->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"MSAA_Quality" );
+
+  render.max_anisotropy =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"Maximum Anisotropy")
+      );
+  render.max_anisotropy->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"MaxAnisotropy" );
 
 
   stutter.fix =
@@ -244,6 +288,9 @@ TSFix_LoadConfig (std::wstring name) {
   if (render.allow_background->load ())
     config.render.allow_background = render.allow_background->get_value ();
 
+  if (render.borderless->load ())
+    config.render.borderless = render.borderless->get_value ();
+
   if (render.foreground_fps->load ())
     config.render.foreground_fps = render.foreground_fps->get_value ();
 
@@ -255,6 +302,15 @@ TSFix_LoadConfig (std::wstring name) {
 
   if (render.postproc_ratio->load ())
     config.render.postproc_ratio = render.postproc_ratio->get_value ();
+
+  if (render.msaa_samples->load ())
+    config.render.msaa_samples = render.msaa_samples->get_value ();
+
+  if (render.msaa_quality->load ())
+    config.render.msaa_quality = render.msaa_quality->get_value ();
+
+  if (render.max_anisotropy->load ())
+    config.render.max_anisotropy = render.max_anisotropy->get_value ();
 
 
   if (stutter.fix->load ())
@@ -300,8 +356,11 @@ TSFix_LoadConfig (std::wstring name) {
 
 void
 TSFix_SaveConfig (std::wstring name, bool close_config) {
-  render.allow_background->set_value  (config.render.allow_background);
-  render.allow_background->store      ();
+  //render.allow_background->set_value  (config.render.allow_background);
+  //render.allow_background->store      ();
+
+  render.borderless->set_value        (config.render.borderless);
+  render.borderless->store            ();
 
   render.foreground_fps->set_value    (config.render.foreground_fps);
   render.foreground_fps->store        ();
@@ -315,6 +374,14 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   render.postproc_ratio->set_value    (config.render.postproc_ratio);
   render.postproc_ratio->store        ();
 
+  render.msaa_samples->set_value      (config.render.msaa_samples);
+  render.msaa_samples->store          ();
+
+  render.msaa_quality->set_value      (config.render.msaa_quality);
+  render.msaa_quality->store          ();
+
+  render.max_anisotropy->set_value    (config.render.max_anisotropy);
+  render.max_anisotropy->store        ();
 
   stutter.fix->set_value              (config.stutter.fix);
   stutter.fix->store ();

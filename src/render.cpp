@@ -37,6 +37,7 @@ CreateTexture_pfn                 D3D9CreateTexture_Original            = nullpt
 SetViewport_pfn                   D3D9SetViewport_Original              = nullptr;
 SetRenderState_pfn                D3D9SetRenderState_Original           = nullptr;
 SetVertexShaderConstantF_pfn      D3D9SetVertexShaderConstantF_Original = nullptr;
+SetSamplerState_pfn               D3D9SetSamplerState_Original          = nullptr;
 
 BMF_SetPresentParamsD3D9_pfn      BMF_SetPresentParamsD3D9_Original     = nullptr;
 BMF_EndBufferSwap_pfn             BMF_EndBufferSwap                     = nullptr;
@@ -45,6 +46,10 @@ tsf::RenderFix::tracer_s
   tsf::RenderFix::tracer;
 
 struct tsf_draw_states_s {
+  bool         has_aniso      = false; // Has he game even once set anisotropy?!
+  bool         has_msaa       = false;
+  bool         use_msaa       = true;  // Allow MSAA toggle via console
+                                       //  without changing the swapchain.
   D3DVIEWPORT9 vp             = { 0 };
   bool         postprocessing = false;
   bool         fullscreen     = false;
@@ -69,6 +74,17 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
 
   void TSFix_DrawCommandConsole (void);
   TSFix_DrawCommandConsole ();
+
+  // Turn this on at the (end?) of every frame
+  if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa) {
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      1 );
+  } else {
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      0 );
+  }
 
   hr = BMF_EndBufferSwap (hr, device);
 
@@ -95,6 +111,45 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   }
 
   if (pparams != nullptr) {
+    //
+    // MSAA Override
+    //
+    if (config.render.msaa_samples > 0) {
+      IDirect3D9* pD3D9 = nullptr;
+      if (SUCCEEDED (device->GetDirect3D (&pD3D9))) {
+        DWORD dwQualityLevels;
+        if (SUCCEEDED ( pD3D9->CheckDeviceMultiSampleType (
+                0, D3DDEVTYPE_HAL, D3DFMT_A8R8G8B8,
+                  false /* Full-Scene */,
+                    (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
+                      &dwQualityLevels )
+                      )
+           ) {
+          dll_log.Log ( L" >> Render device has %d quality level(s) avaialable "
+                        L"for %d-Sample MSAA.",
+                          dwQualityLevels, config.render.msaa_samples );
+
+          if (dwQualityLevels > 0) {
+            pparams->SwapEffect         = D3DSWAPEFFECT_DISCARD;
+            pparams->MultiSampleType    = (D3DMULTISAMPLE_TYPE)
+                                            config.render.msaa_samples;
+            pparams->MultiSampleQuality = min ( dwQualityLevels-1,
+                                                  config.render.msaa_quality );
+
+            dll_log.Log ( L" (*) Selected %dxMSAA Quality Level: %d",
+                            pparams->MultiSampleType,
+                              pparams->MultiSampleQuality );
+            draw_state.has_msaa = true;
+          } else {
+            dll_log.Log ( L" ### Requested %dxMSAA Quality Level: %d invalid",
+                            config.render.msaa_samples,
+                              config.render.msaa_quality );
+          }
+        }
+        pD3D9->Release ();
+      }
+    }
+
     memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
 
     dll_log.Log ( L" %% Caught D3D9 Swapchain :: Fullscreen=%s "
@@ -107,34 +162,27 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                           pparams->FullScreen_RefreshRateInHz,
                             pparams->hDeviceWindow );
 
+    // Some games don't set this even though it's supposed to be
+    //   required by the D3D9 API...
     if (pparams->hDeviceWindow != nullptr)
       tsf::RenderFix::hWndDevice = pparams->hDeviceWindow;
 
-    tsf::RenderFix::pDevice = device;
-
+    tsf::RenderFix::pDevice    = device;
     tsf::RenderFix::fullscreen = (! pparams->Windowed);
 
     tsf::RenderFix::width  = present_params.BackBufferWidth;
     tsf::RenderFix::height = present_params.BackBufferHeight;
 
     //
-    // Implicitly force a borderless window
+    // Fullscreen mode while allow_background is enabled must be implemented as
+    //   a window, or Alt+Tab will not work.
     //
-    if (config.render.allow_background) {
+    if (config.render.allow_background && tsf::RenderFix::fullscreen)
+      config.render.borderless = true;
+
+    if (config.render.borderless) {
       // The game will draw in windowed mode, but it will think it's fullscreen
       pparams->Windowed  = true;
-
-      HMONITOR hMonitor =
-        MonitorFromWindow ( tsf::RenderFix::hWndDevice,
-                              MONITOR_DEFAULTTONEAREST );
-
-      MONITORINFO mi;
-      mi.cbSize = sizeof (mi);
-
-      GetMonitorInfo (hMonitor, &mi);
-
-      // Force Borderless Fullscreen for now, because debugging this is proving difficult
-      tsf::RenderFix::fullscreen = true;
 
       if (tsf::RenderFix::fullscreen) {
         DEVMODE devmode = { 0 };
@@ -175,16 +223,12 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 #endif
       }
     }
-
-    if (SetWindowLongA_Original != nullptr) {
-      SetWindowLongA_Original ( tsf::RenderFix::hWndDevice,
-                                  GWL_STYLE,
-                                    tsf::window.style );
-      SetWindowLongA_Original ( tsf::RenderFix::hWndDevice,
-                                  GWL_EXSTYLE,
-                                    tsf::window.style_ex );
-    }
   }
+
+  if (config.render.borderless)
+    tsf::WindowManager::border.Disable ();
+  else
+    tsf::WindowManager::border.Enable  ();
 
   return BMF_SetPresentParamsD3D9_Original (device, pparams);
 }
@@ -381,6 +425,13 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
     return D3D9SetRenderState_Original (This, State, Value);
   }
 
+  if (State == D3DRS_MULTISAMPLEANTIALIAS) {
+    if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa)
+      return D3D9SetRenderState_Original (This, State, 1);
+    else
+      return D3D9SetRenderState_Original (This, State, 0);
+  }
+
   if (config.render.outline_technique > 0) {
     if (State == D3DRS_SRCBLEND || State == D3DRS_DESTBLEND) {
       D3DCULL cullmode;
@@ -402,6 +453,69 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
   }
 
   return D3D9SetRenderState_Original (This, State, Value);
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
+                            DWORD               Sampler,
+                            D3DSAMPLERSTATETYPE Type,
+                            DWORD               Value)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice)
+    return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
+
+  static int aniso = 1;
+  //dll_log.Log ( L" [!] IDirect3DDevice9::SetSamplerState (%lu, %lu, %lu)",
+                  //Sampler, Type, Value );
+  // Pending removal - these are not configurable tweaks and not particularly useful
+  if (Type == D3DSAMP_MIPFILTER ||
+      Type == D3DSAMP_MINFILTER ||
+      Type == D3DSAMP_MAGFILTER ||
+      Type == D3DSAMP_MIPMAPLODBIAS) {
+    //dll_log.Log (L" [!] IDirect3DDevice9::SetSamplerState (...)");
+    if (Type < 8) {
+      //if (Value != D3DTEXF_ANISOTROPIC)
+        //D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, aniso);
+      //dll_log.Log (L" %s Filter: %x", Type == D3DSAMP_MIPFILTER ? L"Mip" : Type == D3DSAMP_MINFILTER ? L"Min" : L"Mag", Value);
+      if (Type == D3DSAMP_MIPFILTER) {
+        if (Value != D3DTEXF_NONE)
+          Value = D3DTEXF_ANISOTROPIC;
+      }
+      if (Type == D3DSAMP_MAGFILTER ||
+                  D3DSAMP_MINFILTER)
+        if (Value != D3DTEXF_POINT)
+          Value = D3DTEXF_ANISOTROPIC;
+    }
+  }
+
+  if (Type == D3DSAMP_MAXANISOTROPY) {
+    if (tsf::RenderFix::tracer.log)
+      dll_log.Log (L" Max Anisotropy Set: %d", Value);
+    //aniso = Value;
+    Value = config.render.max_anisotropy;
+  }
+
+  //
+  // The game apparently never sets this, so that's a problem...
+  //
+  D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, config.render.max_anisotropy);
+  if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa) {
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      1 );
+  } else {
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      0 );
+  }
+  //
+  // End things the game is supposed to, but never sets.
+  //
+
+  return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
 }
 
 void
@@ -440,8 +554,14 @@ tsf::RenderFix::Init (void)
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "BMF_SetPresentParamsD3D9",
-                         BMF_SetPresentParamsD3D9_Detour, 
+                         BMF_SetPresentParamsD3D9_Detour,
               (LPVOID *)&BMF_SetPresentParamsD3D9_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetSamplerState_Override",
+                         D3D9SetSamplerState_Detour,
+                (LPVOID*)&D3D9SetSamplerState_Original );
+
 
   CommandProcessor*     comm_proc    = CommandProcessor::getInstance ();
   eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
@@ -451,6 +571,8 @@ tsf::RenderFix::Init (void)
 
   pCommandProc->AddVariable ("Render.DuranteScissor",   new eTB_VarStub <bool> (&config.render.durante_scissor));
   pCommandProc->AddVariable ("Render.OutlineTechnique", new eTB_VarStub <int>  (&config.render.outline_technique));
+
+  pCommandProc->AddVariable ("Render.MSAA",             new eTB_VarStub <bool> (&draw_state.use_msaa));
 
   pCommandProc->AddVariable ("Trace.NumFrames", new eTB_VarStub <int>  (&tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    new eTB_VarStub <bool> (&tracer.log));
