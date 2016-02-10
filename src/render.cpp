@@ -204,25 +204,21 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 
         pparams->FullScreen_RefreshRateInHz = 0;
       } else {
-#if 0
-        LONG style    = window.style;   // GetWindowLong (tsf::RenderFix::hWndDevice, GWL_STYLE);
-        LONG style_ex = window.style_ex;// GetWindowLong (tsf::RenderFix::hWndDevice, GWL_EXSTYLE);
-
-        RECT window_rect;
-
-        GetWindowRect      (tsf::RenderFix::hWndDevice, &window_rect);
-        AdjustWindowRectEx (&window_rect, style, FALSE, style_ex);
-
-        SetWindowPos ( tsf::RenderFix::hWndDevice,
-                        HWND_BOTTOM,
-                          window_rect.left,
-                          window_rect.top,
-                            window_rect.right - window_rect.left,
-                            window_rect.bottom - window_rect.top,
-                              SWP_FRAMECHANGED | SWP_NOSENDCHANGING );
-#endif
       }
     }
+  }
+
+  if (! tsf::RenderFix::fullscreen) {
+    RECT window_rect;
+
+    //GetWindowRect      (tsf::RenderFix::hWndDevice, &window_rect)
+    //AdjustWindowRectEx (&window_rect, style, FALSE, style_ex);
+
+    window_rect.left = 0;
+    window_rect.top = 0;
+
+    window_rect.right  = tsf::RenderFix::width;
+    window_rect.bottom = tsf::RenderFix::height;
   }
 
   if (config.render.borderless)

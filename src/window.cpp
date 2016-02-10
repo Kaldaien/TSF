@@ -289,6 +289,12 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
   } else {
     //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
 
+    window.window_rect.left = 0;
+    window.window_rect.top  = 0;
+
+    window.window_rect.right  = tsf::RenderFix::width;
+    window.window_rect.bottom = tsf::RenderFix::height;
+
     SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
                               HWND_TOP,
                                 window.window_rect.left, window.window_rect.top,
