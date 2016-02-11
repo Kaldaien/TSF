@@ -32,6 +32,7 @@
 #include <d3d9.h>
 #include <d3d9types.h>
 
+BeginScene_pfn                    D3D9BeginScene_Original               = nullptr;
 SetScissorRect_pfn                D3D9SetScissorRect_Original           = nullptr;
 CreateTexture_pfn                 D3D9CreateTexture_Original            = nullptr;
 SetViewport_pfn                   D3D9SetViewport_Original              = nullptr;
@@ -75,17 +76,6 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   void TSFix_DrawCommandConsole (void);
   TSFix_DrawCommandConsole ();
 
-  // Turn this on at the (end?) of every frame
-  if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa) {
-    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
-                                    D3DRS_MULTISAMPLEANTIALIAS,
-                                      1 );
-  } else {
-    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
-                                    D3DRS_MULTISAMPLEANTIALIAS,
-                                      0 );
-  }
-
   hr = BMF_EndBufferSwap (hr, device);
 
   return hr;
@@ -114,7 +104,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     //
     // MSAA Override
     //
-    if (config.render.msaa_samples > 0) {
+    if (config.render.msaa_samples > 0 && device != nullptr) {
       IDirect3D9* pD3D9 = nullptr;
       if (SUCCEEDED (device->GetDirect3D (&pD3D9))) {
         DWORD dwQualityLevels;
@@ -152,15 +142,17 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 
     memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
 
-    dll_log.Log ( L" %% Caught D3D9 Swapchain :: Fullscreen=%s "
-                  L" (%lux%lu@%lu Hz) "
-                  L" [Device Window: 0x%04X]",
-                    pparams->Windowed ? L"False" :
-                                        L"True",
-                      pparams->BackBufferWidth,
-                        pparams->BackBufferHeight,
-                          pparams->FullScreen_RefreshRateInHz,
-                            pparams->hDeviceWindow );
+    if (device != nullptr) {
+      dll_log.Log ( L" %% Caught D3D9 Swapchain :: Fullscreen=%s "
+                    L" (%lux%lu@%lu Hz) "
+                    L" [Device Window: 0x%04X]",
+                      pparams->Windowed ? L"False" :
+                                          L"True",
+                        pparams->BackBufferWidth,
+                          pparams->BackBufferHeight,
+                            pparams->FullScreen_RefreshRateInHz,
+                              pparams->hDeviceWindow );
+    }
 
     // Some games don't set this even though it's supposed to be
     //   required by the D3D9 API...
@@ -208,7 +200,12 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     }
   }
 
-  //if (! tsf::RenderFix::fullscreen) {
+  if (config.render.borderless)
+    tsf::WindowManager::border.Disable ();
+  else
+    tsf::WindowManager::border.Enable  ();
+
+  if (! tsf::RenderFix::fullscreen) {
     //GetWindowRect      (tsf::RenderFix::hWndDevice, &window_rect)
     //AdjustWindowRectEx (&window_rect, style, FALSE, style_ex);
 
@@ -221,13 +218,8 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
       tsf::RenderFix::hWndDevice, HWND_TOP,
         0, 0,
           tsf::RenderFix::width, tsf::RenderFix::height,
-            0x00 );
-  //}
-
-  if (config.render.borderless)
-    tsf::WindowManager::border.Disable ();
-  else
-    tsf::WindowManager::border.Enable  ();
+            SWP_FRAMECHANGED );
+  }
 
   return BMF_SetPresentParamsD3D9_Original (device, pparams);
 }
@@ -351,6 +343,30 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
               pConstantData,
                 Vector4fCount 
       );
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9BeginScene_Detour (IDirect3DDevice9* This)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9BeginScene_Original (This);
+  }
+
+  // Turn this on at the beginning of every frame
+  if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa) {
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      1 );
+  } else {
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      0 );
+  }
+
+  return D3D9BeginScene_Original (This);
 }
 
 COM_DECLSPEC_NOTHROW
@@ -544,6 +560,11 @@ tsf::RenderFix::Init (void)
                         "D3D9SetRenderState_Override",
                          D3D9SetRenderState_Detour,
                (LPVOID*)&D3D9SetRenderState_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9BeginScene_Override",
+                         D3D9BeginScene_Detour,
+               (LPVOID*)&D3D9BeginScene_Original );
 
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),

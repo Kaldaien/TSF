@@ -90,11 +90,9 @@ SetWindowPos_Detour(
     return TRUE;
   }
 
-#if 0
   dll_log.Log ( L"  >> Before :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
                   tsf::window.window_rect.left, tsf::window.window_rect.top,
                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
-#endif
 
   int original_width  = tsf::window.window_rect.right -
                         tsf::window.window_rect.left;
@@ -116,11 +114,9 @@ SetWindowPos_Detour(
                                        original_height;
   }
 
-#if 0
   dll_log.Log ( L"  >> After :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
                   tsf::window.window_rect.left, tsf::window.window_rect.top,
                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
-#endif
 
   //
   // Fix an invalid scenario that happens for some reason...
@@ -288,7 +284,7 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
 {
   HMONITOR hMonitor =
     MonitorFromWindow ( tsf::RenderFix::hWndDevice,
-                          MONITOR_DEFAULTTONEAREST );
+                          MONITOR_DEFAULTTOPRIMARY/*NEAREST*/ );
 
   MONITORINFO mi;
   mi.cbSize = sizeof (mi);
@@ -308,8 +304,8 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
   } else {
     //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
 
-    window.window_rect.left = mi.rcWork.left;
-    window.window_rect.top  = mi.rcWork.top;
+    window.window_rect.left = 0;//mi.rcMonitor.left;
+    window.window_rect.top  = 0;//mi.rcMonitor.top;
 
     window.window_rect.right  = window.window_rect.left + tsf::RenderFix::width;
     window.window_rect.bottom = window.window_rect.top  + tsf::RenderFix::height;

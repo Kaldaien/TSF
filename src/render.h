@@ -78,6 +78,10 @@ namespace tsf
   }
 }
 
+typedef HRESULT (STDMETHODCALLTYPE *BeginScene_pfn)(
+  IDirect3DDevice9 *This
+);
+
 typedef HRESULT (STDMETHODCALLTYPE *SetScissorRect_pfn)
 (
         IDirect3DDevice9 *This,

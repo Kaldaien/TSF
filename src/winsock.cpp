@@ -35,6 +35,32 @@ typedef char* (WSAAPI *inet_ntoa_pfn)(_In_ struct in_addr in);
 
 inet_ntoa_pfn inet_ntoa = nullptr;
 
+typedef int (WINAPI *connect_pfn)(
+  _In_ SOCKET                s,
+  _In_ const struct sockaddr *name,
+  _In_ int                   namelen
+);
+
+connect_pfn connect_Original = nullptr;
+
+int
+WINAPI
+connect_Detour (
+  _In_ SOCKET                s,
+  _In_ const struct sockaddr *name,
+  _In_ int                   namelen
+)
+{
+  if (inet_ntoa != nullptr) {
+    if (name->sa_family == AF_INET) {
+      dll_log.Log (L" [Winsock]: Game established connection to (%hs)",
+                   inet_ntoa (*(struct in_addr *)name->sa_data) );
+    }
+  }
+  return connect_Original (s, name, namelen);
+}
+
+
 typedef int (WINAPI *WSAConnect_pfn)(
   _In_  SOCKET                s,
   _In_  const struct sockaddr *name,
@@ -93,7 +119,7 @@ WSASend_Detour (
   _In_  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
 ) {
   int ret = WSASend_Original (s, lpBuffers, dwBufferCount, lpNumberOfBytesSent, dwFlags, lpOverlapped, lpCompletionRoutine);
-  dll_log.Log (L" [Winsock] Sent %d bytes of data", *lpNumberOfBytesSent);
+  dll_log.Log (L" [Winsock] Sent %d bytes of data <WSASend (...)>", *lpNumberOfBytesSent);
   return ret;
 }
 
@@ -114,7 +140,7 @@ send_Detour (_In_       SOCKET s,
              _In_       int    len,
              _In_       int    flags)
 {
-  dll_log.Log (L" [Winsock] Sent %d bytes of data", len);
+  dll_log.Log (L" [Winsock] Sent %d bytes of data <send (...)>", len);
 
   return send_Original (s, buf, len, flags);
 }
@@ -125,6 +151,10 @@ tsf::WinsockHook::Init (void)
   TSFix_CreateDLLHook ( L"Ws2_32.dll", "send",
                         send_Detour,
              (LPVOID *)&send_Original );
+
+  TSFix_CreateDLLHook ( L"Ws2_32.dll", "connect",
+                        connect_Detour,
+             (LPVOID *)&connect_Original );
 
   TSFix_CreateDLLHook ( L"Ws2_32.dll", "WSASend",
                         WSASend_Detour,
