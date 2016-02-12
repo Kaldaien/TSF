@@ -88,6 +88,15 @@ typedef HRESULT (STDMETHODCALLTYPE *SetScissorRect_pfn)
   const RECT             *pRect
 );
 
+typedef HRESULT (STDMETHODCALLTYPE *StretchRect_pfn)
+  (      IDirect3DDevice9    *This,
+         IDirect3DSurface9   *pSourceSurface,
+   const RECT                *pSourceRect,
+         IDirect3DSurface9   *pDestSurface,
+   const RECT                *pDestRect,
+         D3DTEXTUREFILTERTYPE Filter
+  );
+
 typedef HRESULT (STDMETHODCALLTYPE *CreateTexture_pfn)
 (
   IDirect3DDevice9   *This,
@@ -99,6 +108,19 @@ typedef HRESULT (STDMETHODCALLTYPE *CreateTexture_pfn)
   D3DPOOL             Pool,
   IDirect3DTexture9 **ppTexture,
   HANDLE             *pSharedHandle
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *CreateRenderTarget_pfn)
+(
+  IDirect3DDevice9     *This,
+  UINT                  Width,
+  UINT                  Height,
+  D3DFORMAT             Format,
+  D3DMULTISAMPLE_TYPE   MultiSample,
+  DWORD                 MultisampleQuality,
+  BOOL                  Lockable,
+  IDirect3DSurface9   **ppSurface,
+  HANDLE               *pSharedHandle
 );
 
 typedef HRESULT (STDMETHODCALLTYPE *SetViewport_pfn)

@@ -32,9 +32,12 @@
 #include <d3d9.h>
 #include <d3d9types.h>
 
+
 BeginScene_pfn                    D3D9BeginScene_Original               = nullptr;
 SetScissorRect_pfn                D3D9SetScissorRect_Original           = nullptr;
 CreateTexture_pfn                 D3D9CreateTexture_Original            = nullptr;
+CreateRenderTarget_pfn            D3D9CreateRenderTarget_Original       = nullptr;
+StretchRect_pfn                   D3D9StretchRect_Original              = nullptr;
 SetViewport_pfn                   D3D9SetViewport_Original              = nullptr;
 SetRenderState_pfn                D3D9SetRenderState_Original           = nullptr;
 SetVertexShaderConstantF_pfn      D3D9SetVertexShaderConstantF_Original = nullptr;
@@ -225,6 +228,48 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 }
 
 #include "hook.h"
+
+COM_DECLSPEC_NOTHROW
+__declspec (noinline)
+HRESULT
+STDMETHODCALLTYPE
+D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
+                              IDirect3DSurface9   *pSourceSurface,
+                        const RECT                *pSourceRect,
+                              IDirect3DSurface9   *pDestSurface,
+                        const RECT                *pDestRect,
+                              D3DTEXTUREFILTERTYPE Filter )
+{
+  dll_log.Log (L" [!] IDirect3DDevice9::StretchRect (...)");
+
+  return D3D9StretchRect_Original (This, pSourceSurface, pSourceRect,
+                                         pDestSurface,   pDestRect,
+                                         Filter);
+}
+
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9CreateRenderTarget_Detour (IDirect3DDevice9     *This,
+                               UINT                  Width,
+                               UINT                  Height,
+                               D3DFORMAT             Format,
+                               D3DMULTISAMPLE_TYPE   MultiSample,
+                               DWORD                 MultisampleQuality,
+                               BOOL                  Lockable,
+                               IDirect3DSurface9   **ppSurface,
+                               HANDLE               *pSharedHandle)
+{
+  dll_log.Log (L" [!] IDirect3DDevice9::CreateRenderTarget (%lu, %lu, "
+                      L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
+                 Width, Height, Format, MultiSample, MultisampleQuality,
+                 Lockable, ppSurface, pSharedHandle);
+
+  return D3D9CreateRenderTarget_Original (This, Width, Height, Format,
+                                          MultiSample, MultisampleQuality,
+                                          Lockable, ppSurface, pSharedHandle);
+}
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -520,11 +565,11 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
   if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa) {
     D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
                                     D3DRS_MULTISAMPLEANTIALIAS,
-                                      1 );
+                                      TRUE );
   } else {
     D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
                                     D3DRS_MULTISAMPLEANTIALIAS,
-                                      0 );
+                                      FALSE );
   }
   //
   // End things the game is supposed to, but never sets.
@@ -536,6 +581,10 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
 void
 tsf::RenderFix::Init (void)
 {
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9StretchRect_Override",
+                         D3D9StretchRect_Detour,
+               (LPVOID*)&D3D9StretchRect_Original );
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9CreateTexture_Override",
                          D3D9CreateTexture_Detour,
