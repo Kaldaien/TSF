@@ -71,11 +71,11 @@ DllThread (LPVOID user)
 
   // Plugin State
   if (TSFix_Init_MinHook () == MH_OK) {
+    tsf::WindowManager::Init ();
     tsf::WinsockHook::Init   ();
     tsf::InputManager::Init  ();
     tsf::TimingFix::Init     ();
     tsf::RenderFix::Init     ();
-    tsf::WindowManager::Init ();
   }
 
   return 0;

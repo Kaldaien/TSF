@@ -31,12 +31,183 @@
 
 tsf::window_state_s tsf::window;
 
+CreateWindowA_pfn       CreateWindowA_Original       = nullptr;
+CreateWindowExA_pfn     CreateWindowExA_Original     = nullptr;
+CreateWindowW_pfn       CreateWindowW_Original       = nullptr;
+CreateWindowExW_pfn     CreateWindowExW_Original     = nullptr;
 IsIconic_pfn            IsIconic_Original            = nullptr;
 GetForegroundWindow_pfn GetForegroundWindow_Original = nullptr;
 GetFocus_pfn            GetFocus_Original            = nullptr;
 MoveWindow_pfn          MoveWindow_Original          = nullptr;
 SetWindowPos_pfn        SetWindowPos_Original        = nullptr;
 SetWindowLongA_pfn      SetWindowLongA_Original      = nullptr;
+
+LRESULT
+CALLBACK
+DetourWindowProc ( _In_  HWND   hWnd,
+                   _In_  UINT   uMsg,
+                   _In_  WPARAM wParam,
+                   _In_  LPARAM lParam );
+
+HWND
+WINAPI
+CreateWindowExW_Detour
+(
+  _In_     DWORD     dwExStyle,
+  _In_opt_ LPCWSTR   lpClassName,
+  _In_opt_ LPCWSTR   lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+)
+{
+  dll_log.Log (L"CreateWindowExW -- Parent: %X - (%d,%d) : [w: %d, h: %d]",
+                 hWndParent, x,y, nWidth, nHeight);
+
+  tsf::window.hwnd = 
+    CreateWindowExW_Original (dwExStyle,
+                              lpClassName, lpWindowName,
+                              dwStyle, x, y, nWidth, nHeight,
+                              hWndParent, hMenu, hInstance, lpParam);
+
+  tsf::RenderFix::hWndDevice = tsf::window.hwnd;
+
+  tsf::window.window_rect.left   = x;
+  tsf::window.window_rect.right  = x + nWidth;
+  tsf::window.window_rect.top    = y;
+  tsf::window.window_rect.bottom = y + nHeight;
+
+  tsf::window.init = true;
+
+  tsf::window.style    = dwStyle;
+  tsf::window.style_ex = GetWindowLongA (tsf::window.hwnd, GWL_EXSTYLE);
+
+  AdjustWindowRect (&tsf::window.window_rect, tsf::window.style, hMenu != nullptr);
+
+  tsf::RenderFix::hWndDevice = tsf::window.hwnd;
+
+  if (config.render.borderless)
+    tsf::WindowManager::border.Disable ();
+  else
+    tsf::WindowManager::border.Enable ();
+
+  return tsf::window.hwnd;
+}
+
+HWND
+WINAPI
+CreateWindowW_Detour
+(
+  _In_opt_ LPCWSTR   lpClassName,
+  _In_opt_ LPCWSTR   lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+)
+{
+  dll_log.Log (L"CreateWindowW");
+
+  return CreateWindowExW (0x00000000,
+                          lpClassName, lpWindowName,
+                          dwStyle, x, y,
+                          nWidth, nHeight,
+                          hWndParent, hMenu,
+                          hInstance, lpParam);
+}
+
+HWND
+WINAPI
+CreateWindowExA_Detour
+(
+  _In_     DWORD     dwExStyle,
+  _In_opt_ LPCSTR    lpClassName,
+  _In_opt_ LPCSTR    lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+)
+{
+  dll_log.Log (L"CreateWindowExA");
+
+  tsf::window.hwnd = 
+    CreateWindowExA_Original (dwExStyle,
+                              lpClassName, lpWindowName,
+                              dwStyle, x, y, nWidth, nHeight,
+                              hWndParent, hMenu, hInstance, lpParam);
+
+  tsf::RenderFix::hWndDevice = tsf::window.hwnd;
+
+  tsf::window.window_rect.left   = x;
+  tsf::window.window_rect.right  = x + nWidth;
+  tsf::window.window_rect.top    = y;
+  tsf::window.window_rect.bottom = y + nHeight;
+
+  tsf::window.init = true;
+
+  tsf::window.style    = dwStyle;
+  tsf::window.style_ex = GetWindowLongA (tsf::window.hwnd, GWL_EXSTYLE);
+
+  AdjustWindowRect (&tsf::window.window_rect, tsf::window.style, hMenu != nullptr);
+
+  tsf::RenderFix::hWndDevice = tsf::window.hwnd;
+
+  // Setup window message detouring as soon as a window is created..
+  if (tsf::window.WndProc_Original == nullptr) {
+    tsf::window.WndProc_Original =
+      (WNDPROC)GetWindowLong (tsf::RenderFix::hWndDevice, GWL_WNDPROC);
+
+    SetWindowLongA_Original ( tsf::RenderFix::hWndDevice,
+                                GWL_WNDPROC,
+                                  (LONG)DetourWindowProc );
+  }
+
+  return tsf::window.hwnd;
+}
+
+HWND
+WINAPI
+CreateWindowA_Detour
+(
+  _In_opt_ LPCSTR    lpClassName,
+  _In_opt_ LPCSTR    lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+)
+{
+  dll_log.Log (L"CreateWindowA");
+
+  return CreateWindowExA (0x00000000,
+                          lpClassName, lpWindowName,
+                          dwStyle, x, y,
+                          nWidth, nHeight,
+                          hWndParent, hMenu,
+                          hInstance, lpParam);
+}
 
 BOOL
 WINAPI
@@ -90,9 +261,11 @@ SetWindowPos_Detour(
     return TRUE;
   }
 
+#if 0
   dll_log.Log ( L"  >> Before :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
                   tsf::window.window_rect.left, tsf::window.window_rect.top,
                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
+#endif
 
   int original_width  = tsf::window.window_rect.right -
                         tsf::window.window_rect.left;
@@ -114,9 +287,11 @@ SetWindowPos_Detour(
                                        original_height;
   }
 
+#if 0
   dll_log.Log ( L"  >> After :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
                   tsf::window.window_rect.left, tsf::window.window_rect.top,
                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
+#endif
 
   //
   // Fix an invalid scenario that happens for some reason...
@@ -124,28 +299,32 @@ SetWindowPos_Detour(
   if (tsf::window.window_rect.left == tsf::window.window_rect.right)
     tsf::window.window_rect.left = 0;
   if (tsf::window.window_rect.left == tsf::window.window_rect.right)
-    tsf::window.window_rect.right = tsf::window.window_rect.left + original_width;
+    tsf::window.window_rect.right = tsf::window.window_rect.left + tsf::RenderFix::width;
 
   if (tsf::window.window_rect.top == tsf::window.window_rect.bottom)
     tsf::window.window_rect.top = 0;
   if (tsf::window.window_rect.top == tsf::window.window_rect.bottom)
-    tsf::window.window_rect.bottom = tsf::window.window_rect.top + original_height;
+    tsf::window.window_rect.bottom = tsf::window.window_rect.top + tsf::RenderFix::height;
 
 
 
+#if 0
   // Let the game manage its window position...
   if (! config.render.borderless)
     return SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
   else
     return TRUE;
+#else
+  if (config.render.borderless) {
+    if (! tsf::RenderFix::fullscreen)
+      return SetWindowPos_Original (hWnd, hWndInsertAfter, 0, 0, tsf::RenderFix::width, tsf::RenderFix::height, uFlags);
+    else
+      return TRUE;
+  } else {
+    return SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
+  }
+#endif
 }
-
-LRESULT
-CALLBACK
-DetourWindowProc ( _In_  HWND   hWnd,
-                   _In_  UINT   uMsg,
-                   _In_  WPARAM wParam,
-                   _In_  LPARAM lParam );
 
 #include <tchar.h>
 #include <tpcshrd.h>
@@ -164,19 +343,6 @@ SetWindowLongA_Detour (
               nIndex == GWL_EXSTYLE ? L"GWL_EXSTYLE" :
                                       L" GWL_STYLE ",
                       dwNewLong );
-  }
-
-  tsf::RenderFix::hWndDevice = hWnd;
-  tsf::window.hwnd           = hWnd;
-
-  // Setup window message detouring as soon as a window is created..
-  if (tsf::window.WndProc_Original == nullptr) {
-    tsf::window.WndProc_Original =
-      (WNDPROC)GetWindowLong (tsf::RenderFix::hWndDevice, GWL_WNDPROC);
-
-    SetWindowLongA_Original ( tsf::RenderFix::hWndDevice,
-                                GWL_WNDPROC,
-                                  (LONG)DetourWindowProc );
   }
 
   //
@@ -539,6 +705,23 @@ tsf::WindowManager::Init (void)
     window.style = 0x90CA0000;
 
   // Stupid game is using the old ANSI API
+#if 0
+  TSFix_CreateDLLHook ( L"user32.dll", "CreateWindowExW",
+                        CreateWindowExW_Detour,
+              (LPVOID*)&CreateWindowExW_Original );
+
+  TSFix_CreateDLLHook ( L"user32.dll", "CreateWindowW",
+                        CreateWindowW_Detour,
+              (LPVOID*)&CreateWindowW_Original );
+
+  TSFix_CreateDLLHook ( L"user32.dll", "CreateWindowExA",
+                        CreateWindowExA_Detour,
+              (LPVOID*)&CreateWindowExA_Original );
+
+  TSFix_CreateDLLHook ( L"user32.dll", "CreateWindowA",
+                        CreateWindowA_Detour,
+              (LPVOID*)&CreateWindowA_Original );
+#endif
   TSFix_CreateDLLHook ( L"user32.dll", "SetWindowLongA",
                         SetWindowLongA_Detour,
               (LPVOID*)&SetWindowLongA_Original );

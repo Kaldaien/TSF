@@ -22,6 +22,64 @@
 #ifndef __TSFIX__WINDOW_H__
 #define __TSFIX__WINDOW_H__
 
+typedef HWND (WINAPI *CreateWindowExW_pfn)(
+  _In_     DWORD     dwExStyle,
+  _In_opt_ LPCWSTR   lpClassName,
+  _In_opt_ LPCWSTR   lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+);
+
+typedef HWND (WINAPI *CreateWindowW_pfn)(
+  _In_opt_ LPCWSTR   lpClassName,
+  _In_opt_ LPCWSTR   lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+);
+
+typedef HWND (WINAPI *CreateWindowExA_pfn)(
+  _In_     DWORD     dwExStyle,
+  _In_opt_ LPCSTR    lpClassName,
+  _In_opt_ LPCSTR    lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+);
+
+typedef HWND (WINAPI *CreateWindowA_pfn)(
+  _In_opt_ LPCSTR    lpClassName,
+  _In_opt_ LPCSTR    lpWindowName,
+  _In_     DWORD     dwStyle,
+  _In_     int       x,
+  _In_     int       y,
+  _In_     int       nWidth,
+  _In_     int       nHeight,
+  _In_opt_ HWND      hWndParent,
+  _In_opt_ HMENU     hMenu,
+  _In_opt_ HINSTANCE hInstance,
+  _In_opt_ LPVOID    lpParam
+);
+
 typedef BOOL (WINAPI *MoveWindow_pfn)(
   _In_ HWND hWnd,
   _In_ int  X,
@@ -47,6 +105,12 @@ typedef LONG
     _In_ int nIndex,
     _In_ LONG dwNewLong);
 
+typedef LONG
+(WINAPI *SetWindowLongW_pfn)(
+    _In_ HWND hWnd,
+    _In_ int nIndex,
+    _In_ LONG dwNewLong);
+
 typedef BOOL
 (WINAPI *IsIconic_pfn)(
          HWND hWnd);
@@ -65,6 +129,7 @@ extern MoveWindow_pfn          MoveWindow_Original;
 extern SetWindowPos_pfn        SetWindowPos_Original;
 extern GetForegroundWindow_pfn GetForegroundWindow_Original;
 extern SetWindowLongA_pfn      SetWindowLongA_Original;
+extern SetWindowLongW_pfn      SetWindowLongW_Original;
 extern IsIconic_pfn            IsIconic_Original;
 extern GetFocus_pfn            GetFocus_Original;
 
@@ -74,6 +139,8 @@ namespace tsf
 {
   // State for window activation faking
   struct window_state_s {
+    bool    init             = false;
+
     WNDPROC WndProc_Original = nullptr;
 
     bool    active           = true;

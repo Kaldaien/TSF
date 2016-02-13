@@ -123,6 +123,19 @@ typedef HRESULT (STDMETHODCALLTYPE *CreateRenderTarget_pfn)
   HANDLE               *pSharedHandle
 );
 
+typedef HRESULT (STDMETHODCALLTYPE *CreateDepthStencilSurface_pfn)
+(
+  IDirect3DDevice9     *This,
+  UINT                  Width,
+  UINT                  Height,
+  D3DFORMAT             Format,
+  D3DMULTISAMPLE_TYPE   MultiSample,
+  DWORD                 MultisampleQuality,
+  BOOL                  Discard,
+  IDirect3DSurface9   **ppSurface,
+  HANDLE               *pSharedHandle
+);
+
 typedef HRESULT (STDMETHODCALLTYPE *SetViewport_pfn)
 (
         IDirect3DDevice9* This,

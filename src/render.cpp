@@ -33,18 +33,19 @@
 #include <d3d9types.h>
 
 
-BeginScene_pfn                    D3D9BeginScene_Original               = nullptr;
-SetScissorRect_pfn                D3D9SetScissorRect_Original           = nullptr;
-CreateTexture_pfn                 D3D9CreateTexture_Original            = nullptr;
-CreateRenderTarget_pfn            D3D9CreateRenderTarget_Original       = nullptr;
-StretchRect_pfn                   D3D9StretchRect_Original              = nullptr;
-SetViewport_pfn                   D3D9SetViewport_Original              = nullptr;
-SetRenderState_pfn                D3D9SetRenderState_Original           = nullptr;
-SetVertexShaderConstantF_pfn      D3D9SetVertexShaderConstantF_Original = nullptr;
-SetSamplerState_pfn               D3D9SetSamplerState_Original          = nullptr;
+BeginScene_pfn                    D3D9BeginScene_Original                = nullptr;
+SetScissorRect_pfn                D3D9SetScissorRect_Original            = nullptr;
+CreateTexture_pfn                 D3D9CreateTexture_Original             = nullptr;
+CreateRenderTarget_pfn            D3D9CreateRenderTarget_Original        = nullptr;
+CreateDepthStencilSurface_pfn     D3D9CreateDepthStencilSurface_Original = nullptr;
+StretchRect_pfn                   D3D9StretchRect_Original               = nullptr;
+SetViewport_pfn                   D3D9SetViewport_Original               = nullptr;
+SetRenderState_pfn                D3D9SetRenderState_Original            = nullptr;
+SetVertexShaderConstantF_pfn      D3D9SetVertexShaderConstantF_Original  = nullptr;
+SetSamplerState_pfn               D3D9SetSamplerState_Original           = nullptr;
 
-BMF_SetPresentParamsD3D9_pfn      BMF_SetPresentParamsD3D9_Original     = nullptr;
-BMF_EndBufferSwap_pfn             BMF_EndBufferSwap                     = nullptr;
+BMF_SetPresentParamsD3D9_pfn      BMF_SetPresentParamsD3D9_Original      = nullptr;
+BMF_EndBufferSwap_pfn             BMF_EndBufferSwap                      = nullptr;
 
 tsf::RenderFix::tracer_s
   tsf::RenderFix::tracer;
@@ -150,7 +151,8 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                     L" (%lux%lu@%lu Hz) "
                     L" [Device Window: 0x%04X]",
                       pparams->Windowed ? L"False" :
-                                          L"True",
+                   
+                       L"True",
                         pparams->BackBufferWidth,
                           pparams->BackBufferHeight,
                             pparams->FullScreen_RefreshRateInHz,
@@ -161,6 +163,25 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     //   required by the D3D9 API...
     if (pparams->hDeviceWindow != nullptr)
       tsf::RenderFix::hWndDevice = pparams->hDeviceWindow;
+
+    tsf::window.hwnd = tsf::RenderFix::hWndDevice;
+
+    // Setup window message detouring as soon as a window is created..
+    if (tsf::window.WndProc_Original == nullptr) {
+      tsf::window.WndProc_Original =
+        (WNDPROC)GetWindowLong (tsf::RenderFix::hWndDevice, GWL_WNDPROC);
+
+      extern LRESULT
+      CALLBACK
+      DetourWindowProc ( _In_  HWND   hWnd,
+                         _In_  UINT   uMsg,
+                         _In_  WPARAM wParam,
+                         _In_  LPARAM lParam );
+
+      SetWindowLongA_Original ( tsf::RenderFix::hWndDevice,
+                                  GWL_WNDPROC,
+                                    (LONG)DetourWindowProc );
+    }
 
     tsf::RenderFix::pDevice    = device;
     tsf::RenderFix::fullscreen = (! pparams->Windowed);
@@ -210,14 +231,17 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 
   if (! tsf::RenderFix::fullscreen) {
     //GetWindowRect      (tsf::RenderFix::hWndDevice, &window_rect)
-    //AdjustWindowRectEx (&window_rect, style, FALSE, style_ex);
+    //
 
     tsf::window.window_rect.left = 0;
     tsf::window.window_rect.top  = 0;
 
     tsf::window.window_rect.right  = tsf::RenderFix::width;
     tsf::window.window_rect.bottom = tsf::RenderFix::height;
-    SetWindowPos_Original (
+
+    //AdjustWindowRectEx (&tsf::window.window_rect, tsf::window.style, FALSE, tsf::window.style_ex);
+
+    SetWindowPos (
       tsf::RenderFix::hWndDevice, HWND_TOP,
         0, 0,
           tsf::RenderFix::width, tsf::RenderFix::height,
@@ -274,6 +298,38 @@ D3D9CreateRenderTarget_Detour (IDirect3DDevice9     *This,
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
+D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
+                                      UINT                  Width,
+                                      UINT                  Height,
+                                      D3DFORMAT             Format,
+                                      D3DMULTISAMPLE_TYPE   MultiSample,
+                                      DWORD                 MultisampleQuality,
+                                      BOOL                  Discard,
+                                      IDirect3DSurface9   **ppSurface,
+                                      HANDLE               *pSharedHandle)
+{
+  dll_log.Log (L" [!] IDirect3DDevice9::CreateDepthStencilSurface (%lu, %lu, "
+                      L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
+                 Width, Height, Format, MultiSample, MultisampleQuality,
+                 Discard, ppSurface, pSharedHandle);
+
+  return D3D9CreateDepthStencilSurface_Original (This, Width, Height, Format,
+                                                 MultiSample, MultisampleQuality,
+                                                 Discard, ppSurface, pSharedHandle);
+}
+
+//
+// We will StretchRect (...) these into our textures whenever they are dirty and
+//   one of the textures they are associated with are bound.
+//
+#include <set>
+#include <map>
+std::set           <IDirect3DSurface9*>                     msaa_surfs;       // Smurfs? :)
+std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*> msaa_backing_map;
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
 D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                           UINT                Width,
                           UINT                Height,
@@ -291,6 +347,21 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                                             Pool, ppTexture, pSharedHandle );
   }
 
+  // We don't hook this, but we still use it...
+  if (D3D9CreateRenderTarget_Original == nullptr) {
+    static HMODULE hModD3D9 =
+      GetModuleHandle (config.system.injector.c_str ());
+    D3D9CreateRenderTarget_Original =
+      (CreateRenderTarget_pfn)
+        GetProcAddress (hModD3D9, "D3D9CreateRenderTarget_Override");
+  }
+
+#if 0
+  bool create_msaa_surf = config.render.msaa_samples > 0;
+#else
+  bool create_msaa_surf = false;
+#endif
+
   // Resize the primary framebuffer
   if (Width == 1280 && Height == 720) {
     if (((Usage & D3DUSAGE_RENDERTARGET) && Format == D3DFMT_A8R8G8B8) ||
@@ -301,11 +372,69 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
   } else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
     Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
     Height = tsf::RenderFix::height * config.render.postproc_ratio;
+    create_msaa_surf = false;
   }
 
-  return D3D9CreateTexture_Original ( This, Width, Height,
-                                        Levels, Usage, Format,
-                                          Pool, ppTexture, pSharedHandle );
+  HRESULT result =
+    D3D9CreateTexture_Original ( This, Width, Height,
+                                   Levels, Usage, Format,
+                                     Pool, ppTexture, pSharedHandle );
+
+  if (create_msaa_surf) {
+    IDirect3DSurface9* pSurf;
+
+    D3D9CreateRenderTarget_Original ( This,
+                                        Width, Height, Format,
+                                          (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
+                                                               config.render.msaa_quality,
+                                            FALSE,
+                                              &pSurf, nullptr);
+
+    msaa_surfs.insert       (pSurf);
+    msaa_backing_map.insert (
+      std::pair <IDirect3DTexture9*, IDirect3DSurface9*> (
+        *ppTexture, pSurf
+      )
+    );
+  }
+
+  return result;
+}
+
+void
+TSF_ComputeAspectCoeffs (float& x, float& y, float& xoff, float& yoff)
+{
+  yoff = 0.0f;
+  xoff = 0.0f;
+
+  x = 1.0f;
+  y = 1.0f;
+
+  //if (! (config.render.aspect_correction || config.render.blackbar_videos))
+    //return;
+
+  const float aspect_ratio = (float)tsf::RenderFix::width / (float)tsf::RenderFix::height;
+  float       rescale      =                 (1.77777778f / aspect_ratio);
+
+  // No correction needed if we are _close_ to 16:9
+  if (aspect_ratio <= 1.7778f && aspect_ratio >= 1.7776f) {
+    return;
+  }
+
+  // Wider
+  if (aspect_ratio > 1.7777f) {
+    int width = (16.0f / 9.0f) * tsf::RenderFix::height;
+    int x_off = (tsf::RenderFix::width - width) / 2;
+
+    x    = (float)tsf::RenderFix::width / (float)width;
+    xoff = x_off;
+  } else {
+    int height = (9.0f / 16.0f) * tsf::RenderFix::width;
+    int y_off  = (tsf::RenderFix::height - height) / 2;
+
+    y    = (float)tsf::RenderFix::height / (float)height;
+    yoff = y_off;
+  }
 }
 
 COM_DECLSPEC_NOTHROW
@@ -327,8 +456,11 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 
     D3DVIEWPORT9 newView = *pViewport;
 
-    newView.Width  = tsf::RenderFix::width;
-    newView.Height = tsf::RenderFix::height;
+    float x_scale = (float)tsf::RenderFix::width  / 1280.0f;
+    float y_scale = (float)tsf::RenderFix::height / 720.0f;
+
+    newView.Width  = newView.Width  * x_scale - (newView.X * 2.0f);
+    newView.Height = newView.Height * y_scale - (newView.Y * 2.0f);
 
     return D3D9SetViewport_Original (This, &newView);
   }
@@ -443,17 +575,17 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
       float screen_height = draw_state.vp.Height;
 
       float ndc_left  =
-        2.0f * (((float)pRect->left - draw_state.vp.X) /
+        2.0f * (((float)pRect->left + draw_state.vp.X) /
                  screen_width) - 1.0f;
       float ndc_right =
-        2.0f * (((float)pRect->right - draw_state.vp.X) /
+        2.0f * (((float)pRect->right + draw_state.vp.X) /
                  screen_width) - 1.0f;
 
       float ndc_top  =
-        2.0f * (((float)pRect->top - draw_state.vp.Y) /
+        2.0f * (((float)pRect->top + draw_state.vp.Y) /
                  screen_height) - 1.0f;
       float ndc_bottom =
-        2.0f * (((float)pRect->bottom - draw_state.vp.Y) /
+        2.0f * (((float)pRect->bottom + draw_state.vp.Y) /
                  screen_height) - 1.0f;
 
       newR.right = (ndc_right * tsf::RenderFix::width + tsf::RenderFix::width) / 2.0f +
@@ -581,10 +713,17 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
 void
 tsf::RenderFix::Init (void)
 {
+#if 0
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9StretchRect_Override",
                          D3D9StretchRect_Detour,
                (LPVOID*)&D3D9StretchRect_Original );
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9CreateDepthStencilSurface_Override",
+                         D3D9CreateDepthStencilSurface_Detour,
+               (LPVOID*)&D3D9CreateDepthStencilSurface_Original );
+#endif
+
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9CreateTexture_Override",
                          D3D9CreateTexture_Detour,

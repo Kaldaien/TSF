@@ -682,6 +682,7 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
     break;
   }
 
+  //tsf::WindowManager::Init ();
   ////tsf::RenderFix::hWndDevice = GetForegroundWindow ();
 
   // Defer initialization of the Window Message redirection stuff until
