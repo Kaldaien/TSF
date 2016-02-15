@@ -36,14 +36,30 @@ Sleep_Detour (DWORD dwMilliseconds)
 {
   if (GetCurrentThreadId () == tsf::RenderFix::dwRenderThreadID) {
     last_sleep = dwMilliseconds;
-    return;
+    //return;
   }
 
   //if (config.framerate.yield_processor && dwMilliseconds == 0)
     //YieldProcessor ();
 
-  if (dwMilliseconds >= config.stutter.shortest_sleep || (! config.stutter.fix)) {
+  if ((! config.stutter.fix)                                     ||
+       GetCurrentThreadId () != tsf::RenderFix::dwRenderThreadID ||
+      dwMilliseconds         >= config.stutter.shortest_sleep) {
     Sleep_Original (dwMilliseconds);
+  } else {
+#if 0
+    LARGE_INTEGER time;
+    LARGE_INTEGER freq;
+    QueryPerformanceCounter_Original (&time);
+    QueryPerformanceFrequency        (&freq);
+
+    LARGE_INTEGER end;
+    end.QuadPart = time.QuadPart + (double)dwMilliseconds * 0.001 * freq.QuadPart;
+
+    while (time.QuadPart < end.QuadPart) {
+      QueryPerformanceCounter_Original (&time);
+    }
+#endif
   }
 }
 

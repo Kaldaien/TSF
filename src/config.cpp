@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.2.4";
+std::wstring TSFIX_VER_STR = L"0.3.0";
 tsf_config_s config;
 
 struct {
@@ -51,6 +51,21 @@ struct {
 } stutter;
 
 struct {
+  tsf::ParameterBool*    cache;
+  tsf::ParameterBool*    dump;
+#if 0
+  tsf::ParameterStringW* dump_ext;
+#endif
+  tsf::ParameterBool*    optimize_ui;
+  tsf::ParameterBool*    log;
+  tsf::ParameterBool*    uncompressed;
+  tsf::ParameterBool*    full_mipmaps;
+#if 0
+  tsf::ParameterInt*     mipmap_count;
+#endif
+} textures;
+
+struct {
   tsf::ParameterBool*    block_left_alt;
   tsf::ParameterBool*    block_left_ctrl;
   tsf::ParameterBool*    block_windows;
@@ -70,7 +85,7 @@ tsf::ParameterFactory g_ParameterFactory;
 bool
 TSFix_LoadConfig (std::wstring name) {
   // Load INI File
-  std::wstring full_name = name + L".ini";
+  std::wstring full_name = name + L".ini";  
   dll_ini = new tsf::INI::File ((wchar_t *)full_name.c_str ());
 
   bool empty = dll_ini->get_sections ().empty ();
@@ -210,6 +225,67 @@ TSFix_LoadConfig (std::wstring name) {
         L"ShortestSleep" );
 
 
+  textures.cache =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Cache loaded texture data")
+      );
+  textures.cache->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"Cache" );
+
+  textures.dump =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Dump loaded texture data")
+      );
+  textures.dump->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"Dump" );
+
+  textures.optimize_ui =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Optimize UI textures")
+      );
+  textures.optimize_ui->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"OptimizeUI" );
+
+  textures.log =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Log (cached) texture load activity")
+      );
+  textures.log->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"Log" );
+
+  textures.uncompressed =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Do not compress texture data")
+      );
+  textures.uncompressed->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"Log" );
+
+  textures.full_mipmaps =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Generate missing mipmaps")
+      );
+  textures.full_mipmaps->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"FullMipmaps" );
+
+
   input.block_left_alt =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -326,6 +402,25 @@ TSFix_LoadConfig (std::wstring name) {
     config.stutter.shortest_sleep = stutter.shortest_sleep->get_value ();
 
 
+  if (textures.cache->load ())
+    config.textures.cache = textures.cache->get_value ();
+
+  if (textures.dump->load ())
+    config.textures.dump = textures.dump->get_value ();
+
+  if (textures.full_mipmaps->load ())
+    config.textures.full_mipmaps = textures.full_mipmaps->get_value ();
+
+  if (textures.log->load ())
+    config.textures.log = textures.log->get_value ();
+
+  if (textures.optimize_ui->load ())
+    config.textures.optimize_ui = textures.optimize_ui->get_value ();
+
+  if (textures.uncompressed->load ())
+    config.textures.uncompressed = textures.uncompressed->get_value ();
+
+
   if (input.block_left_alt->load ())
     config.input.block_left_alt = input.block_left_alt->get_value ();
 
@@ -383,6 +478,7 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   render.max_anisotropy->set_value    (config.render.max_anisotropy);
   render.max_anisotropy->store        ();
 
+
   stutter.fix->set_value              (config.stutter.fix);
   stutter.fix->store ();
 
@@ -394,6 +490,25 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   stutter.shortest_sleep->set_value   (config.stutter.shortest_sleep);
   stutter.shortest_sleep->store       ();
+
+
+  textures.cache->set_value          (config.textures.cache);
+  textures.cache->store              ();
+
+  textures.dump->set_value           (config.textures.dump);
+  textures.dump->store               ();
+
+  textures.log->set_value            (config.textures.log);
+  textures.log->store                ();
+
+  textures.optimize_ui->set_value    (config.textures.optimize_ui);
+  textures.optimize_ui->store        ();
+
+  textures.uncompressed->set_value   (config.textures.uncompressed);
+  textures.uncompressed->store       ();
+
+  textures.full_mipmaps->set_value   (config.textures.full_mipmaps);
+  textures.full_mipmaps->store       ();
 
 
   input.block_left_alt->set_value  (config.input.block_left_alt);

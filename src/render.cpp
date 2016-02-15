@@ -33,19 +33,19 @@
 #include <d3d9types.h>
 
 
-BeginScene_pfn                    D3D9BeginScene_Original                = nullptr;
-SetScissorRect_pfn                D3D9SetScissorRect_Original            = nullptr;
-CreateTexture_pfn                 D3D9CreateTexture_Original             = nullptr;
-CreateRenderTarget_pfn            D3D9CreateRenderTarget_Original        = nullptr;
-CreateDepthStencilSurface_pfn     D3D9CreateDepthStencilSurface_Original = nullptr;
-StretchRect_pfn                   D3D9StretchRect_Original               = nullptr;
-SetViewport_pfn                   D3D9SetViewport_Original               = nullptr;
-SetRenderState_pfn                D3D9SetRenderState_Original            = nullptr;
-SetVertexShaderConstantF_pfn      D3D9SetVertexShaderConstantF_Original  = nullptr;
-SetSamplerState_pfn               D3D9SetSamplerState_Original           = nullptr;
+BeginScene_pfn                          D3D9BeginScene_Original                      = nullptr;
+SetScissorRect_pfn                      D3D9SetScissorRect_Original                  = nullptr;
+CreateTexture_pfn                       D3D9CreateTexture_Original                   = nullptr;
+CreateRenderTarget_pfn                  D3D9CreateRenderTarget_Original              = nullptr;
+CreateDepthStencilSurface_pfn           D3D9CreateDepthStencilSurface_Original       = nullptr;
+StretchRect_pfn                         D3D9StretchRect_Original                     = nullptr;
+SetViewport_pfn                         D3D9SetViewport_Original                     = nullptr;
+SetRenderState_pfn                      D3D9SetRenderState_Original                  = nullptr;
+SetVertexShaderConstantF_pfn            D3D9SetVertexShaderConstantF_Original        = nullptr;
+SetSamplerState_pfn                     D3D9SetSamplerState_Original                 = nullptr;
 
-BMF_SetPresentParamsD3D9_pfn      BMF_SetPresentParamsD3D9_Original      = nullptr;
-BMF_EndBufferSwap_pfn             BMF_EndBufferSwap                      = nullptr;
+BMF_SetPresentParamsD3D9_pfn            BMF_SetPresentParamsD3D9_Original            = nullptr;
+BMF_EndBufferSwap_pfn                   BMF_EndBufferSwap                            = nullptr;
 
 tsf::RenderFix::tracer_s
   tsf::RenderFix::tracer;
@@ -59,6 +59,8 @@ struct tsf_draw_states_s {
   bool         postprocessing = false;
   bool         fullscreen     = false;
 } draw_state;
+
+#include "render/textures.h"
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -447,7 +449,7 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
   if (This != tsf::RenderFix::pDevice)
     return D3D9SetViewport_Original (This, pViewport);
 
-  memcpy (&draw_state.vp, pViewport, sizeof D3DVIEWPORT9);
+  draw_state.vp = *pViewport;
 
   // ...
   if (pViewport->Width == 1280 && pViewport->Height == 720) {
@@ -570,33 +572,57 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
     newR.bottom = static_cast <long> (newR.bottom * sFactor);
   } else {
     if (! draw_state.postprocessing) {
-      // TODO: Use rendertarget dimensions
-      float screen_width  = draw_state.vp.Width;
-      float screen_height = draw_state.vp.Height;
+      struct {
+        uint32_t width  = draw_state.vp.Width;
+        uint32_t height = draw_state.vp.Height;
+      } in;
 
-      float ndc_left  =
-        2.0f * (((float)pRect->left + draw_state.vp.X) /
-                 screen_width) - 1.0f;
-      float ndc_right =
-        2.0f * (((float)pRect->right + draw_state.vp.X) /
-                 screen_width) - 1.0f;
+      struct {
+        uint32_t width  = tsf::RenderFix::width;
+        uint32_t height = tsf::RenderFix::height;
+      } out;
 
-      float ndc_top  =
-        2.0f * (((float)pRect->top + draw_state.vp.Y) /
-                 screen_height) - 1.0f;
-      float ndc_bottom =
-        2.0f * (((float)pRect->bottom + draw_state.vp.Y) /
-                 screen_height) - 1.0f;
+#if 0
+      dll_log.Log ( L"Scissor --Viewport-- Width: %f, Height: %f :: (x: %f, y: %f)",
+                      in.width, in.height, in.x, in.y );
 
-      newR.right = (ndc_right * tsf::RenderFix::width + tsf::RenderFix::width) / 2.0f +
-                    (draw_state.vp.X / screen_width)  * tsf::RenderFix::width;
-      newR.left  = (ndc_left  * tsf::RenderFix::width + tsf::RenderFix::width) / 2.0f +
-                    (draw_state.vp.X / screen_width)  * tsf::RenderFix::width;
+      // I imagine querying this from the D3D9 (usermode) driver every frame is
+      //   inefficient ... consider caching surface descriptors
+      IDirect3DSurface9* pSurf = nullptr;
+      if (SUCCEEDED (This->GetRenderTarget (0, &pSurf)) && pSurf != nullptr) {
+        D3DSURFACE_DESC desc;
+        pSurf->GetDesc (&desc);
+        pSurf->Release ();
 
-      newR.top    = (ndc_top    * tsf::RenderFix::height + tsf::RenderFix::height) / 2.0f +
-                      (draw_state.vp.Y / screen_height)  * tsf::RenderFix::height;
-      newR.bottom = (ndc_bottom * tsf::RenderFix::height + tsf::RenderFix::height) / 2.0f +
-                      (draw_state.vp.Y / screen_height)  * tsf::RenderFix::height;
+        out.width  = desc.Width;
+        out.height = desc.Height;
+
+        dll_log.Log ( L"Scissor --Surface-- Width: %f, Height: %f",
+                        screen_width, screen_height );
+      }
+#endif
+
+      struct {
+        float left, right;
+        float top,  bottom;
+      } ndc_scissor;
+
+      ndc_scissor.left  =
+        2.0f * ((float)(pRect->left)  / (float)in.width) - 1.0f;
+      ndc_scissor.right =
+        2.0f * ((float)(pRect->right) / (float)in.width) - 1.0f;
+
+      ndc_scissor.top  =
+        2.0f * ((float)(pRect->top)    / (float)in.height) - 1.0f;
+      ndc_scissor.bottom =
+        2.0f * ((float)(pRect->bottom) / (float)in.height) - 1.0f;
+
+
+      newR.right  = (ndc_scissor.right  * out.width  + out.width)  / 2;
+      newR.left   = (ndc_scissor.left   * out.width  + out.width)  / 2;
+
+      newR.top    = (ndc_scissor.top    * out.height + out.height) / 2;
+      newR.bottom = (ndc_scissor.bottom * out.height + out.height) / 2;
     } else {
       dll_log.Log (L" >> Scissor Rectangle Applied During Post-Processing!");
     }
@@ -690,6 +716,7 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
     Value = config.render.max_anisotropy;
   }
 
+#if 0
   //
   // The game apparently never sets this, so that's a problem...
   //
@@ -703,6 +730,7 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
                                     D3DRS_MULTISAMPLEANTIALIAS,
                                       FALSE );
   }
+#endif
   //
   // End things the game is supposed to, but never sets.
   //
@@ -713,6 +741,8 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
 void
 tsf::RenderFix::Init (void)
 {
+  d3dx9_43_dll = LoadLibrary (L"D3DX9_43.DLL");
+
 #if 0
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9StretchRect_Override",
@@ -770,7 +800,6 @@ tsf::RenderFix::Init (void)
                          D3D9SetSamplerState_Detour,
                 (LPVOID*)&D3D9SetSamplerState_Original );
 
-
   CommandProcessor*     comm_proc    = CommandProcessor::getInstance ();
   eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
 
@@ -784,11 +813,16 @@ tsf::RenderFix::Init (void)
 
   pCommandProc->AddVariable ("Trace.NumFrames", new eTB_VarStub <int>  (&tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    new eTB_VarStub <bool> (&tracer.log));
+
+  tex_mgr.Init ();
 }
 
 void
 tsf::RenderFix::Shutdown (void)
 {
+  tex_mgr.Shutdown ();
+
+  FreeLibrary (d3dx9_43_dll);
 }
 
 float ar;

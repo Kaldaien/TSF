@@ -129,6 +129,7 @@
     <ClInclude Include="MinHook\include\MinHook.h" />
     <ClInclude Include="parameter.h" />
     <ClInclude Include="render.h" />
+    <ClInclude Include="render\textures.h" />
     <ClInclude Include="timing.h" />
     <ClInclude Include="window.h" />
     <ClInclude Include="winsock.h" />
@@ -153,6 +154,7 @@
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</MultiProcessorCompilation>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</MultiProcessorCompilation>
     </ClCompile>
+    <ClCompile Include="render\textures.cpp" />
     <ClCompile Include="timing.cpp" />
     <ClCompile Include="window.cpp" />
     <ClCompile Include="winsock.cpp" />

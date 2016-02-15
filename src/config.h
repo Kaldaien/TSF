@@ -56,6 +56,15 @@ struct tsf_config_s
   } stutter;
 
   struct {
+    bool     cache            = true;
+    bool     uncompressed     = true;
+    bool     optimize_ui      = true;
+    bool     dump             = false;
+    bool     log              = false;
+    bool     full_mipmaps     = false;
+  } textures;
+
+  struct {
     int  num_frames = 0;
     bool shaders    = false;
     bool ui         = false; // General-purpose UI stuff
