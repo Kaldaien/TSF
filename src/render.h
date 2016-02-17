@@ -41,6 +41,18 @@ namespace tsf
       int  count = 0;
     } extern tracer;
 
+    struct tsf_draw_states_s {
+      bool         has_aniso      = false; // Has he game even once set anisotropy?!
+      bool         has_msaa       = false;
+      bool         use_msaa       = true;  // Allow MSAA toggle via console
+                                           //  without changing the swapchain.
+      D3DVIEWPORT9 vp             = { 0 };
+      bool         outlines       = false; // Drawing outlines?
+      bool         postprocessing = false;
+      bool         fullscreen     = false;
+    } extern draw_state;
+
+
     void Init     ();
     void Shutdown ();
 

@@ -48,16 +48,12 @@ BMF_EndBufferSwap_pfn                   BMF_EndBufferSwap                       
 tsf::RenderFix::tracer_s
   tsf::RenderFix::tracer;
 
-struct tsf_draw_states_s {
-  bool         has_aniso      = false; // Has he game even once set anisotropy?!
-  bool         has_msaa       = false;
-  bool         use_msaa       = true;  // Allow MSAA toggle via console
-                                       //  without changing the swapchain.
-  D3DVIEWPORT9 vp             = { 0 };
-  bool         outlines       = false; // Drawing outlines?
-  bool         postprocessing = false;
-  bool         fullscreen     = false;
-} draw_state;
+tsf::RenderFix::tsf_draw_states_s
+  tsf::RenderFix::draw_state;
+
+// This is used to set the draw_state at the end of each frame,
+//   instead of mid-frame.
+bool use_msaa = true;
 
 #include "render/textures.h"
 
@@ -82,6 +78,10 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   TSFix_DrawCommandConsole ();
 
   hr = BMF_EndBufferSwap (hr, device);
+
+  // Push any changes to this state at the very end of a frame.
+  tsf::RenderFix::draw_state.use_msaa = use_msaa &&
+                                        tsf::RenderFix::draw_state.has_msaa;
 
   return hr;
 }
@@ -136,7 +136,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
             dll_log.Log ( L" (*) Selected %dxMSAA Quality Level: %d",
                             pparams->MultiSampleType,
                               pparams->MultiSampleQuality );
-            draw_state.has_msaa = true;
+            tsf::RenderFix::draw_state.has_msaa = true;
           } else {
             dll_log.Log ( L" ### Requested %dxMSAA Quality Level: %d invalid",
                             config.render.msaa_samples,
@@ -302,12 +302,12 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
   if (This != tsf::RenderFix::pDevice)
     return D3D9SetViewport_Original (This, pViewport);
 
-  draw_state.vp = *pViewport;
+  tsf::RenderFix::draw_state.vp = *pViewport;
 
   // ...
   if (pViewport->Width == 1280 && pViewport->Height == 720) {
-    draw_state.postprocessing = false;
-    draw_state.fullscreen     = true; // TODO: Check viewport against rendertarget
+    tsf::RenderFix::draw_state.postprocessing = false;
+    tsf::RenderFix::draw_state.fullscreen     = true; // TODO: Check viewport against rendertarget
 
     D3DVIEWPORT9 newView = *pViewport;
 
@@ -322,8 +322,8 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 
   // Effects
   if (pViewport->Width == 512 && pViewport->Height == 256) {
-    draw_state.postprocessing = true;
-    draw_state.fullscreen     = false;
+    tsf::RenderFix::draw_state.postprocessing = true;
+    tsf::RenderFix::draw_state.fullscreen     = false;
 
     D3DVIEWPORT9 newView = *pViewport;
 
@@ -388,7 +388,8 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
   }
 
   // Turn this on at the beginning of every frame
-  if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa) {
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.has_msaa &&
+                                        tsf::RenderFix::draw_state.use_msaa) {
     D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
                                     D3DRS_MULTISAMPLEANTIALIAS,
                                       1 );
@@ -424,10 +425,10 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
     newR.right  = static_cast <long> (newR.right  * sFactor);
     newR.bottom = static_cast <long> (newR.bottom * sFactor);
   } else {
-    if (! draw_state.postprocessing) {
+    if (! tsf::RenderFix::draw_state.postprocessing) {
       struct {
-        uint32_t width  = draw_state.vp.Width;
-        uint32_t height = draw_state.vp.Height;
+        uint32_t width  = tsf::RenderFix::draw_state.vp.Width;
+        uint32_t height = tsf::RenderFix::draw_state.vp.Height;
       } in;
 
       struct {
@@ -519,7 +520,10 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   // Detect slimes
   //
   bool slime = false;
-  if (draw_state.outlines && BaseVertexIndex == 0 && MinVertexIndex == 0 && startIndex ==0 && NumVertices == 348 && primCount == 1811) {
+  if (tsf::RenderFix::draw_state.outlines       &&
+      BaseVertexIndex == 0                      &&
+      MinVertexIndex  == 0   && startIndex == 0 &&
+      NumVertices     == 348 && primCount  == 1811) {
     slime = true;
     D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
     D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
@@ -558,7 +562,9 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
   }
 
   if (State == D3DRS_MULTISAMPLEANTIALIAS) {
-    if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa)
+    if ( config.render.msaa_samples > 0      &&
+         tsf::RenderFix::draw_state.has_msaa &&
+         tsf::RenderFix::draw_state.use_msaa )
       return D3D9SetRenderState_Original (This, State, 1);
     else
       return D3D9SetRenderState_Original (This, State, 0);
@@ -570,7 +576,8 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
       This->GetRenderState (D3DRS_CULLMODE, (DWORD *)&cullmode);
 
       if (cullmode == D3DCULL_CW) {
-        draw_state.outlines = true;
+        tsf::RenderFix::draw_state.outlines = true;
+
         switch (State)
         {
           case D3DRS_SRCBLEND:
@@ -582,8 +589,10 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
           case D3DRS_DESTBLEND:
             return D3D9SetRenderState_Original (This, State, D3DBLEND_ZERO);
         }
-      } else {
-        draw_state.outlines = false;
+      }
+
+      else {
+        tsf::RenderFix::draw_state.outlines = false;
       }
     }
   }
@@ -705,7 +714,8 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.DuranteScissor",   new eTB_VarStub <bool> (&config.render.durante_scissor));
   pCommandProc->AddVariable ("Render.OutlineTechnique", new eTB_VarStub <int>  (&config.render.outline_technique));
 
-  pCommandProc->AddVariable ("Render.MSAA",             new eTB_VarStub <bool> (&draw_state.use_msaa));
+  // Don't directly modify this state, switching mid-frame would be disasterous...
+  pCommandProc->AddVariable ("Render.MSAA",             new eTB_VarStub <bool> (&use_msaa));//&draw_state.use_msaa));
 
   pCommandProc->AddVariable ("Trace.NumFrames", new eTB_VarStub <int>  (&tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    new eTB_VarStub <bool> (&tracer.log));

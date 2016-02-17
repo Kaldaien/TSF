@@ -257,6 +257,7 @@ D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
                         const RECT                *pDestRect,
                               D3DTEXTUREFILTERTYPE Filter )
 {
+#if 0
   {
     RECT source, dest;
 
@@ -289,6 +290,7 @@ D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
                   L" " : L" *",
                 dest.left,   dest.top,   dest.right,   dest.bottom );
   }
+#endif
 
   return D3D9StretchRect_Original (This, pSourceSurface, pSourceRect,
                                          pDestSurface,   pDestRect,
@@ -348,6 +350,7 @@ D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
 //
 #include <set>
 #include <map>
+std::set           <IDirect3DSurface9*>                     dirty_surfs;
 std::set           <IDirect3DSurface9*>                     msaa_surfs;       // Smurfs? :)
 std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*> msaa_backing_map;
 std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*> rt_msaa;
@@ -366,15 +369,28 @@ D3D9SetTexture_Detour (
     return D3D9SetTexture_Original (This, Sampler, pTexture);
   }
 
-  if (config.render.msaa_samples > 0) {
+  //
+  // MSAA Blit (Before binding a texture, do MSAA resolve from its backing store)
+  //
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.use_msaa) {
     if (msaa_backing_map.find ((IDirect3DTexture9 *)pTexture) != msaa_backing_map.end ()) {
       IDirect3DSurface9* pSurf = nullptr;
-      if (SUCCEEDED (((IDirect3DTexture9 *)pTexture)->GetSurfaceLevel (0, &pSurf))) {
-//        tex_log.Log (L"MSAA Resolve (StretchRect)");
-        D3D9StretchRect_Original (This, msaa_backing_map [(IDirect3DTexture9 *)pTexture], nullptr,
-                                        pSurf,                                            nullptr,
-                                        D3DTEXF_LINEAR);
-        pSurf->Release ();
+
+      //
+      // Only do this if the rendertarget is dirty...
+      //
+      if (dirty_surfs.find (msaa_backing_map [(IDirect3DTexture9 *)pTexture]) !=
+          dirty_surfs.end ()) {
+        if (SUCCEEDED (((IDirect3DTexture9 *)pTexture)->GetSurfaceLevel (0, &pSurf))) {
+//          tex_log.Log (L"MSAA Resolve (StretchRect)");
+          D3D9StretchRect_Original (This, msaa_backing_map [(IDirect3DTexture9 *)pTexture], nullptr,
+                                          pSurf,                                            nullptr,
+                                          D3DTEXF_NONE);
+          pSurf->Release ();
+        }
+
+        // Render target is now clean, we've resolved it to its texture
+        dirty_surfs.erase (msaa_backing_map [(IDirect3DTexture9 *)pTexture]);
       }
     }
   }
@@ -396,10 +412,14 @@ D3D9SetRenderTarget_Detour (
     return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pRenderTarget);
   }
 
-  if (config.render.msaa_samples > 0) {
+  //
+  // MSAA Override
+  //
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.use_msaa) {
     if (rt_msaa.find (pRenderTarget) != rt_msaa.end ()) {
 //      tex_log.Log (L"MSAA RenderTarget Override");
       IDirect3DSurface9* pSurf = rt_msaa [pRenderTarget];
+      dirty_surfs.insert (pSurf);
       return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pSurf);
     }
   }
@@ -420,7 +440,10 @@ D3D9SetDepthStencilSurface_Detour (
     return D3D9SetDepthStencilSurface_Original (This, pNewZStencil);
   }
 
-  if (config.render.msaa_samples > 0) {
+  //
+  // MSAA Depth/Stencil Override
+  //
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.use_msaa) {
     if (rt_msaa.find (pNewZStencil) != rt_msaa.end ()) {
       return D3D9SetDepthStencilSurface_Original ( This,
                                                      rt_msaa [pNewZStencil] );
@@ -450,29 +473,8 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                                             Pool, ppTexture, pSharedHandle );
   }
 
-  // We don't hook this, but we still use it...
-  if (D3D9CreateRenderTarget_Original == nullptr) {
-    static HMODULE hModD3D9 =
-      GetModuleHandle (config.system.injector.c_str ());
-    D3D9CreateRenderTarget_Original =
-      (CreateRenderTarget_pfn)
-        GetProcAddress (hModD3D9, "D3D9CreateRenderTarget_Override");
-  }
-
-  // We don't hook this, but we still use it...
-  if (D3D9CreateDepthStencilSurface_Original == nullptr) {
-    static HMODULE hModD3D9 =
-      GetModuleHandle (config.system.injector.c_str ());
-    D3D9CreateDepthStencilSurface_Original =
-      (CreateDepthStencilSurface_pfn)
-        GetProcAddress (hModD3D9, "D3D9CreateDepthStencilSurface_Override");
-  }
-
-#if 1
-  bool create_msaa_surf = config.render.msaa_samples > 0;
-#else
-  bool create_msaa_surf = false;
-#endif
+  bool create_msaa_surf = config.render.msaa_samples > 0 &&
+                          tsf::RenderFix::draw_state.has_msaa;
 
   // Resize the primary framebuffer
   if (Width == 1280 && Height == 720) {
@@ -800,6 +802,24 @@ tsf::RenderFix::TextureManager::Init (void)
       GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
         "D3DXSaveTextureToFileW" );
 
+  // We don't hook this, but we still use it...
+  if (D3D9CreateRenderTarget_Original == nullptr) {
+    static HMODULE hModD3D9 =
+      GetModuleHandle (config.system.injector.c_str ());
+    D3D9CreateRenderTarget_Original =
+      (CreateRenderTarget_pfn)
+        GetProcAddress (hModD3D9, "D3D9CreateRenderTarget_Override");
+  }
+
+  // We don't hook this, but we still use it...
+  if (D3D9CreateDepthStencilSurface_Original == nullptr) {
+    static HMODULE hModD3D9 =
+      GetModuleHandle (config.system.injector.c_str ());
+    D3D9CreateDepthStencilSurface_Original =
+      (CreateDepthStencilSurface_pfn)
+        GetProcAddress (hModD3D9, "D3D9CreateDepthStencilSurface_Override");
+  }
+
   time_saved = 0.0f;
 }
 
@@ -874,22 +894,28 @@ tsf::RenderFix::TextureManager::reset (void)
     int count = 0,
         refs  = 0;
 
-    std::set <IDirect3DSurface9 *>::iterator it =
-      msaa_surfs.begin ();
+    std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*>::iterator it =
+      rt_msaa.begin ();
 
-    while (it != msaa_surfs.end ()) {
+    while (it != rt_msaa.end ()) {
       ++count;
 
-      if ((*it) != nullptr)
-        refs += (*it)->Release ();
+      if ((*it).first != nullptr)
+        refs += (*it).first->Release ();
       else
         refs++;
 
-      it = msaa_surfs.erase (it);
+      if ((*it).second != nullptr)
+        refs += (*it).second->Release ();
+      else
+        refs++;
+
+      it = rt_msaa.erase (it);
     }
 
+    dirty_surfs.clear      ();
+    msaa_surfs.clear       ();
     msaa_backing_map.clear ();
-    rt_msaa.clear          ();
 
     tex_log.LogEx ( false, L"%4d surfaces (%4d zombies)\n",
                       count, refs );
