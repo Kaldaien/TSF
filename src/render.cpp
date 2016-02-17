@@ -35,14 +35,12 @@
 
 BeginScene_pfn                          D3D9BeginScene_Original                      = nullptr;
 SetScissorRect_pfn                      D3D9SetScissorRect_Original                  = nullptr;
-CreateTexture_pfn                       D3D9CreateTexture_Original                   = nullptr;
-CreateRenderTarget_pfn                  D3D9CreateRenderTarget_Original              = nullptr;
-CreateDepthStencilSurface_pfn           D3D9CreateDepthStencilSurface_Original       = nullptr;
-StretchRect_pfn                         D3D9StretchRect_Original                     = nullptr;
 SetViewport_pfn                         D3D9SetViewport_Original                     = nullptr;
 SetRenderState_pfn                      D3D9SetRenderState_Original                  = nullptr;
 SetVertexShaderConstantF_pfn            D3D9SetVertexShaderConstantF_Original        = nullptr;
 SetSamplerState_pfn                     D3D9SetSamplerState_Original                 = nullptr;
+
+DrawIndexedPrimitive_pfn                D3D9DrawIndexedPrimitive_Original            = nullptr;
 
 BMF_SetPresentParamsD3D9_pfn            BMF_SetPresentParamsD3D9_Original            = nullptr;
 BMF_EndBufferSwap_pfn                   BMF_EndBufferSwap                            = nullptr;
@@ -56,6 +54,7 @@ struct tsf_draw_states_s {
   bool         use_msaa       = true;  // Allow MSAA toggle via console
                                        //  without changing the swapchain.
   D3DVIEWPORT9 vp             = { 0 };
+  bool         outlines       = false; // Drawing outlines?
   bool         postprocessing = false;
   bool         fullscreen     = false;
 } draw_state;
@@ -105,6 +104,8 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     dll_log.Log (L" * Fake D3D9Ex Device Detected... Ignoring!");
     return BMF_SetPresentParamsD3D9_Original (device, pparams);
   }
+
+  tsf::RenderFix::tex_mgr.reset ();
 
   if (pparams != nullptr) {
     //
@@ -254,154 +255,6 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 }
 
 #include "hook.h"
-
-COM_DECLSPEC_NOTHROW
-__declspec (noinline)
-HRESULT
-STDMETHODCALLTYPE
-D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
-                              IDirect3DSurface9   *pSourceSurface,
-                        const RECT                *pSourceRect,
-                              IDirect3DSurface9   *pDestSurface,
-                        const RECT                *pDestRect,
-                              D3DTEXTUREFILTERTYPE Filter )
-{
-  dll_log.Log (L" [!] IDirect3DDevice9::StretchRect (...)");
-
-  return D3D9StretchRect_Original (This, pSourceSurface, pSourceRect,
-                                         pDestSurface,   pDestRect,
-                                         Filter);
-}
-
-
-COM_DECLSPEC_NOTHROW
-HRESULT
-STDMETHODCALLTYPE
-D3D9CreateRenderTarget_Detour (IDirect3DDevice9     *This,
-                               UINT                  Width,
-                               UINT                  Height,
-                               D3DFORMAT             Format,
-                               D3DMULTISAMPLE_TYPE   MultiSample,
-                               DWORD                 MultisampleQuality,
-                               BOOL                  Lockable,
-                               IDirect3DSurface9   **ppSurface,
-                               HANDLE               *pSharedHandle)
-{
-  dll_log.Log (L" [!] IDirect3DDevice9::CreateRenderTarget (%lu, %lu, "
-                      L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
-                 Width, Height, Format, MultiSample, MultisampleQuality,
-                 Lockable, ppSurface, pSharedHandle);
-
-  return D3D9CreateRenderTarget_Original (This, Width, Height, Format,
-                                          MultiSample, MultisampleQuality,
-                                          Lockable, ppSurface, pSharedHandle);
-}
-
-COM_DECLSPEC_NOTHROW
-HRESULT
-STDMETHODCALLTYPE
-D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
-                                      UINT                  Width,
-                                      UINT                  Height,
-                                      D3DFORMAT             Format,
-                                      D3DMULTISAMPLE_TYPE   MultiSample,
-                                      DWORD                 MultisampleQuality,
-                                      BOOL                  Discard,
-                                      IDirect3DSurface9   **ppSurface,
-                                      HANDLE               *pSharedHandle)
-{
-  dll_log.Log (L" [!] IDirect3DDevice9::CreateDepthStencilSurface (%lu, %lu, "
-                      L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
-                 Width, Height, Format, MultiSample, MultisampleQuality,
-                 Discard, ppSurface, pSharedHandle);
-
-  return D3D9CreateDepthStencilSurface_Original (This, Width, Height, Format,
-                                                 MultiSample, MultisampleQuality,
-                                                 Discard, ppSurface, pSharedHandle);
-}
-
-//
-// We will StretchRect (...) these into our textures whenever they are dirty and
-//   one of the textures they are associated with are bound.
-//
-#include <set>
-#include <map>
-std::set           <IDirect3DSurface9*>                     msaa_surfs;       // Smurfs? :)
-std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*> msaa_backing_map;
-
-COM_DECLSPEC_NOTHROW
-HRESULT
-STDMETHODCALLTYPE
-D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
-                          UINT                Width,
-                          UINT                Height,
-                          UINT                Levels,
-                          DWORD               Usage,
-                          D3DFORMAT           Format,
-                          D3DPOOL             Pool,
-                          IDirect3DTexture9 **ppTexture,
-                          HANDLE             *pSharedHandle)
-{
-  // Ignore anything that's not the primary render device.
-  if (This != tsf::RenderFix::pDevice) {
-    return D3D9CreateTexture_Original ( This, Width, Height,
-                                          Levels, Usage, Format,
-                                            Pool, ppTexture, pSharedHandle );
-  }
-
-  // We don't hook this, but we still use it...
-  if (D3D9CreateRenderTarget_Original == nullptr) {
-    static HMODULE hModD3D9 =
-      GetModuleHandle (config.system.injector.c_str ());
-    D3D9CreateRenderTarget_Original =
-      (CreateRenderTarget_pfn)
-        GetProcAddress (hModD3D9, "D3D9CreateRenderTarget_Override");
-  }
-
-#if 0
-  bool create_msaa_surf = config.render.msaa_samples > 0;
-#else
-  bool create_msaa_surf = false;
-#endif
-
-  // Resize the primary framebuffer
-  if (Width == 1280 && Height == 720) {
-    if (((Usage & D3DUSAGE_RENDERTARGET) && Format == D3DFMT_A8R8G8B8) ||
-                                            Format == D3DFMT_D24S8) {
-      Width  = tsf::RenderFix::width;
-      Height = tsf::RenderFix::height;
-    }
-  } else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
-    Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
-    Height = tsf::RenderFix::height * config.render.postproc_ratio;
-    create_msaa_surf = false;
-  }
-
-  HRESULT result =
-    D3D9CreateTexture_Original ( This, Width, Height,
-                                   Levels, Usage, Format,
-                                     Pool, ppTexture, pSharedHandle );
-
-  if (create_msaa_surf) {
-    IDirect3DSurface9* pSurf;
-
-    D3D9CreateRenderTarget_Original ( This,
-                                        Width, Height, Format,
-                                          (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
-                                                               config.render.msaa_quality,
-                                            FALSE,
-                                              &pSurf, nullptr);
-
-    msaa_surfs.insert       (pSurf);
-    msaa_backing_map.insert (
-      std::pair <IDirect3DTexture9*, IDirect3DSurface9*> (
-        *ppTexture, pSurf
-      )
-    );
-  }
-
-  return result;
-}
 
 void
 TSF_ComputeAspectCoeffs (float& x, float& y, float& xoff, float& yoff)
@@ -634,6 +487,67 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
+D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
+                                 D3DPRIMITIVETYPE  Type,
+                                 INT               BaseVertexIndex,
+                                 UINT              MinVertexIndex,
+                                 UINT              NumVertices,
+                                 UINT              startIndex,
+                                 UINT              primCount)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9DrawIndexedPrimitive_Original ( This, Type,
+                                                 BaseVertexIndex, MinVertexIndex,
+                                                   NumVertices, startIndex,
+                                                     primCount );
+  }
+
+#if 0
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L" DrawIndexedPrimitive - %X, BaseIdx: %li, MinVtxIdx: %lu, NumVertices: %lu, "
+                                              L"startIndex: %lu, primCount: %lu",
+                    Type, BaseVertexIndex, MinVertexIndex,
+                      NumVertices, startIndex, primCount );
+
+    if (draw_state.outlines)
+      dll_log.Log ( L"  ** Outline ** ");
+  }
+#endif
+
+  //
+  // Detect slimes
+  //
+  bool slime = false;
+  if (draw_state.outlines && BaseVertexIndex == 0 && MinVertexIndex == 0 && startIndex ==0 && NumVertices == 348 && primCount == 1811) {
+    slime = true;
+    D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
+    D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+  }
+
+  HRESULT hr = D3D9DrawIndexedPrimitive_Original ( This, Type,
+                                                     BaseVertexIndex, MinVertexIndex,
+                                                       NumVertices, startIndex,
+                                                         primCount );
+
+  if (slime) {
+    if (config.render.outline_technique > 0) {
+      if (config.render.outline_technique == OUTLINE_KALDAIEN)
+        D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
+      else
+        D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_ONE);
+
+      D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_ZERO);
+    }
+  }
+
+  return hr;
+}
+
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
 D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
                            D3DRENDERSTATETYPE State,
                            DWORD              Value)
@@ -656,16 +570,20 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
       This->GetRenderState (D3DRS_CULLMODE, (DWORD *)&cullmode);
 
       if (cullmode == D3DCULL_CW) {
+        draw_state.outlines = true;
         switch (State)
         {
           case D3DRS_SRCBLEND:
-            if (config.render.outline_technique == OUTLINE_KALDAIEN)
+            if (config.render.outline_technique == OUTLINE_KALDAIEN) {
               return D3D9SetRenderState_Original (This, State, D3DBLEND_SRCALPHA);
+            }
             else
               return D3D9SetRenderState_Original (This, State, D3DBLEND_ONE);
           case D3DRS_DESTBLEND:
             return D3D9SetRenderState_Original (This, State, D3DBLEND_ZERO);
         }
+      } else {
+        draw_state.outlines = false;
       }
     }
   }
@@ -673,6 +591,9 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
   return D3D9SetRenderState_Original (This, State, Value);
 }
 
+//
+// TODO: Move Me to textures.cpp
+//
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -685,10 +606,8 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
   if (This != tsf::RenderFix::pDevice)
     return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
 
-  static int aniso = 1;
   //dll_log.Log ( L" [!] IDirect3DDevice9::SetSamplerState (%lu, %lu, %lu)",
                   //Sampler, Type, Value );
-  // Pending removal - these are not configurable tweaks and not particularly useful
   if (Type == D3DSAMP_MIPFILTER ||
       Type == D3DSAMP_MINFILTER ||
       Type == D3DSAMP_MAGFILTER ||
@@ -706,34 +625,22 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
                   D3DSAMP_MINFILTER)
         if (Value != D3DTEXF_POINT)
           Value = D3DTEXF_ANISOTROPIC;
+
+        //
+        // The game apparently never sets this, so that's a problem...
+        //
+        D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, config.textures.max_anisotropy);
+        //
+        // End things the game is supposed to, but never sets.
+        //
     }
   }
 
   if (Type == D3DSAMP_MAXANISOTROPY) {
     if (tsf::RenderFix::tracer.log)
       dll_log.Log (L" Max Anisotropy Set: %d", Value);
-    //aniso = Value;
-    Value = config.render.max_anisotropy;
+    Value = config.textures.max_anisotropy;
   }
-
-#if 0
-  //
-  // The game apparently never sets this, so that's a problem...
-  //
-  D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, config.render.max_anisotropy);
-  if (config.render.msaa_samples > 0 && draw_state.has_msaa && draw_state.use_msaa) {
-    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
-                                    D3DRS_MULTISAMPLEANTIALIAS,
-                                      TRUE );
-  } else {
-    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
-                                    D3DRS_MULTISAMPLEANTIALIAS,
-                                      FALSE );
-  }
-#endif
-  //
-  // End things the game is supposed to, but never sets.
-  //
 
   return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
 }
@@ -742,22 +649,6 @@ void
 tsf::RenderFix::Init (void)
 {
   d3dx9_43_dll = LoadLibrary (L"D3DX9_43.DLL");
-
-#if 0
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9StretchRect_Override",
-                         D3D9StretchRect_Detour,
-               (LPVOID*)&D3D9StretchRect_Original );
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9CreateDepthStencilSurface_Override",
-                         D3D9CreateDepthStencilSurface_Detour,
-               (LPVOID*)&D3D9CreateDepthStencilSurface_Original );
-#endif
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9CreateTexture_Override",
-                         D3D9CreateTexture_Detour,
-               (LPVOID*)&D3D9CreateTexture_Original );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9SetViewport_Override",
@@ -773,6 +664,11 @@ tsf::RenderFix::Init (void)
                         "D3D9SetVertexShaderConstantF_Override",
                          D3D9SetVertexShaderConstantF_Detour,
                (LPVOID*)&D3D9SetVertexShaderConstantF_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawIndexedPrimitive_Override",
+                         D3D9DrawIndexedPrimitive_Detour,
+               (LPVOID*)&D3D9DrawIndexedPrimitive_Original );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9SetRenderState_Override",
@@ -856,3 +752,15 @@ uint32_t tsf::RenderFix::dwRenderThreadID = 0UL;
 
 HMODULE  tsf::RenderFix::d3dx9_43_dll     = 0;
 HMODULE  tsf::RenderFix::user32_dll       = 0;
+
+#if 0
+  if (config.textures.log) {
+    tex_log.Log ( L"Texture:   (%lu x %lu) * <LODs: %lu>",
+                    Width, Height, Levels );
+    tex_log.Log ( L"             Usage: %-20s - Format: %-20s",
+                    SK_D3D9_UsageToStr    (Usage).c_str (),
+                      SK_D3D9_FormatToStr (Format) );
+    tex_log.Log ( L"               Pool: %s",
+                    SK_D3D9_PoolToStr (Pool) );
+  }
+#endif

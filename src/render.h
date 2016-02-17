@@ -97,45 +97,6 @@ typedef HRESULT (STDMETHODCALLTYPE *StretchRect_pfn)
          D3DTEXTUREFILTERTYPE Filter
   );
 
-typedef HRESULT (STDMETHODCALLTYPE *CreateTexture_pfn)
-(
-  IDirect3DDevice9   *This,
-  UINT                Width,
-  UINT                Height,
-  UINT                Levels,
-  DWORD               Usage,
-  D3DFORMAT           Format,
-  D3DPOOL             Pool,
-  IDirect3DTexture9 **ppTexture,
-  HANDLE             *pSharedHandle
-);
-
-typedef HRESULT (STDMETHODCALLTYPE *CreateRenderTarget_pfn)
-(
-  IDirect3DDevice9     *This,
-  UINT                  Width,
-  UINT                  Height,
-  D3DFORMAT             Format,
-  D3DMULTISAMPLE_TYPE   MultiSample,
-  DWORD                 MultisampleQuality,
-  BOOL                  Lockable,
-  IDirect3DSurface9   **ppSurface,
-  HANDLE               *pSharedHandle
-);
-
-typedef HRESULT (STDMETHODCALLTYPE *CreateDepthStencilSurface_pfn)
-(
-  IDirect3DDevice9     *This,
-  UINT                  Width,
-  UINT                  Height,
-  D3DFORMAT             Format,
-  D3DMULTISAMPLE_TYPE   MultiSample,
-  DWORD                 MultisampleQuality,
-  BOOL                  Discard,
-  IDirect3DSurface9   **ppSurface,
-  HANDLE               *pSharedHandle
-);
-
 typedef HRESULT (STDMETHODCALLTYPE *SetViewport_pfn)
 (
         IDirect3DDevice9* This,
@@ -156,6 +117,17 @@ typedef HRESULT (STDMETHODCALLTYPE *SetVertexShaderConstantF_pfn)
         UINT              StartRegister,
   CONST float            *pConstantData,
         UINT              Vector4fCount
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *DrawIndexedPrimitive_pfn)
+(
+  IDirect3DDevice9 *This,
+  D3DPRIMITIVETYPE  Type,
+  INT               BaseVertexIndex,
+  UINT              MinVertexIndex,
+  UINT              NumVertices,
+  UINT              startIndex,
+  UINT              primCount
 );
 
 typedef HRESULT (STDMETHODCALLTYPE *BMF_EndBufferSwap_pfn)

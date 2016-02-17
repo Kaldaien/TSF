@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.3.0";
+std::wstring TSFIX_VER_STR = L"0.4.0";
 tsf_config_s config;
 
 struct {
@@ -40,7 +40,6 @@ struct {
   tsf::ParameterFloat*   postproc_ratio;
   tsf::ParameterInt*     msaa_samples;
   tsf::ParameterInt*     msaa_quality;
-  tsf::ParameterInt*     max_anisotropy;
 } render;
 
 struct {
@@ -51,6 +50,7 @@ struct {
 } stutter;
 
 struct {
+  tsf::ParameterInt*     max_anisotropy;
   tsf::ParameterBool*    cache;
   tsf::ParameterBool*    dump;
 #if 0
@@ -173,17 +173,6 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Render",
         L"MSAA_Quality" );
 
-  render.max_anisotropy =
-    static_cast <tsf::ParameterInt *>
-      (g_ParameterFactory.create_parameter <int> (
-        L"Maximum Anisotropy")
-      );
-  render.max_anisotropy->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"MaxAnisotropy" );
-
-
   stutter.fix =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -224,6 +213,16 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Stutter",
         L"ShortestSleep" );
 
+
+  textures.max_anisotropy =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"Maximum Anisotropy")
+      );
+  textures.max_anisotropy->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"MaxAnisotropy" );
 
   textures.cache =
     static_cast <tsf::ParameterBool *>
@@ -273,7 +272,7 @@ TSFix_LoadConfig (std::wstring name) {
   textures.uncompressed->register_to_ini (
     dll_ini,
       L"TSFix.Textures",
-        L"Log" );
+        L"Uncompressed" );
 
   textures.full_mipmaps =
     static_cast <tsf::ParameterBool *>
@@ -385,9 +384,6 @@ TSFix_LoadConfig (std::wstring name) {
   if (render.msaa_quality->load ())
     config.render.msaa_quality = render.msaa_quality->get_value ();
 
-  if (render.max_anisotropy->load ())
-    config.render.max_anisotropy = render.max_anisotropy->get_value ();
-
 
   if (stutter.fix->load ())
     config.stutter.fix = stutter.fix->get_value ();
@@ -401,6 +397,9 @@ TSFix_LoadConfig (std::wstring name) {
   if (stutter.shortest_sleep->load ())
     config.stutter.shortest_sleep = stutter.shortest_sleep->get_value ();
 
+
+  if (textures.max_anisotropy->load ())
+    config.textures.max_anisotropy = textures.max_anisotropy->get_value ();
 
   if (textures.cache->load ())
     config.textures.cache = textures.cache->get_value ();
@@ -475,9 +474,6 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   render.msaa_quality->set_value      (config.render.msaa_quality);
   render.msaa_quality->store          ();
 
-  render.max_anisotropy->set_value    (config.render.max_anisotropy);
-  render.max_anisotropy->store        ();
-
 
   stutter.fix->set_value              (config.stutter.fix);
   stutter.fix->store ();
@@ -491,6 +487,10 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   stutter.shortest_sleep->set_value   (config.stutter.shortest_sleep);
   stutter.shortest_sleep->store       ();
 
+
+
+  textures.max_anisotropy->set_value (config.textures.max_anisotropy);
+  textures.max_anisotropy->store     ();
 
   textures.cache->set_value          (config.textures.cache);
   textures.cache->store              ();

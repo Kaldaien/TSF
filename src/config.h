@@ -44,7 +44,6 @@ struct tsf_config_s
     float    postproc_ratio    = 0.5f;
     int      msaa_samples      = 0;
     int      msaa_quality      = 0;
-    int      max_anisotropy    = 16;
     bool     durante_scissor   = false;
   } render;
 
@@ -56,6 +55,7 @@ struct tsf_config_s
   } stutter;
 
   struct {
+    int      max_anisotropy   = 16;
     bool     cache            = true;
     bool     uncompressed     = true;
     bool     optimize_ui      = true;

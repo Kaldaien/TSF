@@ -897,6 +897,10 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           if (config.render.outline_technique > 2)
             config.render.outline_technique = 0;
         }
+
+        else if (vkCode == VK_OEM_COMMA && new_press) {
+          pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
+        }
       }
 
       // Don't print the tab character, it's pretty useless.

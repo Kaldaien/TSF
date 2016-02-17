@@ -47,6 +47,8 @@ namespace RenderFix {
     // Record a cached reference
     void                     refTexture (tsf::RenderFix::Texture* pTex);
 
+    void                     reset (void);
+
   private:
     std::unordered_map <uint32_t, tsf::RenderFix::Texture*> textures;
     float                                                   time_saved;
@@ -101,6 +103,62 @@ typedef HRESULT (STDMETHODCALLTYPE *D3DXSaveTextureToFile_pfn)(
   _In_       D3DXIMAGE_FILEFORMAT   DestFormat,
   _In_       LPDIRECT3DBASETEXTURE9 pSrcTexture,
   _In_ const PALETTEENTRY           *pSrcPalette
-  );
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *CreateTexture_pfn)
+(
+  IDirect3DDevice9   *This,
+  UINT                Width,
+  UINT                Height,
+  UINT                Levels,
+  DWORD               Usage,
+  D3DFORMAT           Format,
+  D3DPOOL             Pool,
+  IDirect3DTexture9 **ppTexture,
+  HANDLE             *pSharedHandle
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *CreateRenderTarget_pfn)
+(
+  IDirect3DDevice9     *This,
+  UINT                  Width,
+  UINT                  Height,
+  D3DFORMAT             Format,
+  D3DMULTISAMPLE_TYPE   MultiSample,
+  DWORD                 MultisampleQuality,
+  BOOL                  Lockable,
+  IDirect3DSurface9   **ppSurface,
+  HANDLE               *pSharedHandle
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *CreateDepthStencilSurface_pfn)
+(
+  IDirect3DDevice9     *This,
+  UINT                  Width,
+  UINT                  Height,
+  D3DFORMAT             Format,
+  D3DMULTISAMPLE_TYPE   MultiSample,
+  DWORD                 MultisampleQuality,
+  BOOL                  Discard,
+  IDirect3DSurface9   **ppSurface,
+  HANDLE               *pSharedHandle
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *SetTexture_pfn)(
+  _In_ IDirect3DDevice9      *This,
+  _In_ DWORD                  Sampler,
+  _In_ IDirect3DBaseTexture9 *pTexture
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *SetRenderTarget_pfn)(
+  _In_ IDirect3DDevice9      *This,
+  _In_ DWORD                  RenderTargetIndex,
+  _In_ IDirect3DSurface9     *pRenderTarget
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *SetDepthStencilSurface_pfn)(
+  _In_ IDirect3DDevice9      *This,
+  _In_ IDirect3DSurface9     *pNewZStencil
+);
 
 #endif /* __TSFIX__TEXTURES_H__ */

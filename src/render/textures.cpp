@@ -14,10 +14,542 @@
 D3DXSaveTextureToFile_pfn               D3DXSaveTextureToFile                        = nullptr;
 D3DXCreateTextureFromFileInMemoryEx_pfn D3DXCreateTextureFromFileInMemoryEx_Original = nullptr;
 
+StretchRect_pfn                         D3D9StretchRect_Original                     = nullptr;
+CreateTexture_pfn                       D3D9CreateTexture_Original                   = nullptr;
+CreateRenderTarget_pfn                  D3D9CreateRenderTarget_Original              = nullptr;
+CreateDepthStencilSurface_pfn           D3D9CreateDepthStencilSurface_Original       = nullptr;
+
+SetTexture_pfn                          D3D9SetTexture_Original                      = nullptr;
+SetRenderTarget_pfn                     D3D9SetRenderTarget_Original                 = nullptr;
+SetDepthStencilSurface_pfn              D3D9SetDepthStencilSurface_Original          = nullptr;
+
 tsf::RenderFix::TextureManager
   tsf::RenderFix::tex_mgr;
 
 tsf_logger_s tex_log;
+
+std::wstring
+SK_D3D9_UsageToStr (DWORD dwUsage)
+{
+  std::wstring usage;
+
+  if (dwUsage & D3DUSAGE_RENDERTARGET)
+    usage += L"RenderTarget ";
+
+  if (dwUsage & D3DUSAGE_DEPTHSTENCIL)
+    usage += L"Depth/Stencil ";
+
+  if (dwUsage & D3DUSAGE_DYNAMIC)
+    usage += L"Dynamic";
+
+  if (usage.empty ())
+    usage = L"Don't Care";
+
+  return usage;
+}
+
+const wchar_t*
+SK_D3D9_FormatToStr (D3DFORMAT Format)
+{
+  switch (Format)
+  {
+    case D3DFMT_UNKNOWN:
+      return L"Unknown (0)";
+
+    case D3DFMT_R8G8B8:
+      return L"R8G8B8 (20)";
+    case D3DFMT_A8R8G8B8:
+      return L"A8R8G8B8 (21)";
+    case D3DFMT_X8R8G8B8:
+      return L"X8R8G8B8 (22)";
+    case D3DFMT_R5G6B5               :
+      return L"R5G6B5 (23)";
+    case D3DFMT_X1R5G5B5             :
+      return L"X1R5G5B5 (24)";
+    case D3DFMT_A1R5G5B5             :
+      return L"A1R5G5B5 (25)";
+    case D3DFMT_A4R4G4B4             :
+      return L"A4R4G4B4 (26)";
+    case D3DFMT_R3G3B2               :
+      return L"R3G3B2 (27)";
+    case D3DFMT_A8                   :
+      return L"A8 (28)";
+    case D3DFMT_A8R3G3B2             :
+      return L"A8R3G3B2 (29)";
+    case D3DFMT_X4R4G4B4             :
+      return L"X4R4G4B4 (30)";
+    case D3DFMT_A2B10G10R10          :
+      return L"A2B10G10R10 (31)";
+    case D3DFMT_A8B8G8R8             :
+      return L"A8B8G8R8 (32)";
+    case D3DFMT_X8B8G8R8             :
+      return L"X8B8G8R8 (33)";
+    case D3DFMT_G16R16               :
+      return L"G16R16 (34)";
+    case D3DFMT_A2R10G10B10          :
+      return L"A2R10G10B10 (35)";
+    case D3DFMT_A16B16G16R16         :
+      return L"A16B16G16R16 (36)";
+
+    case D3DFMT_A8P8                 :
+      return L"A8P8 (40)";
+    case D3DFMT_P8                   :
+      return L"P8 (41)";
+
+    case D3DFMT_L8                   :
+      return L"L8 (50)";
+    case D3DFMT_A8L8                 :
+      return L"A8L8 (51)";
+    case D3DFMT_A4L4                 :
+      return L"A4L4 (52)";
+
+    case D3DFMT_V8U8                 :
+      return L"V8U8 (60)";
+    case D3DFMT_L6V5U5               :
+      return L"L6V5U5 (61)";
+    case D3DFMT_X8L8V8U8             :
+      return L"X8L8V8U8 (62)";
+    case D3DFMT_Q8W8V8U8             :
+      return L"Q8W8V8U8 (63)";
+    case D3DFMT_V16U16               :
+      return L"V16U16 (64)";
+    case D3DFMT_A2W10V10U10          :
+      return L"A2W10V10U10 (67)";
+
+    case D3DFMT_UYVY                 :
+      return L"FourCC 'UYVY'";
+    case D3DFMT_R8G8_B8G8            :
+      return L"FourCC 'RGBG'";
+    case D3DFMT_YUY2                 :
+      return L"FourCC 'YUY2'";
+    case D3DFMT_G8R8_G8B8            :
+      return L"FourCC 'GRGB'";
+    case D3DFMT_DXT1                 :
+      return L"FourCC 'DXT1'";
+    case D3DFMT_DXT2                 :
+      return L"FourCC 'DXT2'";
+    case D3DFMT_DXT3                 :
+      return L"FourCC 'DXT3'";
+    case D3DFMT_DXT4                 :
+      return L"FourCC 'DXT4'";
+    case D3DFMT_DXT5                 :
+      return L"FourCC 'DXT5'";
+
+    case D3DFMT_D16_LOCKABLE         :
+      return L"D16_LOCKABLE (70)";
+    case D3DFMT_D32                  :
+      return L"D32 (71)";
+    case D3DFMT_D15S1                :
+      return L"D15S1 (73)";
+    case D3DFMT_D24S8                :
+      return L"D24S8 (75)";
+    case D3DFMT_D24X8                :
+      return L"D24X8 (77)";
+    case D3DFMT_D24X4S4              :
+      return L"D24X4S4 (79)";
+    case D3DFMT_D16                  :
+      return L"D16 (80)";
+
+    case D3DFMT_D32F_LOCKABLE        :
+      return L"D32F_LOCKABLE (82)";
+    case D3DFMT_D24FS8               :
+      return L"D24FS8 (83)";
+
+/* D3D9Ex only -- */
+#if !defined(D3D_DISABLE_9EX)
+
+    /* Z-Stencil formats valid for CPU access */
+    case D3DFMT_D32_LOCKABLE         :
+      return L"D32_LOCKABLE (84)";
+    case D3DFMT_S8_LOCKABLE          :
+      return L"S8_LOCKABLE (85)";
+
+#endif // !D3D_DISABLE_9EX
+
+
+
+    case D3DFMT_L16                  :
+      return L"L16 (81)";
+
+    case D3DFMT_VERTEXDATA           :
+      return L"VERTEXDATA (100)";
+    case D3DFMT_INDEX16              :
+      return L"INDEX16 (101)";
+    case D3DFMT_INDEX32              :
+      return L"INDEX32 (102)";
+
+    case D3DFMT_Q16W16V16U16         :
+      return L"Q16W16V16U16 (110)";
+
+    case D3DFMT_MULTI2_ARGB8         :
+      return L"FourCC 'MET1'";
+
+    // Floating point surface formats
+
+    // s10e5 formats (16-bits per channel)
+    case D3DFMT_R16F                 :
+      return L"R16F (111)";
+    case D3DFMT_G16R16F              :
+      return L"G16R16F (112)";
+    case D3DFMT_A16B16G16R16F        :
+      return L"A16B16G16R16F (113)";
+
+    // IEEE s23e8 formats (32-bits per channel)
+    case D3DFMT_R32F                 :
+      return L"R32F (114)";
+    case D3DFMT_G32R32F              :
+      return L"G32R32F (115)";
+    case D3DFMT_A32B32G32R32F        :
+      return L"A32B32G32R32F (116)";
+
+    case D3DFMT_CxV8U8               :
+      return L"CxV8U8 (117)";
+
+/* D3D9Ex only -- */
+#if !defined(D3D_DISABLE_9EX)
+
+    // Monochrome 1 bit per pixel format
+    case D3DFMT_A1                   :
+      return L"A1 (118)";
+
+    // 2.8 biased fixed point
+    case D3DFMT_A2B10G10R10_XR_BIAS  :
+      return L"A2B10G10R10_XR_BIAS (119)";
+
+
+    // Binary format indicating that the data has no inherent type
+    case D3DFMT_BINARYBUFFER         :
+      return L"BINARYBUFFER (199)";
+
+#endif // !D3D_DISABLE_9EX
+/* -- D3D9Ex only */
+  }
+
+  return L"UNKNOWN?!";
+}
+
+const wchar_t*
+SK_D3D9_PoolToStr (D3DPOOL pool)
+{
+  switch (pool)
+  {
+    case D3DPOOL_DEFAULT:
+      return L"    Default   (0)";
+    case D3DPOOL_MANAGED:
+      return L"    Managed   (1)";
+    case D3DPOOL_SYSTEMMEM:
+      return L"System Memory (2)";
+    case D3DPOOL_SCRATCH:
+      return L"   Scratch    (3)";
+    default:
+      return L"   UNKNOWN?!     ";
+  }
+}
+
+COM_DECLSPEC_NOTHROW
+__declspec (noinline)
+HRESULT
+STDMETHODCALLTYPE
+D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
+                              IDirect3DSurface9   *pSourceSurface,
+                        const RECT                *pSourceRect,
+                              IDirect3DSurface9   *pDestSurface,
+                        const RECT                *pDestRect,
+                              D3DTEXTUREFILTERTYPE Filter )
+{
+  {
+    RECT source, dest;
+
+    if (pSourceRect == nullptr) {
+      D3DSURFACE_DESC desc;
+      pSourceSurface->GetDesc (&desc);
+      source.left   = 0;
+      source.top    = 0;
+      source.bottom = desc.Height;
+      source.right  = desc.Width;
+    } else
+      source = *pSourceRect;
+
+    if (pDestRect == nullptr) {
+      D3DSURFACE_DESC desc;
+      pDestSurface->GetDesc (&desc);
+      dest.left   = 0;
+      dest.top    = 0;
+      dest.bottom = desc.Height;
+      dest.right  = desc.Width;
+    } else
+      dest = *pDestRect;
+
+  tex_log.Log ( L" [!] IDirect3DDevice9::StretchRect (...) "
+                L"%s[%lu,%lu/%lu,%lu] :%s[%lu,%lu/%lu,%lu]",
+                pSourceRect != nullptr ?
+                  L" " : L" *",
+                source.left, source.top, source.right, source.bottom,
+                pDestRect != nullptr ?
+                  L" " : L" *",
+                dest.left,   dest.top,   dest.right,   dest.bottom );
+  }
+
+  return D3D9StretchRect_Original (This, pSourceSurface, pSourceRect,
+                                         pDestSurface,   pDestRect,
+                                         Filter);
+}
+
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9CreateRenderTarget_Detour (IDirect3DDevice9     *This,
+                               UINT                  Width,
+                               UINT                  Height,
+                               D3DFORMAT             Format,
+                               D3DMULTISAMPLE_TYPE   MultiSample,
+                               DWORD                 MultisampleQuality,
+                               BOOL                  Lockable,
+                               IDirect3DSurface9   **ppSurface,
+                               HANDLE               *pSharedHandle)
+{
+  dll_log.Log (L" [!] IDirect3DDevice9::CreateRenderTarget (%lu, %lu, "
+                      L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
+                 Width, Height, Format, MultiSample, MultisampleQuality,
+                 Lockable, ppSurface, pSharedHandle);
+
+  return D3D9CreateRenderTarget_Original (This, Width, Height, Format,
+                                          MultiSample, MultisampleQuality,
+                                          Lockable, ppSurface, pSharedHandle);
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
+                                      UINT                  Width,
+                                      UINT                  Height,
+                                      D3DFORMAT             Format,
+                                      D3DMULTISAMPLE_TYPE   MultiSample,
+                                      DWORD                 MultisampleQuality,
+                                      BOOL                  Discard,
+                                      IDirect3DSurface9   **ppSurface,
+                                      HANDLE               *pSharedHandle)
+{
+  dll_log.Log (L" [!] IDirect3DDevice9::CreateDepthStencilSurface (%lu, %lu, "
+                      L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
+                 Width, Height, Format, MultiSample, MultisampleQuality,
+                 Discard, ppSurface, pSharedHandle);
+
+  return D3D9CreateDepthStencilSurface_Original (This, Width, Height, Format,
+                                                 MultiSample, MultisampleQuality,
+                                                 Discard, ppSurface, pSharedHandle);
+}
+
+//
+// We will StretchRect (...) these into our textures whenever they are dirty and
+//   one of the textures they are associated with are bound.
+//
+#include <set>
+#include <map>
+std::set           <IDirect3DSurface9*>                     msaa_surfs;       // Smurfs? :)
+std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*> msaa_backing_map;
+std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*> rt_msaa;
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9SetTexture_Detour (
+                  _In_ IDirect3DDevice9      *This,
+                  _In_ DWORD                  Sampler,
+                  _In_ IDirect3DBaseTexture9 *pTexture
+)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9SetTexture_Original (This, Sampler, pTexture);
+  }
+
+  if (config.render.msaa_samples > 0) {
+    if (msaa_backing_map.find ((IDirect3DTexture9 *)pTexture) != msaa_backing_map.end ()) {
+      IDirect3DSurface9* pSurf = nullptr;
+      if (SUCCEEDED (((IDirect3DTexture9 *)pTexture)->GetSurfaceLevel (0, &pSurf))) {
+//        tex_log.Log (L"MSAA Resolve (StretchRect)");
+        D3D9StretchRect_Original (This, msaa_backing_map [(IDirect3DTexture9 *)pTexture], nullptr,
+                                        pSurf,                                            nullptr,
+                                        D3DTEXF_LINEAR);
+        pSurf->Release ();
+      }
+    }
+  }
+
+  return D3D9SetTexture_Original (This, Sampler, pTexture);
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9SetRenderTarget_Detour (
+                  _In_ IDirect3DDevice9  *This,
+                  _In_ DWORD              RenderTargetIndex,
+                  _In_ IDirect3DSurface9 *pRenderTarget
+)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pRenderTarget);
+  }
+
+  if (config.render.msaa_samples > 0) {
+    if (rt_msaa.find (pRenderTarget) != rt_msaa.end ()) {
+//      tex_log.Log (L"MSAA RenderTarget Override");
+      IDirect3DSurface9* pSurf = rt_msaa [pRenderTarget];
+      return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pSurf);
+    }
+  }
+
+  return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pRenderTarget);
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9SetDepthStencilSurface_Detour (
+                  _In_ IDirect3DDevice9  *This,
+                  _In_ IDirect3DSurface9 *pNewZStencil
+)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9SetDepthStencilSurface_Original (This, pNewZStencil);
+  }
+
+  if (config.render.msaa_samples > 0) {
+    if (rt_msaa.find (pNewZStencil) != rt_msaa.end ()) {
+      return D3D9SetDepthStencilSurface_Original ( This,
+                                                     rt_msaa [pNewZStencil] );
+    }
+  }
+
+  return D3D9SetDepthStencilSurface_Original (This, pNewZStencil);
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
+                          UINT                Width,
+                          UINT                Height,
+                          UINT                Levels,
+                          DWORD               Usage,
+                          D3DFORMAT           Format,
+                          D3DPOOL             Pool,
+                          IDirect3DTexture9 **ppTexture,
+                          HANDLE             *pSharedHandle)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9CreateTexture_Original ( This, Width, Height,
+                                          Levels, Usage, Format,
+                                            Pool, ppTexture, pSharedHandle );
+  }
+
+  // We don't hook this, but we still use it...
+  if (D3D9CreateRenderTarget_Original == nullptr) {
+    static HMODULE hModD3D9 =
+      GetModuleHandle (config.system.injector.c_str ());
+    D3D9CreateRenderTarget_Original =
+      (CreateRenderTarget_pfn)
+        GetProcAddress (hModD3D9, "D3D9CreateRenderTarget_Override");
+  }
+
+  // We don't hook this, but we still use it...
+  if (D3D9CreateDepthStencilSurface_Original == nullptr) {
+    static HMODULE hModD3D9 =
+      GetModuleHandle (config.system.injector.c_str ());
+    D3D9CreateDepthStencilSurface_Original =
+      (CreateDepthStencilSurface_pfn)
+        GetProcAddress (hModD3D9, "D3D9CreateDepthStencilSurface_Override");
+  }
+
+#if 1
+  bool create_msaa_surf = config.render.msaa_samples > 0;
+#else
+  bool create_msaa_surf = false;
+#endif
+
+  // Resize the primary framebuffer
+  if (Width == 1280 && Height == 720) {
+    if (((Usage & D3DUSAGE_RENDERTARGET) && Format == D3DFMT_A8R8G8B8) ||
+                                            Format == D3DFMT_D24S8) {
+      Width  = tsf::RenderFix::width;
+      Height = tsf::RenderFix::height;
+    } else {
+      // Not a rendertarget!
+      create_msaa_surf = false;
+    }
+  }
+
+  else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
+    Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
+    Height = tsf::RenderFix::height * config.render.postproc_ratio;
+  }
+
+  else {
+    create_msaa_surf = false;
+  }
+
+  HRESULT result =
+    D3D9CreateTexture_Original ( This, Width, Height,
+                                   Levels, Usage, Format,
+                                     Pool, ppTexture, pSharedHandle );
+
+  if (create_msaa_surf) {
+    IDirect3DSurface9* pSurf;
+
+    HRESULT hr = E_FAIL;
+
+    if (! (Usage & D3DUSAGE_DEPTHSTENCIL)) {
+      hr = 
+        D3D9CreateRenderTarget_Original ( This,
+                                            Width, Height, Format,
+                                              (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
+                                                                   config.render.msaa_quality,
+                                                FALSE,
+                                                  &pSurf, nullptr);
+    } else {
+      hr = 
+        D3D9CreateDepthStencilSurface_Original ( This,
+                                                   Width, Height, Format,
+                                                     (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
+                                                                          config.render.msaa_quality,
+                                                       FALSE,
+                                                         &pSurf, nullptr);
+    }
+
+    if (SUCCEEDED (hr)) {
+      msaa_surfs.insert       (pSurf);
+      msaa_backing_map.insert (
+        std::pair <IDirect3DTexture9*, IDirect3DSurface9*> (
+          *ppTexture, pSurf
+        )
+      );
+
+      IDirect3DSurface9* pFakeSurf = nullptr;
+      (*ppTexture)->GetSurfaceLevel (0, &pFakeSurf);
+      rt_msaa.insert (
+        std::pair <IDirect3DSurface9*, IDirect3DSurface9*> (
+          pFakeSurf, pSurf
+        )
+      );
+    } else {
+      tex_log.Log ( L" >> ERROR: Unable to Create MSAA Surface for Render Target: "
+                    L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
+                        Width, Height,
+                          SK_D3D9_FormatToStr (Format),
+                          SK_D3D9_UsageToStr  (Usage).c_str (),
+                          SK_D3D9_PoolToStr   (Pool) );
+    }
+  }
+
+  return result;
+}
 
 static uint32_t crc32_tab[] = { 
    0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 
@@ -227,10 +759,41 @@ tsf::RenderFix::TextureManager::Init (void)
   tex_log.silent = false;
   tex_log.init ("logs/textures.log", "w+");
 
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9StretchRect_Override",
+                         D3D9StretchRect_Detour,
+               (LPVOID*)&D3D9StretchRect_Original );
+#if 0
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9CreateDepthStencilSurface_Override",
+                         D3D9CreateDepthStencilSurface_Detour,
+               (LPVOID*)&D3D9CreateDepthStencilSurface_Original );
+#endif
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9CreateTexture_Override",
+                         D3D9CreateTexture_Detour,
+               (LPVOID*)&D3D9CreateTexture_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetTexture_Override",
+                         D3D9SetTexture_Detour,
+               (LPVOID*)&D3D9SetTexture_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetRenderTarget_Override",
+                         D3D9SetRenderTarget_Detour,
+               (LPVOID*)&D3D9SetRenderTarget_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetDepthStencilSurface_Override",
+                         D3D9SetDepthStencilSurface_Detour,
+               (LPVOID*)&D3D9SetDepthStencilSurface_Original );
+
   TSFix_CreateDLLHook ( L"D3DX9_43.DLL",
-                     "D3DXCreateTextureFromFileInMemoryEx",
-                      D3DXCreateTextureFromFileInMemoryEx_Detour,
-           (LPVOID *)&D3DXCreateTextureFromFileInMemoryEx_Original );
+                         "D3DXCreateTextureFromFileInMemoryEx",
+                          D3DXCreateTextureFromFileInMemoryEx_Detour,
+               (LPVOID *)&D3DXCreateTextureFromFileInMemoryEx_Original );
 
   D3DXSaveTextureToFile =
     (D3DXSaveTextureToFile_pfn)
@@ -246,7 +809,91 @@ tsf::RenderFix::TextureManager::Shutdown (void)
   // 33.3 ms per-frame (30 FPS)
   const float frame_time = 33.3f;
 
-  tex_log.Log ( L"At shutdown: %f ms worth of time (%f frames) saved by caching",
+  tex_mgr.reset ();
+
+  tex_log.Log ( L"At shutdown: %7.2f ms worth of time (%7.2f frames) saved by caching",
                   time_saved, time_saved / frame_time );
   tex_log.close ();
+}
+
+void
+tsf::RenderFix::TextureManager::reset (void)
+{
+  int underflows   = 0;
+
+  int ext_refs     = 0;
+  int ext_textures = 0;
+
+  int release_count = 0;
+  int ref_count     = 0;
+
+  tex_log.Log (L" -- TextureManager::reset (...) -- ");
+
+  tex_log.LogEx (true, L"   Releasing textures...     ");
+
+  std::unordered_map <uint32_t, tsf::RenderFix::Texture *>::iterator it =
+    textures.begin ();
+
+  while (it != textures.end ()) {
+    int tex_refs = 0;
+    release_count++;
+    for (int i = 0; i < (*it).second->refs; i++) {
+      ref_count++;
+      tex_refs = (*it).second->d3d9_tex->Release ();
+    }
+
+    if (tex_refs > 0) {
+      ext_refs     += tex_refs;
+      ext_textures ++;
+    }
+
+   if (tex_refs < 0) {
+     ++underflows;
+   }
+
+    it = textures.erase (it);
+  }
+
+  tex_log.LogEx ( false, L" %4d textures (%4d references)\n",
+                           release_count, ref_count );
+
+  if (ext_refs > 0) {
+    tex_log.Log ( L"  >> WARNING: The game is still holding references (%d) to %d textures !!!",
+                    ext_refs, ext_textures );
+  }
+
+  if (underflows) {
+    tex_log.Log ( L"  >> WARNING: Reference counting sanity check failed: "
+                  L"Reference Underflow (%d times) !!!",
+                    underflows );
+  }
+
+  if (config.render.msaa_samples > 0) {
+    tex_log.LogEx (true, L"   Releasing MSAA surfaces... ");
+
+    int count = 0,
+        refs  = 0;
+
+    std::set <IDirect3DSurface9 *>::iterator it =
+      msaa_surfs.begin ();
+
+    while (it != msaa_surfs.end ()) {
+      ++count;
+
+      if ((*it) != nullptr)
+        refs += (*it)->Release ();
+      else
+        refs++;
+
+      it = msaa_surfs.erase (it);
+    }
+
+    msaa_backing_map.clear ();
+    rt_msaa.clear          ();
+
+    tex_log.LogEx ( false, L"%4d surfaces (%4d zombies)\n",
+                      count, refs );
+  }
+
+  tex_log.Log (L" ----------- Finished ------------ ");
 }
