@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.4.1";
+std::wstring TSFIX_VER_STR = L"0.4.2";
 tsf_config_s config;
 
 struct {
@@ -44,6 +44,7 @@ struct {
 
 struct {
   tsf::ParameterBool*    fix;
+  tsf::ParameterBool*    bypass;
   tsf::ParameterFloat*   fudge_factor;
   tsf::ParameterFloat*   tolerance;
   tsf::ParameterInt*     shortest_sleep;
@@ -182,6 +183,16 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Stutter",
         L"Fix" );
+
+  stutter.bypass =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Bypass Namco's Limiter")
+      );
+  stutter.bypass->register_to_ini (
+    dll_ini,
+      L"TSFix.Stutter",
+        L"Bypass" );
 
   stutter.fudge_factor =
     static_cast <tsf::ParameterFloat *>
@@ -388,6 +399,9 @@ TSFix_LoadConfig (std::wstring name) {
   if (stutter.fix->load ())
     config.stutter.fix = stutter.fix->get_value ();
 
+  if (stutter.bypass->load ())
+    config.stutter.bypass = stutter.bypass->get_value ();
+
   if (stutter.fudge_factor->load ())
     config.stutter.fudge_factor = stutter.fudge_factor->get_value ();
 
@@ -476,7 +490,10 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
 
   stutter.fix->set_value              (config.stutter.fix);
-  stutter.fix->store ();
+  stutter.fix->store                  ();
+
+  stutter.bypass->set_value           (config.stutter.bypass);
+  stutter.bypass->store               ();
 
   stutter.fudge_factor->set_value     (config.stutter.fudge_factor);
   stutter.fudge_factor->store         ();

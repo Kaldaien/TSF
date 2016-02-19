@@ -48,6 +48,14 @@ SK_D3D9_UsageToStr (DWORD dwUsage)
   return usage;
 }
 
+//jne 005C9203
+
+//sec34FC.tmp+1C91FA - 72 D1                 - jb sec34FC.tmp+1C91CD
+
+//sec2F9C.tmp+1CBB8A - A1 C0408A00           - mov eax,[sec2F9C.tmp+4A40C0] { [00000002] }
+//sec2F9C.tmp+1CBB8F - 8B 0D AC408A00        - mov ecx,[sec2F9C.tmp+4A40AC] { [00000002] }
+
+
 const wchar_t*
 SK_D3D9_FormatToStr (D3DFORMAT Format)
 {
@@ -311,7 +319,7 @@ D3D9CreateRenderTarget_Detour (IDirect3DDevice9     *This,
                                IDirect3DSurface9   **ppSurface,
                                HANDLE               *pSharedHandle)
 {
-  dll_log.Log (L" [!] IDirect3DDevice9::CreateRenderTarget (%lu, %lu, "
+  tex_log.Log (L" [!] IDirect3DDevice9::CreateRenderTarget (%lu, %lu, "
                       L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
                  Width, Height, Format, MultiSample, MultisampleQuality,
                  Lockable, ppSurface, pSharedHandle);
@@ -334,7 +342,7 @@ D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
                                       IDirect3DSurface9   **ppSurface,
                                       HANDLE               *pSharedHandle)
 {
-  dll_log.Log (L" [!] IDirect3DDevice9::CreateDepthStencilSurface (%lu, %lu, "
+  tex_log.Log (L" [!] IDirect3DDevice9::CreateDepthStencilSurface (%lu, %lu, "
                       L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
                  Width, Height, Format, MultiSample, MultisampleQuality,
                  Discard, ppSurface, pSharedHandle);
@@ -683,7 +691,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       MipLevels = D3DX_DEFAULT;
   }
 
-  //dll_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
+  //tex_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
   HRESULT hr = D3DXCreateTextureFromFileInMemoryEx_Original (pDevice, pSrcData, SrcDataSize, Width, Height, MipLevels, Usage, Format, Pool, Filter, MipFilter, ColorKey, pSrcInfo, pPalette, ppTexture);
 
   if (config.textures.cache) {

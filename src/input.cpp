@@ -184,6 +184,28 @@ IDirectInputDevice8_SetCooperativeLevel_pfn
     dll_log.LogEx (false, L"(ret=S_OK)\n\n");                            \
 }
 
+#define __PTR_SIZE   sizeof LPCVOID 
+#define __PAGE_PRIVS PAGE_EXECUTE_READWRITE 
+ 
+#define DI8_VIRTUAL_OVERRIDE(_Base,_Index,_Name,_Override,_Original,_Type) {   \
+   void** vftable = *(void***)*_Base;                                          \
+                                                                               \
+   if (vftable [_Index] != _Override) {                                        \
+     DWORD dwProtect;                                                          \
+                                                                               \
+     VirtualProtect (&vftable [_Index], __PTR_SIZE, __PAGE_PRIVS, &dwProtect); \
+                                                                               \
+     /*if (_Original == NULL)                                                */\
+       _Original = (##_Type)vftable [_Index];                                  \
+                                                                               \
+     vftable [_Index] = _Override;                                             \
+                                                                               \
+     VirtualProtect (&vftable [_Index], __PTR_SIZE, dwProtect, &dwProtect);    \
+                                                                               \
+  }                                                                            \
+ }
+
+
 
 struct di8_keyboard_s {
   LPDIRECTINPUTDEVICE pDev = nullptr;
@@ -205,8 +227,11 @@ IDirectInputDevice8_GetDeviceState_Detour ( LPDIRECTINPUTDEVICE        This,
                                             LPVOID                     lpvData )
 {
   // This seems to be the source of some instability in the game.
-  if (tsf::RenderFix::tracer.log || cbData > 256 || lpvData == nullptr)
-    dll_log.Log (L"GetDeviceState - cbData: %lu, lpvData: %p", cbData, lpvData);
+  if (/*tsf::RenderFix::tracer.log ||*/ This == _dik.pDev && cbData > 256 || lpvData == nullptr)
+    dll_log.Log ( L" [Input] Suspicious GetDeviceState - cbData: "
+                  L"%lu, lpvData: %p",
+                    cbData,
+                      lpvData );
 
   // For input faking (keyboard)
   if ((! tsf::window.active) && config.render.allow_background && This == _dik.pDev) {
@@ -300,10 +325,7 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
                                                            pUnkOuter ) );
 
   if (SUCCEEDED (hr)) {
-    static bool hooked = false; // Only do this once
-
-    if ((! hooked) && (rguid == GUID_SysMouse ||
-                       rguid == GUID_SysKeyboard)) {
+#if 0
       void** vftable = *(void***)*lplpDirectInputDevice;
 
       TSFix_CreateFuncHook ( L"IDirectInputDevice8::GetDeviceState",
@@ -319,7 +341,19 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
                    (LPVOID*)&IDirectInputDevice8_SetCooperativeLevel_Original );
 
       TSFix_EnableHook (vftable [13]);
-    }
+#else
+     DI8_VIRTUAL_OVERRIDE ( lplpDirectInputDevice, 9,
+                            L"IDirectInputDevice8::GetDeviceState",
+                            IDirectInputDevice8_GetDeviceState_Detour,
+                            IDirectInputDevice8_GetDeviceState_Original,
+                            IDirectInputDevice8_GetDeviceState_pfn );
+
+     DI8_VIRTUAL_OVERRIDE ( lplpDirectInputDevice, 13,
+                            L"IDirectInputDevice8::SetCooperativeLevel",
+                            IDirectInputDevice8_SetCooperativeLevel_Detour,
+                            IDirectInputDevice8_SetCooperativeLevel_Original,
+                            IDirectInputDevice8_SetCooperativeLevel_pfn );
+#endif
 
     if (rguid == GUID_SysMouse)
       _dim.pDev = *lplpDirectInputDevice;
@@ -353,15 +387,22 @@ DirectInput8Create_Detour ( HINSTANCE  hinst,
   static bool hooked = false;
 
   if (SUCCEEDED (hr) && (! hooked)) {
+#if 0
     void** vftable = *(void***)*ppvOut;
 
     TSFix_CreateFuncHook ( L"IDirectInput8::CreateDevice",
                            vftable [3],
                            IDirectInput8_CreateDevice_Detour,
-                 (LPVOID*)&IDirectInput8_CreateDevice_Original );
+                 (LPVOID*)&IDirectInput8_CreateDevice_Originfal );
 
     TSFix_EnableHook (vftable [3]);
-
+#else
+     DI8_VIRTUAL_OVERRIDE ( ppvOut, 3,
+                            L"IDirectInput8::CreateDevice",
+                            IDirectInput8_CreateDevice_Detour,
+                            IDirectInput8_CreateDevice_Original,
+                            IDirectInput8_CreateDevice_pfn );
+#endif
     hooked = true;
   }
 

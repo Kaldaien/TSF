@@ -83,6 +83,10 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   tsf::RenderFix::draw_state.use_msaa = use_msaa &&
                                         tsf::RenderFix::draw_state.has_msaa;
 
+  //  Is the window in the foreground? (NV compatibility hack)
+  if ((! tsf::window.active) && config.render.disable_bg_msaa)
+    tsf::RenderFix::draw_state.use_msaa = false;
+
   return hr;
 }
 
@@ -132,6 +136,11 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                                             config.render.msaa_samples;
             pparams->MultiSampleQuality = min ( dwQualityLevels-1,
                                                   config.render.msaa_quality );
+
+            // After range restriction, write the correct value back to the config
+            //   file
+            config.render.msaa_quality =
+              pparams->MultiSampleQuality;
 
             dll_log.Log ( L" (*) Selected %dxMSAA Quality Level: %d",
                             pparams->MultiSampleType,
@@ -387,17 +396,17 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
     return D3D9BeginScene_Original (This);
   }
 
-  // Turn this on at the beginning of every frame
+  bool msaa = false;
+
   if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.has_msaa &&
                                         tsf::RenderFix::draw_state.use_msaa) {
-    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
-                                    D3DRS_MULTISAMPLEANTIALIAS,
-                                      1 );
-  } else {
-    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
-                                    D3DRS_MULTISAMPLEANTIALIAS,
-                                      0 );
+    msaa = true;
   }
+
+  // Turn this on/off at the beginning of every frame
+  D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      msaa );
 
   return D3D9BeginScene_Original (This);
 }
@@ -504,17 +513,15 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                                                      primCount );
   }
 
-#if 0
   if (tsf::RenderFix::tracer.log) {
     dll_log.Log ( L" DrawIndexedPrimitive - %X, BaseIdx: %li, MinVtxIdx: %lu, NumVertices: %lu, "
                                               L"startIndex: %lu, primCount: %lu",
                     Type, BaseVertexIndex, MinVertexIndex,
                       NumVertices, startIndex, primCount );
 
-    if (draw_state.outlines)
+    if (tsf::RenderFix::draw_state.outlines)
       dll_log.Log ( L"  ** Outline ** ");
   }
-#endif
 
   //
   // Detect slimes

@@ -105,10 +105,6 @@ DllMain (HMODULE hModule,
 
     HANDLE hThread =
       CreateThread (NULL, NULL, DllThread, 0, 0, NULL);
-
-    // Initialization delay
-    if (hThread != 0)
-      WaitForSingleObject (hThread, 250UL);
   } break;
 
   case DLL_PROCESS_DETACH:

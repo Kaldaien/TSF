@@ -44,18 +44,20 @@ struct tsf_config_s
     float    postproc_ratio    = 0.5f;
     int      msaa_samples      = 0;
     int      msaa_quality      = 0;
+    bool     disable_bg_msaa   = true; // NV compatibility hack
     bool     durante_scissor   = false;
   } render;
 
   struct {
-    bool     fix              = true;
+    bool     fix              = false;
+    bool     bypass           = true;
     float    fudge_factor     = 1.666666f; // FUDGE
     float    tolerance        = 0.333333f; // 33%
-    int      shortest_sleep   = 4;         // 4 ms
+    int      shortest_sleep   = 1;         // 1 ms
   } stutter;
 
   struct {
-    int      max_anisotropy   = 16;
+    int      max_anisotropy   = 4;
     bool     cache            = true;
     bool     uncompressed     = true;
     bool     optimize_ui      = true;
@@ -71,7 +73,6 @@ struct tsf_config_s
     bool hud        = false;
     bool menus      = false;
     bool minimap    = false;
-    bool nametags   = false;
   } trace;
 
   struct {
