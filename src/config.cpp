@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.4.2";
+std::wstring TSFIX_VER_STR = L"0.4.3";
 tsf_config_s config;
 
 struct {
@@ -40,6 +40,7 @@ struct {
   tsf::ParameterFloat*   postproc_ratio;
   tsf::ParameterInt*     msaa_samples;
   tsf::ParameterInt*     msaa_quality;
+  tsf::ParameterBool*    background_msaa;
 } render;
 
 struct {
@@ -173,6 +174,18 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Render",
         L"MSAA_Quality" );
+
+  render.background_msaa =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"MSAA Disable in BG")
+      );
+  render.background_msaa->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"BackgroundMSAA" );
+
+
 
   stutter.fix =
     static_cast <tsf::ParameterBool *>
@@ -394,6 +407,9 @@ TSFix_LoadConfig (std::wstring name) {
 
   if (render.msaa_quality->load ())
     config.render.msaa_quality = render.msaa_quality->get_value ();
+
+  if (render.background_msaa->load ())
+    config.render.disable_bg_msaa = (! render.background_msaa->get_value ());
 
 
   if (stutter.fix->load ())

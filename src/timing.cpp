@@ -184,11 +184,6 @@ WINAPI
 QueryPerformanceCounter_Detour (
   _Out_ LARGE_INTEGER *lpPerformanceCount
 ){
-  // Simple pass-through if this config option is set.
-  if (config.stutter.bypass)
-    return QueryPerformanceCounter_Original (lpPerformanceCount);
-
-
   DWORD dwThreadId = GetCurrentThreadId               ();
   BOOL  ret        = QueryPerformanceCounter_Original (lpPerformanceCount);
 
@@ -218,6 +213,13 @@ QueryPerformanceCounter_Detour (
     memcpy (&last_perfCount, lpPerformanceCount, sizeof (LARGE_INTEGER));
 
   return ret;
+}
+
+// Bugger off!
+void
+NamcoLimiter_Detour (DWORD dwUnknown0, DWORD dwUnknown1, DWORD dwUnknwnown2)
+{
+  return;
 }
 
 void
@@ -265,17 +267,6 @@ tsf::TimingFix::Init (void)
     0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00
   };
 
-  /*
-  90 90 90 90 90 90 90  - nop nop nop ... nop
-  53                    - push ebx
-  56                    - push esi
-  57                    - push edi
-  90 90 90 90 90 90     - nop nop ... nop
-  90 90 90 90 90 90 90  - nop nop nop ... nop
-  E9 X1 YY ZZ WW        - jmp sec*.tmp+1C92B1
-  90                    - nop
-  */
-
   uint8_t *pLimiterFunc = nullptr;
 
   if (config.stutter.bypass) {
@@ -293,40 +284,12 @@ tsf::TimingFix::Init (void)
                   L"%ph",
                     pLimiterFunc );
 
-    /* nop all of the comparisons and superfluous jump on equality */
-    static uint8_t limiter_disable_cmp [] = {
-      0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-      0x53, 0x56, 0x57,
-      0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-      0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
-    };
-
-    /* New Instruction:  jmp XXYYZZWW (nop) */
-    static uint8_t limiter_disable_jmp [] = {
-      0xE9, 0x00, 0x00, 0x00, 0x00, 0x90
-    };    // X+1    YY    ZZ    WW  nop
-
-
-    uint8_t *pLimiterCmp =
-      pLimiterFunc + 9;
-
-    uint8_t *pLimiterJmp =
-      pLimiterCmp  + sizeof (limiter_disable_cmp);
-
-
-    *(uint32_t *)(limiter_disable_jmp+1)  = *(uint32_t *)(pLimiterJmp+2); 
-                *(limiter_disable_jmp+1) += 0x01;
-
-
-    TSF_InjectMachineCode ( pLimiterCmp,
-                              limiter_disable_cmp,
-                                sizeof (limiter_disable_cmp),
-                                  PAGE_EXECUTE_READWRITE );
-
-    TSF_InjectMachineCode ( pLimiterJmp,
-                              limiter_disable_jmp,
-                                sizeof (limiter_disable_jmp),
-                                  PAGE_EXECUTE_READWRITE );
+    // We will never be calling the original function, so ... who cares?
+    LPVOID lpvDontCare;
+    TSFix_CreateFuncHook ( L"NamcoLimiter", pLimiterFunc,
+                           NamcoLimiter_Detour,
+                           &lpvDontCare );
+    TSFix_EnableHook     (pLimiterFunc);
 
 
     HMODULE hModKernel32 = GetModuleHandle (L"kernel32.dll");

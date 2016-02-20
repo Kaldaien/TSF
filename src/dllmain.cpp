@@ -50,6 +50,14 @@ DWORD
 WINAPI
 DllThread (LPVOID user)
 {
+  dll_log.init ("logs/tsfix.log", "w");
+  dll_log.Log  (L"tsfix.log created");
+
+  if (! TSFix_LoadConfig ()) {
+    // Save a new config if none exists
+    TSFix_SaveConfig ();
+  }
+
   std::wstring plugin_name = L"Tales of Symphonia \"Fix\" v " + TSFIX_VER_STR;
 
   hInjectorDLL =
@@ -74,8 +82,8 @@ DllThread (LPVOID user)
     tsf::WindowManager::Init ();
     tsf::WinsockHook::Init   ();
     tsf::InputManager::Init  ();
-    tsf::TimingFix::Init     ();
     tsf::RenderFix::Init     ();
+    tsf::TimingFix::Init     ();
   }
 
   return 0;
@@ -91,17 +99,7 @@ DllMain (HMODULE hModule,
   {
   case DLL_PROCESS_ATTACH:
   {
-    DisableThreadLibraryCalls (hModule);
-
     hDLLMod = hModule;
-
-    dll_log.init ("logs/tsfix.log", "w");
-    dll_log.Log  (L"tsfix.log created");
-
-    if (! TSFix_LoadConfig ()) {
-      // Save a new config if none exists
-      TSFix_SaveConfig ();
-    }
 
     HANDLE hThread =
       CreateThread (NULL, NULL, DllThread, 0, 0, NULL);

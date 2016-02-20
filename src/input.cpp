@@ -164,6 +164,8 @@ typedef HRESULT (WINAPI *IDirectInputDevice8_SetCooperativeLevel_pfn)(
 
 DirectInput8Create_pfn
         DirectInput8Create_Original                      = nullptr;
+LPVOID
+        DirectInput8Create_Hook                          = nullptr;
 IDirectInput8_CreateDevice_pfn
         IDirectInput8_CreateDevice_Original              = nullptr;
 IDirectInputDevice8_GetDeviceState_pfn
@@ -325,15 +327,18 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
                                                            pUnkOuter ) );
 
   if (SUCCEEDED (hr)) {
-#if 0
+#if 1
       void** vftable = *(void***)*lplpDirectInputDevice;
 
+// We do not need to hook this for ToS
+#if 0
       TSFix_CreateFuncHook ( L"IDirectInputDevice8::GetDeviceState",
                              vftable [9],
                              IDirectInputDevice8_GetDeviceState_Detour,
                    (LPVOID*)&IDirectInputDevice8_GetDeviceState_Original );
 
       TSFix_EnableHook (vftable [9]);
+#endif
 
       TSFix_CreateFuncHook ( L"IDirectInputDevice8::SetCooperativeLevel",
                              vftable [13],
@@ -383,17 +388,22 @@ DirectInput8Create_Detour ( HINSTANCE  hinst,
                                         ppvOut,
                                           punkOuter ));
 
+  if (hinst != GetModuleHandle (nullptr)) {
+    dll_log.Log (L" >> A third-party DLL is manipulating DirectInput 8; will not hook.");
+    return hr;
+  }
+
   // Avoid multiple hooks for third-party compatibility
   static bool hooked = false;
 
   if (SUCCEEDED (hr) && (! hooked)) {
-#if 0
+#if 1
     void** vftable = *(void***)*ppvOut;
 
     TSFix_CreateFuncHook ( L"IDirectInput8::CreateDevice",
                            vftable [3],
                            IDirectInput8_CreateDevice_Detour,
-                 (LPVOID*)&IDirectInput8_CreateDevice_Originfal );
+                 (LPVOID*)&IDirectInput8_CreateDevice_Original );
 
     TSFix_EnableHook (vftable [3]);
 #else
@@ -572,8 +582,9 @@ tsf::InputManager::Init (void)
   //
   TSFix_CreateDLLHook ( L"dinput8.dll", "DirectInput8Create",
                         DirectInput8Create_Detour,
-              (LPVOID*)&DirectInput8Create_Original );
-
+              (LPVOID*)&DirectInput8Create_Original,
+              (LPVOID*)&DirectInput8Create_Hook );
+  TSFix_EnableHook    (DirectInput8Create_Hook);
 
   //
   // Win32 API Input Hooks
@@ -811,6 +822,11 @@ LRESULT
 CALLBACK
 tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam)
 {
+  static uint32_t freq = 0;
+
+  if (freq == 0)
+    freq = *(uint32_t *)0x00B24A88;
+
   if (nCode >= 0) {
     BYTE    vkCode   = LOWORD (wParam) & 0xFF;
     BYTE    scanCode = HIWORD (lParam) & 0x7F;
@@ -942,6 +958,59 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
         else if (vkCode == VK_OEM_COMMA && new_press) {
           pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
         }
+
+#if 0
+        else if (vkCode == '3' && new_press) {
+          uint32_t *pFreq = (uint32_t *)0x00B24A88;
+
+          DWORD dwOld;
+          VirtualProtect (pFreq, 4, PAGE_READWRITE, &dwOld);
+          *pFreq = freq * 2;
+          VirtualProtect (pFreq, 4, dwOld, &dwOld);
+
+          uint32_t *pTickScale = (uint32_t *)0x01DAE290;
+
+          VirtualProtect (pTickScale, 4, PAGE_READWRITE, &dwOld);
+          *pTickScale = 1;
+          VirtualProtect (pTickScale, 4, dwOld, &dwOld);
+
+          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 15.0");
+        }
+
+
+        else if (vkCode == '1' && new_press) {
+          uint32_t *pFreq = (uint32_t *)0x00B24A88;
+
+          DWORD dwOld;
+          VirtualProtect (pFreq, 4, PAGE_READWRITE, &dwOld);
+          *pFreq = freq;
+          VirtualProtect (pFreq, 4, dwOld, &dwOld);
+
+          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 60.0");
+
+          uint32_t *pTickScale = (uint32_t *)0x01DAE290;
+          VirtualProtect (pTickScale, 4, PAGE_READWRITE, &dwOld);
+          *pTickScale = freq * 2;
+          VirtualProtect (pTickScale, 4, dwOld, &dwOld);
+        }
+
+        else if (vkCode == '2' && new_press) {
+          uint32_t *pFreq = (uint32_t *)0x00B24A88;
+
+          DWORD dwOld;
+          VirtualProtect (pFreq, 4, PAGE_READWRITE, &dwOld);
+          *pFreq = freq;
+          VirtualProtect (pFreq, 4, dwOld, &dwOld);
+
+          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 30.0");
+
+          uint32_t *pTickScale = (uint32_t *)0x01DAE290;
+
+          VirtualProtect (pTickScale, 4, PAGE_READWRITE, &dwOld);
+          *pTickScale = 2;
+          VirtualProtect (pTickScale, 4, dwOld, &dwOld);
+        }
+#endif
       }
 
       // Don't print the tab character, it's pretty useless.

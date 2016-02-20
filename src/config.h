@@ -49,7 +49,7 @@ struct tsf_config_s
   } render;
 
   struct {
-    bool     fix              = false;
+    bool     fix              = true;
     bool     bypass           = true;
     float    fudge_factor     = 1.666666f; // FUDGE
     float    tolerance        = 0.333333f; // 33%
