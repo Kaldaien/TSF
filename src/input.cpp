@@ -388,6 +388,9 @@ DirectInput8Create_Detour ( HINSTANCE  hinst,
                                         ppvOut,
                                           punkOuter ));
 
+  extern void HookRawInput (void);
+  HookRawInput ();
+
   if (hinst != GetModuleHandle (nullptr)) {
     dll_log.Log (L" >> A third-party DLL is manipulating DirectInput 8; will not hook.");
     return hr;
@@ -568,6 +571,20 @@ GetCursorPos_Detour (LPPOINT lpPoint)
 }
 #endif
 
+void
+HookRawInput (void)
+{
+  // Defer installation of this hook until DirectInput8 is setup
+  if (GetRawInputData_Original == nullptr) {
+    dll_log.LogEx (true, L" Installing Deferred Hook: \"GetRawInputData (...)\"... ");
+    MH_STATUS status =
+      TSFix_CreateDLLHook ( L"user32.dll", "GetRawInputData",
+                            GetRawInputData_Detour,
+                  (LPVOID*)&GetRawInputData_Original );
+   dll_log.LogEx (false, L"%hs\n", MH_StatusToString (status));
+  }
+}
+
 
 
 void
@@ -577,22 +594,28 @@ tsf::InputManager::Init (void)
     ShutdownTouchServices ();
 
   //
-  // We only hook one DLL export from DInput8, all other DInput stuff is
-  //   handled through virtual function table overrides
+  // For this game, the only reason we hook this is to block the Windows key.
   //
-  TSFix_CreateDLLHook ( L"dinput8.dll", "DirectInput8Create",
-                        DirectInput8Create_Detour,
-              (LPVOID*)&DirectInput8Create_Original,
-              (LPVOID*)&DirectInput8Create_Hook );
-  TSFix_EnableHook    (DirectInput8Create_Hook);
+  if (config.input.block_windows) {
+    //
+    // We only hook one DLL export from DInput8, all other DInput stuff is
+    //   handled through virtual function table overrides
+    //
+    TSFix_CreateDLLHook ( L"dinput8.dll", "DirectInput8Create",
+                          DirectInput8Create_Detour,
+                (LPVOID*)&DirectInput8Create_Original,
+                (LPVOID*)&DirectInput8Create_Hook );
+    TSFix_EnableHook    (DirectInput8Create_Hook);
+  }
 
   //
   // Win32 API Input Hooks
   //
 
-  TSFix_CreateDLLHook ( L"user32.dll", "GetRawInputData",
-                        GetRawInputData_Detour,
-              (LPVOID*)&GetRawInputData_Original );
+  // If DirectInput isn't going to hook this, we'll do it ourself
+  if (! config.input.block_windows) {
+    HookRawInput ();
+  }
 
   TSFix_CreateDLLHook ( L"user32.dll", "GetAsyncKeyState",
                         GetAsyncKeyState_Detour,

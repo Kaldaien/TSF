@@ -648,14 +648,25 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 
   QueryPerformanceCounter_Original (&start);
 
+  // Faster CRC32
+#if 0
+  uint32_t checksum =
+    crc32 (0, pSrcData, min (SrcDataSize, 4096));//SrcDataSize);
+  checksum =
+    crc32 (checksum, (uint8_t *)pSrcData + min (1, (SrcDataSize - 4096)), min (4096, 4096 - SrcDataSize - 1));
+#else
+  // FULL CRC32
   uint32_t checksum =
     crc32 (0, pSrcData, SrcDataSize);
+#endif
 
   if (config.textures.cache) {
     tsf::RenderFix::Texture* pTex = tsf::RenderFix::tex_mgr.getTexture (checksum);
 
     if (pTex != nullptr) {
       tsf::RenderFix::tex_mgr.refTexture (pTex);
+      if (config.textures.log)
+        tex_log.Log (L" Src Addr: %p", pSrcData);
 
       *ppTexture = pTex->d3d9_tex;
 
@@ -694,10 +705,13 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   //tex_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
   HRESULT hr = D3DXCreateTextureFromFileInMemoryEx_Original (pDevice, pSrcData, SrcDataSize, Width, Height, MipLevels, Usage, Format, Pool, Filter, MipFilter, ColorKey, pSrcInfo, pPalette, ppTexture);
 
-  if (config.textures.cache) {
-    QueryPerformanceCounter_Original (&end);
+  QueryPerformanceCounter_Original (&end);
 
-    if (SUCCEEDED (hr)) {
+  LARGE_INTEGER freq;
+  QueryPerformanceFrequency (&freq);
+
+  if (SUCCEEDED (hr)) {
+    if (config.textures.cache) {
       tsf::RenderFix::Texture* pTex =
         new tsf::RenderFix::Texture ();
 
@@ -707,12 +721,21 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       pTex->d3d9_tex->AddRef ();
       pTex->refs++;
 
-      LARGE_INTEGER freq;
-      QueryPerformanceFrequency (&freq);
-
       pTex->load_time = 1000.0f * (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart;
 
       tsf::RenderFix::tex_mgr.addTexture (checksum, pTex);
+    }
+
+    if (config.textures.log) {
+      tex_log.Log ( L"Texture:   (%lu x %lu) * <LODs: %lu> - FAST_CRC32: %X",
+                      Width, Height, (*ppTexture)->GetLevelCount (), checksum );
+      tex_log.Log ( L"             Usage: %-20s - Format: %-20s",
+                      SK_D3D9_UsageToStr    (Usage).c_str (),
+                        SK_D3D9_FormatToStr (Format) );
+      tex_log.Log ( L"               Pool: %s",
+                      SK_D3D9_PoolToStr (Pool) );
+      tex_log.Log ( L"     Load Time: %6.4f ms", 
+                    1000.0f * (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart );
     }
   }
 
