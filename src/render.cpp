@@ -131,9 +131,11 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                           dwQualityLevels, config.render.msaa_samples );
 
           if (dwQualityLevels > 0) {
+#if 0
             pparams->SwapEffect         = D3DSWAPEFFECT_DISCARD;
             pparams->MultiSampleType    = (D3DMULTISAMPLE_TYPE)
                                             config.render.msaa_samples;
+#endif
             pparams->MultiSampleQuality = min ( dwQualityLevels-1,
                                                   config.render.msaa_quality );
 
