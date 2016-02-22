@@ -677,6 +677,8 @@ tsf::InputManager::Hooker::End (void)
   UnhookWindowsHookEx (hooks.mouse);
 }
 
+std::string console_text;
+
 void
 tsf::InputManager::Hooker::Draw (void)
 {
@@ -712,6 +714,8 @@ tsf::InputManager::Hooker::Draw (void)
       output += result_str;
     }
   }
+
+  console_text = output;
 
   BMF_DrawExternalOSD ("ToZ Fix", output.c_str ());
 }

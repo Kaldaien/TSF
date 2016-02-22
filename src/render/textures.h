@@ -49,6 +49,10 @@ namespace RenderFix {
 
     void                     reset (void);
 
+    int                      numTextures (void) {
+      return textures.size ();
+    }
+
   private:
     std::unordered_map <uint32_t, tsf::RenderFix::Texture*> textures;
     float                                                   time_saved;

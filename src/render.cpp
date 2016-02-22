@@ -24,6 +24,7 @@
 #include "log.h"
 #include "window.h"
 #include "timing.h"
+#include "hook.h"
 
 #include <stdint.h>
 
@@ -34,6 +35,7 @@
 
 
 BeginScene_pfn                          D3D9BeginScene_Original                      = nullptr;
+EndScene_pfn                            D3D9EndScene_Original                        = nullptr;
 SetScissorRect_pfn                      D3D9SetScissorRect_Original                  = nullptr;
 SetViewport_pfn                         D3D9SetViewport_Original                     = nullptr;
 SetRenderState_pfn                      D3D9SetRenderState_Original                  = nullptr;
@@ -50,6 +52,11 @@ tsf::RenderFix::tracer_s
 
 tsf::RenderFix::tsf_draw_states_s
   tsf::RenderFix::draw_state;
+
+#if 0
+D3DXCreateFontW_pfn D3DXCreateFontW       = nullptr;
+ID3DXFont*          tsf::RenderFix::pFont = nullptr;
+#endif
 
 // This is used to set the draw_state at the end of each frame,
 //   instead of mid-frame.
@@ -90,6 +97,54 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   return hr;
 }
 
+typedef HRESULT (__stdcall *Reset_pfn)(
+  IDirect3DDevice9     *This,
+ D3DPRESENT_PARAMETERS *pPresentationParameters
+);
+
+Reset_pfn D3D9Reset_Original = nullptr;
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+__stdcall
+D3D9Reset_Detour ( IDirect3DDevice9      *This,
+                   D3DPRESENT_PARAMETERS *pPresentationParameters )
+{
+  if (This != tsf::RenderFix::pDevice)
+    return D3D9Reset_Original (This, pPresentationParameters);
+
+  HRESULT hr =
+    D3D9Reset_Original (This, pPresentationParameters);
+
+#if 0
+  if (tsf::RenderFix::pFont != nullptr)
+    tsf::RenderFix::pFont->OnResetDevice ();
+#endif
+
+  return hr;
+}
+
+#define __PTR_SIZE   sizeof LPCVOID 
+#define __PAGE_PRIVS PAGE_EXECUTE_READWRITE 
+ 
+#define D3D9_VIRTUAL_OVERRIDE(_Base,_Index,_Name,_Override,_Original,_Type) {  \
+   void** vftable = *(void***)*_Base;                                          \
+                                                                               \
+   if (vftable [_Index] != _Override) {                                        \
+     DWORD dwProtect;                                                          \
+                                                                               \
+     VirtualProtect (&vftable [_Index], __PTR_SIZE, __PAGE_PRIVS, &dwProtect); \
+                                                                               \
+       if (_Original == NULL)                                                  \
+       _Original = (##_Type)vftable [_Index];                                  \
+                                                                               \
+     vftable [_Index] = _Override;                                             \
+                                                                               \
+     VirtualProtect (&vftable [_Index], __PTR_SIZE, dwProtect, &dwProtect);    \
+                                                                               \
+  }                                                                            \
+ }
+
 COM_DECLSPEC_NOTHROW
 D3DPRESENT_PARAMETERS*
 __stdcall
@@ -109,7 +164,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     return BMF_SetPresentParamsD3D9_Original (device, pparams);
   }
 
-  tsf::RenderFix::tex_mgr.reset ();
+  tsf::RenderFix::tex_mgr.reset        ();
 
   if (pparams != nullptr) {
     //
@@ -126,7 +181,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                       &dwQualityLevels )
                       )
            ) {
-          dll_log.Log ( L" >> Render device has %d quality level(s) avaialable "
+          dll_log.Log ( L" >> Render device has %d quality level(s) available "
                         L"for %d-Sample MSAA.",
                           dwQualityLevels, config.render.msaa_samples );
 
@@ -366,6 +421,18 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
                                                          Vector4fCount );
   }
 
+  tsf::RenderFix::draw_state.last_vs_vec4 = Vector4fCount;
+
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L" SetVertexShaderConstantF - StartRegister: %lu, Vector4fCount: %lu",
+                    StartRegister, Vector4fCount );
+    for (int i = 0; i < Vector4fCount; i++) {
+      dll_log.Log ( L"     - %11.6f %11.6f %11.6f %11.6f",
+                      pConstantData [i*4+0],pConstantData [i*4+1],
+                      pConstantData [i*4+2],pConstantData [i*4+3] );
+    }
+  }
+
   if (StartRegister == 240 && Vector4fCount == 1) {
     D3DVIEWPORT9 vp;
     This->GetViewport (&vp);
@@ -408,13 +475,68 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
     msaa = true;
   }
 
+#if 0
+  if ( This                 != nullptr  &&
+       tsf::RenderFix::pFont == nullptr ) {
+    D3D9_VIRTUAL_OVERRIDE ( &This, 16,
+                            L"IDirect3DDevice9::Reset",
+                            D3D9Reset_Detour,
+                            D3D9Reset_Original,
+                            Reset_pfn );
+
+    D3DXCreateFontW ( This,
+                        22, 0,
+                          FW_NORMAL,
+                            0, false,
+                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                                DEFAULT_PITCH | FF_DONTCARE,
+                                  L"Arial",
+                                    &tsf::RenderFix::pFont );
+  }
+#endif
+
+
+  HRESULT result = D3D9BeginScene_Original (This);
+
   // Turn this on/off at the beginning of every frame
   D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
                                     D3DRS_MULTISAMPLEANTIALIAS,
                                       msaa );
 
-  return D3D9BeginScene_Original (This);
+  return result;
 }
+
+#if 0
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9EndScene_Detour (IDirect3DDevice9* This)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9EndScene_Original (This);
+  }
+
+  // Don't use MSAA for stuff drawn directly to the framebuffer
+  D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                  D3DRS_MULTISAMPLEANTIALIAS,
+                                    false );
+
+#if 0
+  if (tsf::RenderFix::pFont != nullptr) {
+    extern std::string console_text;
+
+    RECT text_rect;
+
+    SetRect (&text_rect, 0,0, tsf::RenderFix::width, tsf::RenderFix::height);
+
+    tsf::RenderFix::pFont->DrawTextA (nullptr, console_text.c_str (), -1, &text_rect, DT_LEFT|DT_TOP|DT_NOCLIP, 0xFFFFFFFF );
+  }
+#endif
+
+  return D3D9EndScene_Original (This);
+}
+#endif
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -499,6 +621,12 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
   return D3D9SetScissorRect_Original (This, &newR);
 }
 
+// Optimal depth offsets
+                  // 0.000001f; // 720p
+float depth_offset = 0.000255f; // 4K 4X MSAA
+
+bool doing_outlines = false;
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -518,6 +646,27 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                                                      primCount );
   }
 
+  // These are outlines that would not normally be detected because the polygon
+  //   winding direction is not reversed...
+  bool weapon_outline = false;
+
+  // Outlines end on the first non-triangle strip primitive drawn
+  if (Type == D3DPT_TRIANGLESTRIP) {
+    if (tsf::RenderFix::draw_state.outlines)
+      doing_outlines = true;
+
+    if ( doing_outlines && 
+         config.render.outline_technique == OUTLINE_KALDAIEN ) {
+      if ( tsf::RenderFix::draw_state.last_vs_vec4 == 12           &&
+       (! tsf::RenderFix::draw_state.alpha_test)                   &&
+          tsf::RenderFix::draw_state.dstalpha      == D3DBLEND_ONE &&
+          tsf::RenderFix::draw_state.srcalpha      == D3DBLEND_ZERO )
+       weapon_outline = true;
+    }
+  }
+  else
+    doing_outlines = false;
+
   if (tsf::RenderFix::tracer.log) {
     dll_log.Log ( L" DrawIndexedPrimitive - %X, BaseIdx: %li, MinVtxIdx: %lu, NumVertices: %lu, "
                                               L"startIndex: %lu, primCount: %lu",
@@ -526,19 +675,54 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
     if (tsf::RenderFix::draw_state.outlines)
       dll_log.Log ( L"  ** Outline ** ");
+
+    else if (weapon_outline)
+      dll_log.Log ( L"  ** Weapon Outline ** ");
   }
 
   //
-  // Detect slimes
+  // Detect Enemies with Invalid Outlines
   //
-  bool slime = false;
-  if (tsf::RenderFix::draw_state.outlines       &&
-      BaseVertexIndex == 0                      &&
-      MinVertexIndex  == 0   && startIndex == 0 &&
-      NumVertices     == 348 && primCount  == 1811) {
-    slime = true;
-    D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
-    D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+  bool disable_outlines = false;
+
+  static D3DVIEWPORT9 vp_orig;
+  static D3DVIEWPORT9 vp;
+
+  if ( weapon_outline || tsf::RenderFix::draw_state.outlines ) {
+    if (depth_offset != 0.0f) {
+      This->GetViewport (&vp_orig);
+
+      vp = vp_orig;
+
+      vp.MaxZ += depth_offset;
+      vp.MinZ += depth_offset;
+    }
+
+    // Slimes (Bestiary #158)
+    if (NumVertices == 348 && primCount == 1811)
+      disable_outlines = true;
+
+    // Sword on Fire Warrior (Bestiary #72)
+    if (NumVertices == 198 && primCount == 465)
+      disable_outlines = true;
+
+    // Feathers on Cockatrice (Bestiary #123) -- Find a better solution, this kills the entire
+    //                                             outline for a few minor issues...
+    ////if (NumVertices == 1273 && primCount == 3734)
+      ////disable_outlines = true;
+
+    if (disable_outlines) {
+      D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
+      D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    }
+
+    // Outlines that we only detected by searching for matching draw calls
+    if (weapon_outline) {
+      D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
+      D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_ZERO);
+    }
+
+    D3D9SetViewport_Original (This, &vp);
   }
 
   HRESULT hr = D3D9DrawIndexedPrimitive_Original ( This, Type,
@@ -546,7 +730,15 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                                                        NumVertices, startIndex,
                                                          primCount );
 
-  if (slime) {
+  if ( weapon_outline || tsf::RenderFix::draw_state.outlines ) {
+    if (depth_offset != 0.0f)
+      D3D9SetViewport_Original (This, &vp_orig);
+  }
+
+  //
+  // Restore the outlines after we finish this drawcall
+  //
+  if (disable_outlines) {
     if (config.render.outline_technique > 0) {
       if (config.render.outline_technique == OUTLINE_KALDAIEN)
         D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
@@ -560,7 +752,6 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   return hr;
 }
 
-
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -573,23 +764,41 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
     return D3D9SetRenderState_Original (This, State, Value);
   }
 
-  if (State == D3DRS_MULTISAMPLEANTIALIAS) {
-    if ( config.render.msaa_samples > 0      &&
-         tsf::RenderFix::draw_state.has_msaa &&
-         tsf::RenderFix::draw_state.use_msaa )
-      return D3D9SetRenderState_Original (This, State, 1);
-    else
-      return D3D9SetRenderState_Original (This, State, 0);
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L" SetRenderState - State: %X, Value: %lu",
+                    State, Value );
+  }
+
+  switch (State)
+  {
+    case D3DRS_CULLMODE:
+      if (Value == D3DCULL_CW)
+        tsf::RenderFix::draw_state.outlines = true;
+      else
+        tsf::RenderFix::draw_state.outlines = false;
+      break;
+    case D3DRS_ALPHATESTENABLE:
+      tsf::RenderFix::draw_state.alpha_test = Value;
+      break;
+    case D3DRS_DESTBLENDALPHA:
+      tsf::RenderFix::draw_state.dstalpha = Value;
+      break;
+    case D3DRS_SRCBLENDALPHA:
+      tsf::RenderFix::draw_state.srcalpha = Value;
+      break;
+    case D3DRS_MULTISAMPLEANTIALIAS:
+      if ( config.render.msaa_samples > 0      &&
+           tsf::RenderFix::draw_state.has_msaa &&
+           tsf::RenderFix::draw_state.use_msaa )
+        return D3D9SetRenderState_Original (This, State, 1);
+      else
+        return D3D9SetRenderState_Original (This, State, 0);
+      break;
   }
 
   if (config.render.outline_technique > 0) {
     if (State == D3DRS_SRCBLEND || State == D3DRS_DESTBLEND) {
-      D3DCULL cullmode;
-      This->GetRenderState (D3DRS_CULLMODE, (DWORD *)&cullmode);
-
-      if (cullmode == D3DCULL_CW) {
-        tsf::RenderFix::draw_state.outlines = true;
-
+      if (tsf::RenderFix::draw_state.outlines) {
         switch (State)
         {
           case D3DRS_SRCBLEND:
@@ -601,10 +810,6 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
           case D3DRS_DESTBLEND:
             return D3D9SetRenderState_Original (This, State, D3DBLEND_ZERO);
         }
-      }
-
-      else {
-        tsf::RenderFix::draw_state.outlines = false;
       }
     }
   }
@@ -732,12 +937,26 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Trace.NumFrames", new eTB_VarStub <int>  (&tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    new eTB_VarStub <bool> (&tracer.log));
 
+  pCommandProc->AddVariable ("Render.OutlineOffset", new eTB_VarStub <float> (&depth_offset));
+
+#if 0
+  D3DXCreateFontW =
+    (D3DXCreateFontW_pfn)
+      GetProcAddress ( d3dx9_43_dll,
+                       "D3DXCreateFontW" );
+#endif
+
   tex_mgr.Init ();
 }
 
 void
 tsf::RenderFix::Shutdown (void)
 {
+#if 0
+  if (pFont != nullptr)
+    pFont->Release ();
+#endif
+
   tex_mgr.Shutdown ();
 
   FreeLibrary (d3dx9_43_dll);

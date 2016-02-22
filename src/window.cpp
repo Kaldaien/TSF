@@ -386,8 +386,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
   if (console_visible || background_render) {
     // Only prevent the mouse from working while the window is in the bg
     if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
-      return 0;
-       //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
       return 0;
@@ -440,39 +439,31 @@ DetourWindowProc ( _In_  HWND   hWnd,
     return DefWindowProc (hWnd, uMsg, wParam, lParam);
   }
 
-  // Allow the game to run in the background
-  if (uMsg == WM_ACTIVATEAPP || uMsg == WM_ACTIVATE /*|| uMsg == WM_NCACTIVATE || uMsg == WM_MOUSEACTIVATE*/) {
-    // Consume the Alt key
-    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_LMENU);
-    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_RMENU);
-    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_MENU);
+  bool last_active = tsf::window.active;
+  tsf::window.active = GetForegroundWindow_Original () == tsf::window.hwnd ||
+                       GetForegroundWindow_Original () == nullptr;
 
-    bool last_active = tsf::window.active;
-
-    tsf::window.active = wParam;
-
-    //
-    // The window activation state is changing, among other things we can take
-    //   this opportunity to setup a special framerate limit.
-    //
-    if (tsf::window.active != last_active) {
-      eTB_CommandProcessor* pCommandProc =
-        SK_GetCommandProcessor           ();
+  //
+  // The window activation state is changing, among other things we can take
+  //   this opportunity to setup a special framerate limit.
+  //
+  if (tsf::window.active != last_active) {
+    eTB_CommandProcessor* pCommandProc =
+      SK_GetCommandProcessor           ();
 
 #if 0
-      eTB_CommandResult     result       =
-        pCommandProc->ProcessCommandLine ("TargetFPS");
+    eTB_CommandResult     result       =
+      pCommandProc->ProcessCommandLine ("TargetFPS");
 
-      eTB_VarStub <float>* pOriginalLimit = (eTB_VarStub <float>*)result.getVariable ();
+    eTB_VarStub <float>* pOriginalLimit = (eTB_VarStub <float>*)result.getVariable ();
 #endif
-      // Went from active to inactive (enforce background limit)
-      if (! tsf::window.active)
-        pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.background_fps);
+    // Went from active to inactive (enforce background limit)
+    if (! tsf::window.active)
+      pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.background_fps);
 
-      // Went from inactive to active (restore foreground limit)
-      else
-        pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
-    }
+    // Went from inactive to active (restore foreground limit)
+    else
+      pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
 
     // Unrestrict the mouse when the app is deactivated
     if ((! tsf::window.active) && config.render.allow_background) {
@@ -487,6 +478,18 @@ DetourWindowProc ( _In_  HWND   hWnd,
       ShowCursor          (FALSE);
       ClipCursor_Original (&tsf::window.cursor_clip);
     }
+  }
+
+  // Ignore this event
+  if (uMsg == WM_MOUSEACTIVATE && config.render.allow_background)
+    return DefWindowProc (hWnd, uMsg, wParam, lParam);
+
+  // Allow the game to run in the background
+  if (uMsg == WM_ACTIVATEAPP || uMsg == WM_ACTIVATE || uMsg == WM_NCACTIVATE /*|| uMsg == WM_MOUSEACTIVATE*/) {
+    // Consume the Alt key
+    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_LMENU);
+    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_RMENU);
+    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_MENU);
 
     if (config.render.allow_background) {
       // We must fully consume one of these messages or audio will stop playing

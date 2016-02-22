@@ -219,12 +219,63 @@ QueryPerformanceCounter_Detour (
 void
 NamcoLimiter_Detour (DWORD dwUnknown0, DWORD dwUnknown1, DWORD dwUnknwnown2)
 {
+#if 0
+  static HMODULE hModD3D9 = GetModuleHandle (config.system.injector.c_str ());
+  static bool*   trigger_limiter =
+    (bool *)GetProcAddress (hModD3D9, "__TSFix_need_wait");
+
+  *trigger_limiter = true;
+#endif
+
   return;
 }
+
+typedef LONG NTSTATUS;
+
+
+typedef NTSTATUS (NTAPI *NtQueryTimerResolution_pfn)
+(
+  OUT PULONG              MinimumResolution,
+  OUT PULONG              MaximumResolution,
+  OUT PULONG              CurrentResolution
+);
+
+typedef NTSTATUS (NTAPI *NtSetTimerResolution_pfn)
+(
+  IN  ULONG               DesiredResolution,
+  IN  BOOLEAN             SetResolution,
+  OUT PULONG              CurrentResolution
+);
+
+HMODULE                    NtDll                  = 0;
+
+NtQueryTimerResolution_pfn NtQueryTimerResolution = nullptr;
+NtSetTimerResolution_pfn   NtSetTimerResolution   = nullptr;
 
 void
 tsf::TimingFix::Init (void)
 {
+  if (NtDll == 0) {
+    NtDll = LoadLibrary (L"ntdll.dll");
+
+    NtQueryTimerResolution =
+      (NtQueryTimerResolution_pfn)
+        GetProcAddress (NtDll, "NtQueryTimerResolution");
+
+    NtSetTimerResolution =
+      (NtSetTimerResolution_pfn)
+        GetProcAddress (NtDll, "NtSetTimerResolution");
+
+    if (NtQueryTimerResolution != nullptr &&
+        NtSetTimerResolution   != nullptr) {
+      ULONG min, max, cur;
+      NtQueryTimerResolution (&min, &max, &cur);
+      //NtSetTimerResolution   (max, TRUE,  &cur);
+      dll_log.Log ( L" [  Timing  ] Kernel resolution: %f ms",
+                      (float)(cur * 100)/1000000.0f );
+    }
+  }
+ 
   static uint8_t limiter_prolog [] = {
     0x55,
     0x8B, 0xEC,
@@ -327,6 +378,8 @@ tsf::TimingFix::Init (void)
 void
 tsf::TimingFix::Shutdown (void)
 {
+  FreeLibrary (NtDll);
+
   // If we really cared about any of this, we could restore the original
   //   limiter branch instruction here... but it shouldn't matter
 }
