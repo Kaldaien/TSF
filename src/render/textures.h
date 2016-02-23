@@ -24,6 +24,7 @@
 
 #include "../render.h"
 
+#include <set>
 #include <map>
 
 namespace tsf {
@@ -52,6 +53,8 @@ namespace RenderFix {
     int                      numTextures (void) {
       return textures.size ();
     }
+
+    int                      numMSAASurfs (void);
 
   private:
     std::unordered_map <uint32_t, tsf::RenderFix::Texture*> textures;

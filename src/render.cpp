@@ -53,6 +53,11 @@ tsf::RenderFix::tracer_s
 tsf::RenderFix::tsf_draw_states_s
   tsf::RenderFix::draw_state;
 
+#include <set>
+// Store previously draw calls so we can discard erraneously detected
+//   weapon outlines.
+std::set < std::pair <int, int> > outline_draws;
+
 #if 0
 D3DXCreateFontW_pfn D3DXCreateFontW       = nullptr;
 ID3DXFont*          tsf::RenderFix::pFont = nullptr;
@@ -468,6 +473,8 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
     return D3D9BeginScene_Original (This);
   }
 
+  outline_draws.clear ();
+
   bool msaa = false;
 
   if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.has_msaa &&
@@ -490,18 +497,20 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
                             0, false,
                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                                 DEFAULT_PITCH | FF_DONTCARE,
-                                  L"Arial",
+                                  L"Arial", 
                                     &tsf::RenderFix::pFont );
   }
 #endif
 
-
   HRESULT result = D3D9BeginScene_Original (This);
 
-  // Turn this on/off at the beginning of every frame
-  D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+  // Don't do this until resources are allocated.
+  if (tsf::RenderFix::tex_mgr.numMSAASurfs () > 0) {
+    // Turn this on/off at the beginning of every frame
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
                                     D3DRS_MULTISAMPLEANTIALIAS,
                                       msaa );
+  }
 
   return result;
 }
@@ -660,12 +669,20 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
       if ( tsf::RenderFix::draw_state.last_vs_vec4 == 12           &&
        (! tsf::RenderFix::draw_state.alpha_test)                   &&
           tsf::RenderFix::draw_state.dstalpha      == D3DBLEND_ONE &&
-          tsf::RenderFix::draw_state.srcalpha      == D3DBLEND_ZERO )
-       weapon_outline = true;
+          tsf::RenderFix::draw_state.srcalpha      == D3DBLEND_ZERO ) {
+         weapon_outline = true;
+      }
     }
+
+    if ((! weapon_outline) && (! tsf::RenderFix::draw_state.outlines))
+      doing_outlines = false;
+
+    if (! tsf::RenderFix::draw_state.zwrite)
+      weapon_outline = false;
   }
-  else
+  else {
     doing_outlines = false;
+  }
 
   if (tsf::RenderFix::tracer.log) {
     dll_log.Log ( L" DrawIndexedPrimitive - %X, BaseIdx: %li, MinVtxIdx: %lu, NumVertices: %lu, "
@@ -749,6 +766,12 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
     }
   }
 
+  // Restore normal blending
+  if (weapon_outline) {
+    D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
+    D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+  }
+
   return hr;
 }
 
@@ -779,6 +802,9 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
       break;
     case D3DRS_ALPHATESTENABLE:
       tsf::RenderFix::draw_state.alpha_test = Value;
+      break;
+    case D3DRS_ZWRITEENABLE:
+      tsf::RenderFix::draw_state.zwrite = Value;
       break;
     case D3DRS_DESTBLENDALPHA:
       tsf::RenderFix::draw_state.dstalpha = Value;

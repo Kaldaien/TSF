@@ -356,12 +356,16 @@ D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
 // We will StretchRect (...) these into our textures whenever they are dirty and
 //   one of the textures they are associated with are bound.
 //
-#include <set>
-#include <map>
 std::set           <IDirect3DSurface9*>                     dirty_surfs;
 std::set           <IDirect3DSurface9*>                     msaa_surfs;       // Smurfs? :)
 std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*> msaa_backing_map;
 std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*> rt_msaa;
+
+int
+tsf::RenderFix::TextureManager::numMSAASurfs (void)
+{
+  return msaa_surfs.size ();
+}
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -479,6 +483,15 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
     return D3D9CreateTexture_Original ( This, Width, Height,
                                           Levels, Usage, Format,
                                             Pool, ppTexture, pSharedHandle );
+  }
+
+  if (config.textures.log) {
+    tex_log.Log ( L" >> Creating Texture: "
+                  L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
+                    Width, Height,
+                      SK_D3D9_FormatToStr (Format),
+                      SK_D3D9_UsageToStr  (Usage).c_str (),
+                      SK_D3D9_PoolToStr   (Pool) );
   }
 
   bool create_msaa_surf = config.render.msaa_samples > 0 &&
@@ -870,10 +883,10 @@ tsf::RenderFix::TextureManager::Shutdown (void)
 void
 tsf::RenderFix::TextureManager::reset (void)
 {
-  int underflows   = 0;
+  int underflows    = 0;
 
-  int ext_refs     = 0;
-  int ext_textures = 0;
+  int ext_refs      = 0;
+  int ext_textures  = 0;
 
   int release_count = 0;
   int ref_count     = 0;

@@ -54,6 +54,7 @@ namespace tsf
       DWORD        srcalpha       = 0;     // Separate Alpha Blend Eq: Src
       DWORD        dstalpha       = 0;     // Separate Alpha Blend Eq: Dst
       bool         alpha_test     = false; // Test Alpha?
+      bool         zwrite         = false; // Depth Mask
 
       int          last_vs_vec4   = 0; // Number of vectors in the last call to
                                        //   set vertex shader constant...
