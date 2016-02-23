@@ -175,15 +175,15 @@ IDirectInputDevice8_SetCooperativeLevel_pfn
 
 
 
-#define DINPUT8_CALL(_Ret, _Call) {                                      \
-  dll_log.LogEx (true, L"  Calling original function: ");                \
-  (_Ret) = (_Call);                                                      \
-  _com_error err ((_Ret));                                               \
-  if ((_Ret) != S_OK)                                                    \
-    dll_log.LogEx (false, L"(ret=0x%04x - %s)\n\n", err.WCode (),        \
-                                                    err.ErrorMessage ());\
-  else                                                                   \
-    dll_log.LogEx (false, L"(ret=S_OK)\n\n");                            \
+#define DINPUT8_CALL(_Ret, _Call) {                                     \
+  dll_log.LogEx (true, L"[   Input  ]  Calling original function: ");   \
+  (_Ret) = (_Call);                                                     \
+  _com_error err ((_Ret));                                              \
+  if ((_Ret) != S_OK)                                                   \
+    dll_log.LogEx (false, L"(ret=0x%04x - %s)\n", err.WCode (),         \
+                                                  err.ErrorMessage ()); \
+  else                                                                  \
+    dll_log.LogEx (false, L"(ret=S_OK)\n");                             \
 }
 
 #define __PTR_SIZE   sizeof LPCVOID 
@@ -230,7 +230,7 @@ IDirectInputDevice8_GetDeviceState_Detour ( LPDIRECTINPUTDEVICE        This,
 {
   // This seems to be the source of some instability in the game.
   if (/*tsf::RenderFix::tracer.log ||*/ This == _dik.pDev && cbData > 256 || lpvData == nullptr)
-    dll_log.Log ( L" [Input] Suspicious GetDeviceState - cbData: "
+    dll_log.Log ( L"[   Input  ] Suspicious GetDeviceState - cbData: "
                   L"%lu, lpvData: %p",
                     cbData,
                       lpvData );
@@ -313,7 +313,7 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
                                 (rguid == GUID_SysMouse) ? L"Default System Mouse" :
                                                            L"Other Device";
 
-  dll_log.Log ( L" [!] IDirectInput8::CreateDevice (%08Xh, %s, %08Xh, %08Xh)",
+  dll_log.Log ( L"[   Input  ][!] IDirectInput8::CreateDevice (%08Xh, %s, %08Xh, %08Xh)",
                   This,
                     wszDevice,
                       lplpDirectInputDevice,
@@ -377,7 +377,7 @@ DirectInput8Create_Detour ( HINSTANCE  hinst,
                             LPVOID    *ppvOut,
                             LPUNKNOWN  punkOuter )
 {
-  dll_log.Log ( L" [!] DirectInput8Create (0x%X, %lu, ..., %08Xh, %08Xh)",
+  dll_log.Log ( L"[   Input  ][!] DirectInput8Create (0x%X, %lu, ..., %08Xh, %08Xh)",
                   hinst, dwVersion, /*riidltf,*/ ppvOut, punkOuter );
 
   HRESULT hr;
@@ -392,7 +392,7 @@ DirectInput8Create_Detour ( HINSTANCE  hinst,
   HookRawInput ();
 
   if (hinst != GetModuleHandle (nullptr)) {
-    dll_log.Log (L" >> A third-party DLL is manipulating DirectInput 8; will not hook.");
+    dll_log.Log (L"[   Input  ] >> A third-party DLL is manipulating DirectInput 8; will not hook.");
     return hr;
   }
 
@@ -576,7 +576,7 @@ HookRawInput (void)
 {
   // Defer installation of this hook until DirectInput8 is setup
   if (GetRawInputData_Original == nullptr) {
-    dll_log.LogEx (true, L" Installing Deferred Hook: \"GetRawInputData (...)\"... ");
+    dll_log.LogEx (true, L"[   Input  ] Installing Deferred Hook: \"GetRawInputData (...)\"... ");
     MH_STATUS status =
       TSFix_CreateDLLHook ( L"user32.dll", "GetRawInputData",
                             GetRawInputData_Detour,
@@ -770,7 +770,7 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
   pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
 
 
-  dll_log.Log ( L"  # Found window in %03.01f seconds, "
+  dll_log.Log ( L"[   Input  ] # Found window in %03.01f seconds, "
                     L"installing keyboard hook...",
                   (float)(timeGetTime () - dwTime) / 1000.0f );
 
@@ -783,13 +783,13 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
                                                         dwThreadId ))) {
     _com_error err (HRESULT_FROM_WIN32 (GetLastError ()));
 
-    dll_log.Log ( L"  @ SetWindowsHookEx failed: 0x%04X (%s)",
+    dll_log.Log ( L"[   Input  ] @ SetWindowsHookEx failed: 0x%04X (%s)",
                   err.WCode (), err.ErrorMessage () );
 
     ++hits;
 
     if (hits >= 5) {
-      dll_log.Log ( L"  * Failed to install keyboard hook after %lu tries... "
+      dll_log.Log ( L"[   Input  ] * Failed to install keyboard hook after %lu tries... "
         L"bailing out!",
         hits );
       return 0;
@@ -822,7 +822,7 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
   }
 #endif
 
-  dll_log.Log ( L"  * Installed keyboard hook for command console... "
+  dll_log.Log ( L"[   Input  ] * Installed keyboard hook for command console... "
                       L"%lu %s (%lu ms!)",
                 hits,
                   hits > 1 ? L"tries" : L"try",
@@ -1093,7 +1093,7 @@ tsf::InputManager::ShutdownTouchServices (void)
   // Shutdown the Tablet Input Services
   //
   dll_log.LogEx ( true,
-                  L" Stopping TabletInputService... " );
+                  L"[   Input  ] Stopping TabletInputService..." );
 
   SC_HANDLE svc_ctl =
     OpenSCManagerW ( nullptr,
@@ -1183,7 +1183,7 @@ tsf::InputManager::RestoreTouchServices (void)
   // Restart the Tablet Input Services
   //
   dll_log.LogEx ( true,
-                  L" Resuming TabletInputService... " );
+                  L"[   Input  ] Resuming TabletInputService... " );
 
   SC_HANDLE svc_ctl =
     OpenSCManagerW ( nullptr,

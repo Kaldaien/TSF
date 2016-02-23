@@ -55,7 +55,7 @@ MoveWindow_Detour(
     _In_ int  nHeight,
     _In_ BOOL bRedraw )
 {
-  dll_log.Log (L" [!] MoveWindow (...)");
+  dll_log.Log (L"[Window Mgr][!] MoveWindow (...)");
 
   tsf::window.window_rect.left = X;
   tsf::window.window_rect.top  = Y;
@@ -86,7 +86,7 @@ SetWindowPos_Detour(
     _In_     UINT uFlags)
 {
 #if 0
-  dll_log.Log ( L" [!] SetWindowPos (...)");
+  dll_log.Log ( L"[Window Mgr][!] SetWindowPos (...)");
 #endif
 
   // Ignore this, because it's invalid.
@@ -174,7 +174,7 @@ SetWindowLongA_Detour (
 )
 {
   if (nIndex == GWL_EXSTYLE || nIndex == GWL_STYLE) {
-    dll_log.Log ( L"SetWindowLongA (0x%06X, %s, 0x%06X)",
+    dll_log.Log ( L"[Window Mgr] SetWindowLongA (0x%06X, %s, 0x%06X)",
                     hWnd,
               nIndex == GWL_EXSTYLE ? L"GWL_EXSTYLE" :
                                       L" GWL_STYLE ",
@@ -346,7 +346,7 @@ HWND
 WINAPI
 GetForegroundWindow_Detour (void)
 {
-  //dll_log.Log (L" [!] GetForegroundWindow (...)");
+  //dll_log.Log (L"[Window Mgr][!] GetForegroundWindow (...)");
 
   if (config.render.allow_background) {
     return tsf::RenderFix::hWndDevice;
@@ -359,7 +359,7 @@ HWND
 WINAPI
 GetFocus_Detour (void)
 {
-  //dll_log.Log (L" [!] GetFocus (...)");
+  //dll_log.Log (L"[Window Mgr][!] GetFocus (...)");
 
   if (config.render.allow_background) {
     return tsf::RenderFix::hWndDevice;
@@ -412,7 +412,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
   const uint32_t SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF = 0x0200;
 
   if (uMsg == WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS) {
-    dll_log.Log (L"Disabling Tablet Gesture Support...");
+    dll_log.Log (L"[Window Mgr] Disabling Tablet Gesture Support...");
     int result = 0x00;
     result |= (SYSTEM_GESTURE_STATUS_NOHOLD |
                SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF);
@@ -432,7 +432,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
     if (uMsg == WM_TOUCH)
       CloseTouchInputHandle ((HTOUCHINPUT)lParam);
 
-    dll_log.Log ( L" >> Filtering Out Tablet Input "
+    dll_log.Log ( L"[Window Mgr] >> Filtering Out Tablet Input "
                   L"(uMsg=0x%04X, wParam=%p, lParam=%p)",
                     uMsg, wParam, lParam );
     //return 0;
@@ -635,7 +635,7 @@ bool
   }
 
   if (! known) {
-    dll_log.Log ( L" [Window Manager]: UNKNOWN Variable Changed (%p --> %p)",
+    dll_log.Log ( L"[Window Mgr] UNKNOWN Variable Changed (%p --> %p)",
                     var,
                       val );
   }

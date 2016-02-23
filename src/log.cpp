@@ -123,7 +123,7 @@ tsf_logger_s::init (const char* const szFileName,
 
   fLog = fopen (szFileName, szMode);
 
-  BOOL bRet = InitializeCriticalSectionAndSpinCount (&log_mutex, 2500);
+  BOOL bRet = InitializeCriticalSectionAndSpinCount (&log_mutex, 25000);
 
   if ((! bRet) || (fLog == NULL)) {
     silent = true;

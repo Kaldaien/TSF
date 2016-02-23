@@ -1,3 +1,25 @@
+/**
+ * This file is part of Tales of Symphonia "Fix".
+ *
+ * Tales of Symphonia "Fix" is free software : you can redistribute it
+ * and/or modify it under the terms of the GNU General Public License
+ * as published by The Free Software Foundation, either version 3 of
+ * the License, or (at your option) any later version.
+ *
+ * Tales of Symphonia "Fix" is distributed in the hope that it will be
+ * useful,
+ *
+ * But WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Tales of Symphonia "Fix".
+ *
+ *   If not, see <http://www.gnu.org/licenses/>.
+ *
+**/
+
 #include <d3d9.h>
 
 #include "textures.h"
@@ -319,7 +341,7 @@ D3D9CreateRenderTarget_Detour (IDirect3DDevice9     *This,
                                IDirect3DSurface9   **ppSurface,
                                HANDLE               *pSharedHandle)
 {
-  tex_log.Log (L" [!] IDirect3DDevice9::CreateRenderTarget (%lu, %lu, "
+  tex_log.Log (L"[Unexpected][!] IDirect3DDevice9::CreateRenderTarget (%lu, %lu, "
                       L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
                  Width, Height, Format, MultiSample, MultisampleQuality,
                  Lockable, ppSurface, pSharedHandle);
@@ -342,7 +364,7 @@ D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
                                       IDirect3DSurface9   **ppSurface,
                                       HANDLE               *pSharedHandle)
 {
-  tex_log.Log (L" [!] IDirect3DDevice9::CreateDepthStencilSurface (%lu, %lu, "
+  tex_log.Log (L"[Unexpected][!] IDirect3DDevice9::CreateDepthStencilSurface (%lu, %lu, "
                       L"%lu, %lu, %lu, %lu, %08Xh, %08Xh)",
                  Width, Height, Format, MultiSample, MultisampleQuality,
                  Discard, ppSurface, pSharedHandle);
@@ -486,7 +508,7 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
   }
 
   if (config.textures.log) {
-    tex_log.Log ( L" >> Creating Texture: "
+    tex_log.Log ( L"[Load Trace] >> Creating Texture: "
                   L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
                     Width, Height,
                       SK_D3D9_FormatToStr (Format),
@@ -562,7 +584,7 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
         )
       );
     } else {
-      tex_log.Log ( L" >> ERROR: Unable to Create MSAA Surface for Render Target: "
+      tex_log.Log ( L"[ MSAA Mgr ] >> ERROR: Unable to Create MSAA Surface for Render Target: "
                     L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
                         Width, Height,
                           SK_D3D9_FormatToStr (Format),
@@ -634,6 +656,17 @@ crc32 (uint32_t crc, const void *buf, size_t size)
   return crc ^ ~0U;
 }
 
+typedef HRESULT (WINAPI *D3DXCreateTextureFromFile_pfn)
+(
+  _In_  LPDIRECT3DDEVICE9   pDevice,
+  _In_  LPCWSTR             pSrcFile,
+  _Out_ LPDIRECT3DTEXTURE9 *ppTexture
+);
+
+D3DXCreateTextureFromFile_pfn
+  D3DXCreateTextureFromFile = nullptr;
+
+#define FONT_CRC32 0xef2d9b55
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -678,8 +711,6 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 
     if (pTex != nullptr) {
       tsf::RenderFix::tex_mgr.refTexture (pTex);
-      if (config.textures.log)
-        tex_log.Log (L" Src Addr: %p", pSrcData);
 
       *ppTexture = pTex->d3d9_tex;
 
@@ -715,8 +746,40 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       MipLevels = D3DX_DEFAULT;
   }
 
-  //tex_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
-  HRESULT hr = D3DXCreateTextureFromFileInMemoryEx_Original (pDevice, pSrcData, SrcDataSize, Width, Height, MipLevels, Usage, Format, Pool, Filter, MipFilter, ColorKey, pSrcInfo, pPalette, ppTexture);
+  HRESULT hr = E_FAIL;
+
+  if (checksum == FONT_CRC32) {
+    if (GetFileAttributes (L"font.dds") != INVALID_FILE_ATTRIBUTES) {
+      if (D3DXCreateTextureFromFile == nullptr) {
+        D3DXCreateTextureFromFile =
+          (D3DXCreateTextureFromFile_pfn)
+            GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
+                               "D3DXCreateTextureFromFileW" );
+      }
+      tex_log.LogEx (true, L"[   Font   ] Loading user-defined font... ");
+
+      hr = D3DXCreateTextureFromFile (pDevice, L"font.dds", ppTexture);
+
+      if (SUCCEEDED (hr)) {
+        tex_log.LogEx (false, L"done\n");
+        (*ppTexture)->Release ();
+      } else
+        tex_log.LogEx (false, L"failed (%x)\n", hr);
+    }
+  }
+
+  // Any previous attempts to load a custom texture failed, so load it the normal way
+  if (hr == E_FAIL) {
+    //tex_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
+    hr =
+      D3DXCreateTextureFromFileInMemoryEx_Original ( pDevice,
+                                                       pSrcData,         SrcDataSize,
+                                                         Width,          Height,    MipLevels,
+                                                           Usage,        Format,    Pool,
+                                                             Filter,     MipFilter, ColorKey,
+                                                               pSrcInfo, pPalette,
+                                                                 ppTexture );
+  }
 
   QueryPerformanceCounter_Original (&end);
 
@@ -740,14 +803,14 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     }
 
     if (config.textures.log) {
-      tex_log.Log ( L"Texture:   (%lu x %lu) * <LODs: %lu> - FAST_CRC32: %X",
+      tex_log.Log ( L"[Load Trace] Texture:   (%lu x %lu) * <LODs: %lu> - FAST_CRC32: %X",
                       Width, Height, (*ppTexture)->GetLevelCount (), checksum );
-      tex_log.Log ( L"             Usage: %-20s - Format: %-20s",
+      tex_log.Log ( L"[Load Trace]              Usage: %-20s - Format: %-20s",
                       SK_D3D9_UsageToStr    (Usage).c_str (),
                         SK_D3D9_FormatToStr (Format) );
-      tex_log.Log ( L"               Pool: %s",
+      tex_log.Log ( L"[Load Trace]                Pool: %s",
                       SK_D3D9_PoolToStr (Pool) );
-      tex_log.Log ( L"     Load Time: %6.4f ms", 
+      tex_log.Log ( L"[Load Trace]      Load Time: %6.4f ms", 
                     1000.0f * (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart );
     }
   }
@@ -789,8 +852,11 @@ tsf::RenderFix::TextureManager::refTexture (tsf::RenderFix::Texture* pTex)
   pTex->d3d9_tex->AddRef ();
   pTex->refs++;
 
-  if (config.textures.log)
-    tex_log.Log (L"Cached texture (%X) saved %2.1f ms", pTex->crc32, pTex->load_time);
+  if (config.textures.log) {
+    tex_log.Log ( L"[CacheTrace] Cache hit (%X), saved %2.1f ms",
+                    pTex->crc32,
+                      pTex->load_time );
+  }
 
   time_saved += pTex->load_time;
 }
@@ -875,8 +941,10 @@ tsf::RenderFix::TextureManager::Shutdown (void)
 
   tex_mgr.reset ();
 
-  tex_log.Log ( L"At shutdown: %7.2f ms worth of time (%7.2f frames) saved by caching",
-                  time_saved, time_saved / frame_time );
+  tex_log.Log ( L"[Perf Stats] At shutdown: %7.2f seconds (%7.2f frames)"
+                L" saved by cache",
+                  time_saved / 1000.0f,
+                    time_saved / frame_time );
   tex_log.close ();
 }
 
@@ -891,9 +959,9 @@ tsf::RenderFix::TextureManager::reset (void)
   int release_count = 0;
   int ref_count     = 0;
 
-  tex_log.Log (L" -- TextureManager::reset (...) -- ");
+  tex_log.Log (L"[ Tex. Mgr ] -- TextureManager::reset (...) -- ");
 
-  tex_log.LogEx (true, L"   Releasing textures...     ");
+  tex_log.Log (L"[ Tex. Mgr ]   Releasing textures...");
 
   std::unordered_map <uint32_t, tsf::RenderFix::Texture *>::iterator it =
     textures.begin ();
@@ -918,22 +986,23 @@ tsf::RenderFix::TextureManager::reset (void)
     it = textures.erase (it);
   }
 
-  tex_log.LogEx ( false, L" %4d textures (%4d references)\n",
-                           release_count, ref_count );
+  tex_log.Log ( L"[ Tex. Mgr ]   %4d textures (%4d references)",
+                  release_count,
+                    ref_count );
 
   if (ext_refs > 0) {
-    tex_log.Log ( L"  >> WARNING: The game is still holding references (%d) to %d textures !!!",
+    tex_log.Log ( L"[ Tex. Mgr ] >> WARNING: The game is still holding references (%d) to %d textures !!!",
                     ext_refs, ext_textures );
   }
 
   if (underflows) {
-    tex_log.Log ( L"  >> WARNING: Reference counting sanity check failed: "
+    tex_log.Log ( L"[ Tex. Mgr ] >> WARNING: Reference counting sanity check failed: "
                   L"Reference Underflow (%d times) !!!",
                     underflows );
   }
 
   if (config.render.msaa_samples > 0) {
-    tex_log.LogEx (true, L"   Releasing MSAA surfaces... ");
+    tex_log.Log ( L"[ MSAA Mgr ]   Releasing MSAA surfaces...");
 
     int count = 0,
         refs  = 0;
@@ -961,9 +1030,9 @@ tsf::RenderFix::TextureManager::reset (void)
     msaa_surfs.clear       ();
     msaa_backing_map.clear ();
 
-    tex_log.LogEx ( false, L"%4d surfaces (%4d zombies)\n",
+    tex_log.Log ( L"[ MSAA Mgr ]   %4d surfaces (%4d zombies)\n",
                       count, refs );
   }
 
-  tex_log.Log (L" ----------- Finished ------------ ");
+  tex_log.Log (L"[ Tex. Mgr ] ----------- Finished ------------ ");
 }

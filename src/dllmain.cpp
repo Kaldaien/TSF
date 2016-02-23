@@ -33,7 +33,6 @@
 #include "render.h"
 #include "input.h"
 #include "window.h"
-#include "winsock.h"
 
 #include <winsvc.h>
 #include <comdef.h>
@@ -50,15 +49,27 @@ DWORD
 WINAPI
 DllThread (LPVOID user)
 {
-  dll_log.init ("logs/tsfix.log", "w");
-  dll_log.Log  (L"tsfix.log created");
+  std::wstring plugin_name = L"Tales of Symphonia \"Fix\" v " + TSFIX_VER_STR;
+
+  //
+  // Until we modify the logger to use Kernel32 File I/O, we have to
+  //   do this stuff from here... dependency DLLs may not be loaded
+  //     until initial DLL startup finishes and threads are allowed
+  //       to start.
+  //
+  dll_log.init  ( "logs/tsfix.log",
+                    "w" );
+  dll_log.LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
+                         L"-------\n" ); // <--- I was bored ;)
+  dll_log.Log   (        L"tsfix.dll Plug-In\n"
+                         L"=========== (Version: v %s) "
+                         L"===========",
+                           TSFIX_VER_STR.c_str () );
 
   if (! TSFix_LoadConfig ()) {
     // Save a new config if none exists
     TSFix_SaveConfig ();
   }
-
-  std::wstring plugin_name = L"Tales of Symphonia \"Fix\" v " + TSFIX_VER_STR;
 
   hInjectorDLL =
     GetModuleHandle (config.system.injector.c_str ());
@@ -80,7 +91,6 @@ DllThread (LPVOID user)
   // Plugin State
   if (TSFix_Init_MinHook () == MH_OK) {
     tsf::WindowManager::Init ();
-    tsf::WinsockHook::Init   ();
     tsf::InputManager::Init  ();
     tsf::RenderFix::Init     ();
     tsf::TimingFix::Init     ();
@@ -92,32 +102,37 @@ DllThread (LPVOID user)
 BOOL
 APIENTRY
 DllMain (HMODULE hModule,
-         DWORD    ul_reason_for_call,
+         DWORD   ul_reason_for_call,
          LPVOID  /* lpReserved */)
 {
   switch (ul_reason_for_call)
   {
-  case DLL_PROCESS_ATTACH:
-  {
-    hDLLMod = hModule;
+    case DLL_PROCESS_ATTACH:
+    {
+      DisableThreadLibraryCalls ((hDLLMod = hModule));
 
-    HANDLE hThread =
-      CreateThread (NULL, NULL, DllThread, 0, 0, NULL);
-  } break;
+      CreateThread              (nullptr, 0, DllThread, nullptr, 0, nullptr);
+    } break;
 
-  case DLL_PROCESS_DETACH:
-    tsf::WindowManager::Shutdown ();
-    tsf::RenderFix::Shutdown     ();
-    tsf::TimingFix::Shutdown     ();
-    tsf::InputManager::Shutdown  ();
-    tsf::WinsockHook::Shutdown   ();
+    case DLL_PROCESS_DETACH:
+    {
+      tsf::WindowManager::Shutdown ();
+      tsf::RenderFix::Shutdown     ();
+      tsf::TimingFix::Shutdown     ();
+      tsf::InputManager::Shutdown  ();
 
-    TSFix_UnInit_MinHook ();
-    TSFix_SaveConfig     ();
+      TSFix_UnInit_MinHook ();
+      TSFix_SaveConfig     ();
 
-    dll_log.LogEx      (true,  L"Closing log file... ");
-    dll_log.close      ();
-    break;
+      dll_log.LogEx ( false, L"=========== (Version: v %s) "
+                             L"===========\n",
+                               TSFIX_VER_STR.c_str () );
+      dll_log.LogEx ( true,  L"End TSFix Plug-In\n" );
+      dll_log.LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
+                             L"-------\n" );
+
+      dll_log.close ();
+    } break;
   }
 
   return TRUE;

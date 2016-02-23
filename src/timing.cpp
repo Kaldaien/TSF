@@ -46,11 +46,11 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
 
   uint8_t* end_addr = base_addr + pNT->OptionalHeader.SizeOfImage;
 #else
-           base_addr = (uint8_t *)mem_info.AllocationBase;
+           base_addr = (uint8_t *)mem_info.BaseAddress;//AllocationBase;
   uint8_t* end_addr  = (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
 
   while (VirtualQuery (end_addr, &mem_info, sizeof mem_info) > 0) {
-    if (mem_info.Type != MEM_IMAGE)
+    if (! (mem_info.Type & MEM_IMAGE))
       break;
 
     end_addr = (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
@@ -70,7 +70,9 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
 
     uint8_t* next_rgn = (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
 
-    if (mem_info.Type != MEM_IMAGE || mem_info.State != MEM_COMMIT || mem_info.Protect & PAGE_NOACCESS) {
+    if ( (! (mem_info.Type    & MEM_IMAGE))  ||
+         (! (mem_info.State   & MEM_COMMIT)) ||
+             mem_info.Protect & PAGE_NOACCESS ) {
       it    = next_rgn;
       idx   = 0;
       begin = it;
@@ -270,9 +272,12 @@ tsf::TimingFix::Init (void)
         NtSetTimerResolution   != nullptr) {
       ULONG min, max, cur;
       NtQueryTimerResolution (&min, &max, &cur);
-      //NtSetTimerResolution   (max, TRUE,  &cur);
-      dll_log.Log ( L" [  Timing  ] Kernel resolution: %f ms",
+      dll_log.Log ( L"[  Timing  ] Kernel resolution.: %f ms",
                       (float)(cur * 100)/1000000.0f );
+      NtSetTimerResolution   (max, TRUE,  &cur);
+      dll_log.Log ( L"[  Timing  ] New resolution....: %f ms",
+                      (float)(cur * 100)/1000000.0f );
+
     }
   }
  
@@ -331,7 +336,7 @@ tsf::TimingFix::Init (void)
   // Install Namco Framerate Limiter Bypass
   //
   if (pLimiterFunc != nullptr) {
-    dll_log.Log ( L" [StutterFix] Scanned Namco Framerate Bug (\"Limiter\"): "
+    dll_log.Log ( L"[StutterFix] Scanned Namco Framerate Bug (\"Limiter\"): "
                   L"%ph",
                     pLimiterFunc );
 
@@ -360,7 +365,8 @@ tsf::TimingFix::Init (void)
   else {
     // Because Bypass Was Unsuccessful
     if (config.stutter.bypass) {
-      dll_log.Log ( L" >> Unable to locate Namco's Framerate Bug (\"Limiter\")"
+      dll_log.Log ( L"[StutterFix] "
+                    L">> Unable to locate Namco's Framerate Bug (\"Limiter\")"
                     L"resorting to \"Stutter Fix\"..." );
       config.stutter.fix = true;
     }

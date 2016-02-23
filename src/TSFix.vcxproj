@@ -132,7 +132,6 @@
     <ClInclude Include="render\textures.h" />
     <ClInclude Include="timing.h" />
     <ClInclude Include="window.h" />
-    <ClInclude Include="winsock.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="command.cpp" />
@@ -157,7 +156,6 @@
     <ClCompile Include="render\textures.cpp" />
     <ClCompile Include="timing.cpp" />
     <ClCompile Include="window.cpp" />
-    <ClCompile Include="winsock.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

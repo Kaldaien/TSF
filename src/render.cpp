@@ -67,6 +67,124 @@ ID3DXFont*          tsf::RenderFix::pFont = nullptr;
 //   instead of mid-frame.
 bool use_msaa = true;
 
+//
+// TODO: Move to Render Utilities
+//
+const wchar_t*
+SK_D3D9_RenderStateToStr (D3DRENDERSTATETYPE rs)
+{
+  switch (rs)
+  {
+    case D3DRS_ZENABLE                   : return L"D3DRS_ZENABLE";
+    case D3DRS_FILLMODE                  : return L"D3DRS_FILLMODE";
+    case D3DRS_SHADEMODE                 : return L"D3DRS_SHADEMODE";
+    case D3DRS_ZWRITEENABLE              : return L"D3DRS_ZWRITEENABLE";
+    case D3DRS_ALPHATESTENABLE           : return L"D3DRS_ALPHATESTENABLE";
+    case D3DRS_LASTPIXEL                 : return L"D3DRS_LASTPIXEL";
+    case D3DRS_SRCBLEND                  : return L"D3DRS_SRCBLEND";
+    case D3DRS_DESTBLEND                 : return L"D3DRS_DESTBLEND";
+    case D3DRS_CULLMODE                  : return L"D3DRS_CULLMODE";
+    case D3DRS_ZFUNC                     : return L"D3DRS_ZFUNC";
+    case D3DRS_ALPHAREF                  : return L"D3DRS_ALPHAREF";
+    case D3DRS_ALPHAFUNC                 : return L"D3DRS_ALPHAFUNC";
+    case D3DRS_DITHERENABLE              : return L"D3DRS_DITHERENABLE";
+    case D3DRS_ALPHABLENDENABLE          : return L"D3DRS_ALPHABLENDENABLE";
+    case D3DRS_FOGENABLE                 : return L"D3DRS_FOGENABLE";
+    case D3DRS_SPECULARENABLE            : return L"D3DRS_SPECULARENABLE";
+    case D3DRS_FOGCOLOR                  : return L"D3DRS_FOGCOLOR";
+    case D3DRS_FOGTABLEMODE              : return L"D3DRS_FOGTABLEMODE";
+    case D3DRS_FOGSTART                  : return L"D3DRS_FOGSTART";
+    case D3DRS_FOGEND                    : return L"D3DRS_FOGEND";
+    case D3DRS_FOGDENSITY                : return L"D3DRS_FOGDENSITY";
+    case D3DRS_RANGEFOGENABLE            : return L"D3DRS_RANGEFOGENABLE";
+    case D3DRS_STENCILENABLE             : return L"D3DRS_STENCILENABLE";
+    case D3DRS_STENCILFAIL               : return L"D3DRS_STENCILFAIL";
+    case D3DRS_STENCILZFAIL              : return L"D3DRS_STENCILZFAIL";
+    case D3DRS_STENCILPASS               : return L"D3DRS_STENCILPASS";
+    case D3DRS_STENCILFUNC               : return L"D3DRS_STENCILFUNC";
+    case D3DRS_STENCILREF                : return L"D3DRS_STENCILREF";
+    case D3DRS_STENCILMASK               : return L"D3DRS_STENCILMASK";
+    case D3DRS_STENCILWRITEMASK          : return L"D3DRS_STENCILWRITEMASK";
+    case D3DRS_TEXTUREFACTOR             : return L"D3DRS_TEXTUREFACTOR";
+    case D3DRS_WRAP0                     : return L"D3DRS_WRAP0";
+    case D3DRS_WRAP1                     : return L"D3DRS_WRAP1";
+    case D3DRS_WRAP2                     : return L"D3DRS_WRAP2";
+    case D3DRS_WRAP3                     : return L"D3DRS_WRAP3";
+    case D3DRS_WRAP4                     : return L"D3DRS_WRAP4";
+    case D3DRS_WRAP5                     : return L"D3DRS_WRAP5";
+    case D3DRS_WRAP6                     : return L"D3DRS_WRAP6";
+    case D3DRS_WRAP7                     : return L"D3DRS_WRAP7";
+    case D3DRS_CLIPPING                  : return L"D3DRS_CLIPPING";
+    case D3DRS_LIGHTING                  : return L"D3DRS_LIGHTING";
+    case D3DRS_AMBIENT                   : return L"D3DRS_AMBIENT";
+    case D3DRS_FOGVERTEXMODE             : return L"D3DRS_FOGVERTEXMODE";
+    case D3DRS_COLORVERTEX               : return L"D3DRS_COLORVERTEX";
+    case D3DRS_LOCALVIEWER               : return L"D3DRS_LOCALVIEWER";
+    case D3DRS_NORMALIZENORMALS          : return L"D3DRS_NORMALIZENORMALS";
+    case D3DRS_DIFFUSEMATERIALSOURCE     : return L"D3DRS_DIFFUSEMATERIALSOURCE";
+    case D3DRS_SPECULARMATERIALSOURCE    : return L"D3DRS_SPECULARMATERIALSOURCE";
+    case D3DRS_AMBIENTMATERIALSOURCE     : return L"D3DRS_AMBIENTMATERIALSOURCE";
+    case D3DRS_EMISSIVEMATERIALSOURCE    : return L"D3DRS_EMISSIVEMATERIALSOURCE";
+    case D3DRS_VERTEXBLEND               : return L"D3DRS_VERTEXBLEND";
+    case D3DRS_CLIPPLANEENABLE           : return L"D3DRS_CLIPPLANEENABLE";
+    case D3DRS_POINTSIZE                 : return L"D3DRS_POINTSIZE";
+    case D3DRS_POINTSIZE_MIN             : return L"D3DRS_POINTSIZE_MIN";
+    case D3DRS_POINTSPRITEENABLE         : return L"D3DRS_POINTSPRITEENABLE";
+    case D3DRS_POINTSCALEENABLE          : return L"D3DRS_POINTSCALEENABLE";
+    case D3DRS_POINTSCALE_A              : return L"D3DRS_POINTSCALE_A";
+    case D3DRS_POINTSCALE_B              : return L"D3DRS_POINTSCALE_B";
+    case D3DRS_POINTSCALE_C              : return L"D3DRS_POINTSCALE_C";
+    case D3DRS_MULTISAMPLEANTIALIAS      : return L"D3DRS_MULTISAMPLEANTIALIAS";
+    case D3DRS_MULTISAMPLEMASK           : return L"D3DRS_MULTISAMPLEMASK";
+    case D3DRS_PATCHEDGESTYLE            : return L"D3DRS_PATCHEDGESTYLE";
+    case D3DRS_DEBUGMONITORTOKEN         : return L"D3DRS_DEBUGMONITORTOKEN";
+    case D3DRS_POINTSIZE_MAX             : return L"D3DRS_POINTSIZE_MAX";
+    case D3DRS_INDEXEDVERTEXBLENDENABLE  : return L"D3DRS_INDEXEDVERTEXBLENDENABLE";
+    case D3DRS_COLORWRITEENABLE          : return L"D3DRS_COLORWRITEENABLE";
+    case D3DRS_TWEENFACTOR               : return L"D3DRS_TWEENFACTOR";
+    case D3DRS_BLENDOP                   : return L"D3DRS_BLENDOP";
+    case D3DRS_POSITIONDEGREE            : return L"D3DRS_POSITIONDEGREE";
+    case D3DRS_NORMALDEGREE              : return L"D3DRS_NORMALDEGREE";
+    case D3DRS_SCISSORTESTENABLE         : return L"D3DRS_SCISSORTESTENABLE";
+    case D3DRS_SLOPESCALEDEPTHBIAS       : return L"D3DRS_SLOPESCALEDEPTHBIAS";
+    case D3DRS_ANTIALIASEDLINEENABLE     : return L"D3DRS_ANTIALIASEDLINEENABLE";
+    case D3DRS_MINTESSELLATIONLEVEL      : return L"D3DRS_MINTESSELLATIONLEVEL";
+    case D3DRS_MAXTESSELLATIONLEVEL      : return L"D3DRS_MAXTESSELLATIONLEVEL";
+    case D3DRS_ADAPTIVETESS_X            : return L"D3DRS_ADAPTIVETESS_X";
+    case D3DRS_ADAPTIVETESS_Y            : return L"D3DRS_ADAPTIVETESS_Y";
+    case D3DRS_ADAPTIVETESS_Z:             return L"D3DRS_ADAPTIVETESS_Z";
+    case D3DRS_ADAPTIVETESS_W:             return L"D3DRS_ADAPTIVETESS_W";
+    case D3DRS_ENABLEADAPTIVETESSELLATION: return L"D3DRS_ENABLEADAPTIVETESSELLATION";
+    case D3DRS_TWOSIDEDSTENCILMODE:        return L"D3DRS_TWOSIDEDSTENCILMODE";
+    case D3DRS_CCW_STENCILFAIL:            return L"D3DRS_CCW_STENCILFAIL";
+    case D3DRS_CCW_STENCILZFAIL:           return L"D3DRS_CCW_STENCILZFAIL";
+    case D3DRS_CCW_STENCILPASS:            return L"D3DRS_CCW_STENCILPASS";
+    case D3DRS_CCW_STENCILFUNC:            return L"D3DRS_CCW_STENCILFUNC";
+    case D3DRS_COLORWRITEENABLE1:          return L"D3DRS_COLORWRITEENABLE1";
+    case D3DRS_COLORWRITEENABLE2:          return L"D3DRS_COLORWRITEENABLE2";
+    case D3DRS_COLORWRITEENABLE3:          return L"D3DRS_COLORWRITEENABLE3";
+    case D3DRS_BLENDFACTOR:                return L"D3DRS_BLENDFACTOR";
+    case D3DRS_SRGBWRITEENABLE:            return L"D3DRS_SRGBWRITEENABLE";
+    case D3DRS_DEPTHBIAS:                  return L"D3DRS_DEPTHBIAS";
+    case D3DRS_WRAP8:                      return L"D3DRS_WRAP8";
+    case D3DRS_WRAP9:                      return L"D3DRS_WRAP9";
+    case D3DRS_WRAP10:                     return L"D3DRS_WRAP10";
+    case D3DRS_WRAP11:                     return L"D3DRS_WRAP11";
+    case D3DRS_WRAP12:                     return L"D3DRS_WRAP12";
+    case D3DRS_WRAP13:                     return L"D3DRS_WRAP13";
+    case D3DRS_WRAP14:                     return L"D3DRS_WRAP14";
+    case D3DRS_WRAP15:                     return L"D3DRS_WRAP15";
+    case D3DRS_SEPARATEALPHABLENDENABLE:   return L"D3DRS_SEPARATEALPHABLENDENABLE";
+    case D3DRS_SRCBLENDALPHA:              return L"D3DRS_SRCBLENDALPHA"; 
+    case D3DRS_DESTBLENDALPHA:             return L"D3DRS_DESTBLENDALPHA";
+    case D3DRS_BLENDOPALPHA:               return L"D3DRS_BLENDOPALPHA";
+  }
+
+  static wchar_t wszUnknown [32];
+  wsprintf (wszUnknown, L"UNKNOWN: %lu", rs);
+  return wszUnknown;
+}
+
 #include "render/textures.h"
 
 COM_DECLSPEC_NOTHROW
@@ -81,7 +199,7 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
 
   if (tsf::RenderFix::tracer.log && tsf::RenderFix::tracer.count > 0) {
-    dll_log.Log (L" --- SwapChain Present ---");
+    dll_log.Log (L"[Frame Trace] --- SwapChain Present ---");
     if (--tsf::RenderFix::tracer.count <= 0)
       tsf::RenderFix::tracer.log = false;
   }
@@ -165,7 +283,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   if ( pparams->BackBufferWidth            == 1 &&
        pparams->BackBufferHeight           == 1 &&
        pparams->FullScreen_RefreshRateInHz == 0 ) {
-    dll_log.Log (L" * Fake D3D9Ex Device Detected... Ignoring!");
+    dll_log.Log (L"[Render Fix] * Fake D3D9Ex Device Detected... Ignoring!");
     return BMF_SetPresentParamsD3D9_Original (device, pparams);
   }
 
@@ -186,7 +304,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                       &dwQualityLevels )
                       )
            ) {
-          dll_log.Log ( L" >> Render device has %d quality level(s) available "
+          dll_log.Log ( L"[Render Fix] >> Render device has %d quality level(s) available "
                         L"for %d-Sample MSAA.",
                           dwQualityLevels, config.render.msaa_samples );
 
@@ -204,7 +322,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
             config.render.msaa_quality =
               pparams->MultiSampleQuality;
 
-            dll_log.Log ( L" (*) Selected %dxMSAA Quality Level: %d",
+            dll_log.Log ( L"[Render Fix] (*) Selected %dxMSAA Quality Level: %d",
                             config.render.msaa_samples,//pparams->MultiSampleType,
                               pparams->MultiSampleQuality );
             tsf::RenderFix::draw_state.has_msaa = true;
@@ -212,7 +330,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
         }
 
         else {
-            dll_log.Log ( L" ### Requested %dxMSAA Quality Level: %d invalid",
+            dll_log.Log ( L"[Render Fix] ### Requested %dxMSAA Quality Level: %d invalid",
                             config.render.msaa_samples,
                               config.render.msaa_quality );
         }
@@ -224,7 +342,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
 
     if (device != nullptr) {
-      dll_log.Log ( L" %% Caught D3D9 Swapchain :: Fullscreen=%s "
+      dll_log.Log ( L"[Render Fix] %% Caught D3D9 Swapchain :: Fullscreen=%s "
                     L" (%lux%lu@%lu Hz) "
                     L" [Device Window: 0x%04X]",
                       pparams->Windowed ? L"False" :
@@ -429,7 +547,7 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
   tsf::RenderFix::draw_state.last_vs_vec4 = Vector4fCount;
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L" SetVertexShaderConstantF - StartRegister: %lu, Vector4fCount: %lu",
+    dll_log.Log ( L"[Frame Trace] SetVertexShaderConstantF - StartRegister: %lu, Vector4fCount: %lu",
                     StartRegister, Vector4fCount );
     for (int i = 0; i < Vector4fCount; i++) {
       dll_log.Log ( L"     - %11.6f %11.6f %11.6f %11.6f",
@@ -623,7 +741,7 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
       newR.top    = (ndc_scissor.top    * out.height + out.height) / 2;
       newR.bottom = (ndc_scissor.bottom * out.height + out.height) / 2;
     } else {
-      dll_log.Log (L" >> Scissor Rectangle Applied During Post-Processing!");
+      dll_log.Log (L"[Render Fix] >> Scissor Rectangle Applied During Post-Processing!");
     }
   }
 
@@ -685,16 +803,16 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   }
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L" DrawIndexedPrimitive - %X, BaseIdx: %li, MinVtxIdx: %lu, NumVertices: %lu, "
+    dll_log.Log ( L"[Frame Trace] DrawIndexedPrimitive - %X, BaseIdx: %li, MinVtxIdx: %lu, NumVertices: %lu, "
                                               L"startIndex: %lu, primCount: %lu",
                     Type, BaseVertexIndex, MinVertexIndex,
                       NumVertices, startIndex, primCount );
 
     if (tsf::RenderFix::draw_state.outlines)
-      dll_log.Log ( L"  ** Outline ** ");
+      dll_log.Log ( L"[Frame Trace]  ** Outline ** ");
 
     else if (weapon_outline)
-      dll_log.Log ( L"  ** Weapon Outline ** ");
+      dll_log.Log ( L"[Frame Trace]  ** Weapon Outline ** ");
   }
 
   //
@@ -788,8 +906,9 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
   }
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L" SetRenderState - State: %X, Value: %lu",
-                    State, Value );
+    dll_log.Log ( L"[Frame Trace] SetRenderState - State: %24s, Value: %lu",
+                    SK_D3D9_RenderStateToStr (State),
+                      Value );
   }
 
   switch (State)
@@ -890,7 +1009,7 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
 
   if (Type == D3DSAMP_MAXANISOTROPY) {
     if (tsf::RenderFix::tracer.log)
-      dll_log.Log (L" Max Anisotropy Set: %d", Value);
+      dll_log.Log (L"[Render Fix] Max Anisotropy Set: %d", Value);
     Value = config.textures.max_anisotropy;
   }
 
