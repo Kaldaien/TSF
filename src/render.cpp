@@ -322,7 +322,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
             config.render.msaa_quality =
               pparams->MultiSampleQuality;
 
-            dll_log.Log ( L"[Render Fix] (*) Selected %dxMSAA Quality Level: %d",
+            dll_log.Log ( L"[Render Fix]  (*) Selected %dxMSAA Quality Level: %d",
                             config.render.msaa_samples,//pparams->MultiSampleType,
                               pparams->MultiSampleQuality );
             tsf::RenderFix::draw_state.has_msaa = true;
@@ -330,7 +330,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
         }
 
         else {
-            dll_log.Log ( L"[Render Fix] ### Requested %dxMSAA Quality Level: %d invalid",
+            dll_log.Log ( L"[Render Fix]  ### Requested %dxMSAA Quality Level: %d invalid",
                             config.render.msaa_samples,
                               config.render.msaa_quality );
         }

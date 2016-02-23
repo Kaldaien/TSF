@@ -49,12 +49,40 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
            base_addr = (uint8_t *)mem_info.BaseAddress;//AllocationBase;
   uint8_t* end_addr  = (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
 
-  while (VirtualQuery (end_addr, &mem_info, sizeof mem_info) > 0) {
-    if (! (mem_info.Type & MEM_IMAGE))
+  if (base_addr != (uint8_t *)0x400000) {
+    dll_log.Log ( L"[ Sig Scan ] Expected module base addr. 40000h, but got: %ph",
+                    base_addr );
+  }
+
+  int pages = 0;
+
+#define PAGE_WALK_LIMIT (base_addr) + (4096 * 8192)
+
+  //
+  // For practical purposes, let's just assume that all valid games have less than 32 MiB of
+  //   committed executable image data.
+  //
+  while (VirtualQuery (end_addr, &mem_info, sizeof mem_info) && end_addr < PAGE_WALK_LIMIT) {
+    if (mem_info.Protect & PAGE_NOACCESS || (! (mem_info.Type & MEM_IMAGE)))
       break;
+
+    pages += VirtualQuery (end_addr, &mem_info, sizeof mem_info);
 
     end_addr = (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
   }
+
+  if (end_addr > PAGE_WALK_LIMIT) {
+    dll_log.Log ( L"[ Sig Scan ] Module page walk resulted in end addr. out-of-range: %ph",
+                    end_addr );
+    dll_log.Log ( L"[ Sig Scan ]  >> Restricting to %ph",
+                    PAGE_WALK_LIMIT );
+    end_addr = PAGE_WALK_LIMIT;
+  }
+
+  dll_log.Log ( L"[ Sig Scan ] Module image consists of %lu pages, from %ph to %ph",
+                  pages,
+                    base_addr,
+                      end_addr );
 #endif
 
   uint8_t*  begin = (uint8_t *)base_addr;
@@ -63,12 +91,15 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
 
   while (it < end_addr)
   {
-    // Bail-out once we walk into an address range that is not resident, because it does not
-    //   belong to the original executable.
-    if (! VirtualQuery (it, &mem_info, sizeof mem_info))
+    VirtualQuery (it, &mem_info, sizeof mem_info);
+
+    // Bail-out once we walk into an address range that is not resident, because
+    //   it does not belong to the original executable.
+    if (mem_info.RegionSize == 0)
       break;
 
-    uint8_t* next_rgn = (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
+    uint8_t* next_rgn =
+     (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
 
     if ( (! (mem_info.Type    & MEM_IMAGE))  ||
          (! (mem_info.State   & MEM_COMMIT)) ||
@@ -78,6 +109,10 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
       begin = it;
       continue;
     }
+
+    // Do not search past the end of the module image!
+    if (next_rgn >= end_addr)
+      break;
 
     while (it < next_rgn) {
       uint8_t* scan_addr = it;

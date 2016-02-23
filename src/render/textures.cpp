@@ -1030,7 +1030,7 @@ tsf::RenderFix::TextureManager::reset (void)
     msaa_surfs.clear       ();
     msaa_backing_map.clear ();
 
-    tex_log.Log ( L"[ MSAA Mgr ]   %4d surfaces (%4d zombies)\n",
+    tex_log.Log ( L"[ MSAA Mgr ]   %4d surfaces (%4d zombies)",
                       count, refs );
   }
 
