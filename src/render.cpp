@@ -42,7 +42,10 @@ SetRenderState_pfn                      D3D9SetRenderState_Original             
 SetVertexShaderConstantF_pfn            D3D9SetVertexShaderConstantF_Original        = nullptr;
 SetSamplerState_pfn                     D3D9SetSamplerState_Original                 = nullptr;
 
+DrawPrimitive_pfn                       D3D9DrawPrimitive_Original                   = nullptr;
 DrawIndexedPrimitive_pfn                D3D9DrawIndexedPrimitive_Original            = nullptr;
+DrawPrimitiveUP_pfn                     D3D9DrawPrimitiveUP_Original                 = nullptr;
+DrawIndexedPrimitiveUP_pfn              D3D9DrawIndexedPrimitiveUP_Original          = nullptr;
 
 BMF_SetPresentParamsD3D9_pfn            BMF_SetPresentParamsD3D9_Original            = nullptr;
 BMF_EndBufferSwap_pfn                   BMF_EndBufferSwap                            = nullptr;
@@ -198,16 +201,16 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
 
   tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
 
-  if (tsf::RenderFix::tracer.log && tsf::RenderFix::tracer.count > 0) {
-    dll_log.Log (L"[Frame Trace] --- SwapChain Present ---");
-    if (--tsf::RenderFix::tracer.count <= 0)
-      tsf::RenderFix::tracer.log = false;
-  }
-
   void TSFix_DrawCommandConsole (void);
   TSFix_DrawCommandConsole ();
 
   hr = BMF_EndBufferSwap (hr, device);
+
+  if (tsf::RenderFix::tracer.log && tsf::RenderFix::tracer.count > 0) {
+    dll_log.Log (L"[FrameTrace] --- SwapChain Present ---");
+    if (--tsf::RenderFix::tracer.count <= 0)
+      tsf::RenderFix::tracer.log = false;
+  }
 
   // Push any changes to this state at the very end of a frame.
   tsf::RenderFix::draw_state.use_msaa = use_msaa &&
@@ -496,6 +499,13 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 
   tsf::RenderFix::draw_state.vp = *pViewport;
 
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L"[FrameTrace] SetViewport     - [%lu,%lu] / [%lu,%lu] :: [%f - %f]",
+                    pViewport->X, pViewport->Y,
+                      pViewport->Width, pViewport->Height,
+                        pViewport->MinZ, pViewport->MaxZ );
+  }
+
   // ...
   if (pViewport->Width == 1280 && pViewport->Height == 720) {
     tsf::RenderFix::draw_state.postprocessing = false;
@@ -525,6 +535,20 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
     return D3D9SetViewport_Original (This, &newView);
   }
 
+  // (Other?) Effects
+  if (pViewport->Width == 256 && pViewport->Height == 256) {
+    tsf::RenderFix::draw_state.postprocessing = true;
+    tsf::RenderFix::draw_state.fullscreen     = false;
+
+    D3DVIEWPORT9 newView = *pViewport;
+
+    newView.Width  = pViewport->Width  * 2 * config.render.postproc_ratio;
+    newView.Height = pViewport->Height * 2 * config.render.postproc_ratio;
+
+    return D3D9SetViewport_Original (This, &newView);
+  }
+
+
   return D3D9SetViewport_Original (This, pViewport);
 }
 
@@ -547,12 +571,16 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
   tsf::RenderFix::draw_state.last_vs_vec4 = Vector4fCount;
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[Frame Trace] SetVertexShaderConstantF - StartRegister: %lu, Vector4fCount: %lu",
+    dll_log.Log ( L"[FrameTrace] SetVertexShaderConstantF\n"
+                  L"                         [FrameTrace]                 "
+                  L"- StartRegister: %lu, Vector4fCount: %lu",
                     StartRegister, Vector4fCount );
     for (int i = 0; i < Vector4fCount; i++) {
-      dll_log.Log ( L"     - %11.6f %11.6f %11.6f %11.6f",
-                      pConstantData [i*4+0],pConstantData [i*4+1],
-                      pConstantData [i*4+2],pConstantData [i*4+3] );
+      dll_log.LogEx ( false, L"                         [FrameTrace]"
+                             L"                 - %11.6f %11.6f "
+                                                L"%11.6f %11.6f\n",
+                       pConstantData [i*4+0],pConstantData [i*4+1],
+                       pConstantData [i*4+2],pConstantData [i*4+3] );
     }
   }
 
@@ -676,6 +704,12 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
     return D3D9SetScissorRect_Original (This, pRect);
   }
 
+  if (tsf::RenderFix::tracer.log && pRect != nullptr) {
+    dll_log.Log ( L"[FrameTrace] SetScissorRect  - [%lu,%lu] / [%lu,%lu]",
+                    pRect->left, pRect->top,
+                      pRect->right, pRect->bottom );
+  }
+
   RECT newR;
 
   // TOBE REMVOED - This is here to demonstrate the problems, since they
@@ -734,6 +768,12 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
       ndc_scissor.bottom =
         2.0f * ((float)(pRect->bottom) / (float)in.height) - 1.0f;
 
+      // Just move the entire thing all the way to the left for this one screen
+      //   otherwise the loading text will be clipped...
+      if (pRect->left == 188 && pRect->top == 114 /*&&
+          in.width    == 720 && in.height  == 1280*/) {
+        ndc_scissor.left = -1.0f;
+      }
 
       newR.right  = (ndc_scissor.right  * out.width  + out.width)  / 2;
       newR.left   = (ndc_scissor.left   * out.width  + out.width)  / 2;
@@ -749,10 +789,49 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
 }
 
 // Optimal depth offsets
-                  // 0.000001f; // 720p
-float depth_offset = 0.000255f; // 4K 4X MSAA
+float depth_offset1 =  0.000001f; // Constant
+float depth_offset2 = -0.666666f; // Slope
 
 bool doing_outlines = false;
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9DrawPrimitive_Detour (IDirect3DDevice9* This,
+                          D3DPRIMITIVETYPE  PrimitiveType,
+                          UINT              StartVertex,
+                          UINT              PrimitiveCount)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice) {
+    return D3D9DrawPrimitive_Original ( This, PrimitiveType,
+                                                 StartVertex, PrimitiveCount );
+  }
+
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L"[FrameTrace] DrawPrimitive - %X, StartVertex: %lu, PrimitiveCount: %lu",
+                      PrimitiveType, StartVertex, PrimitiveCount );
+  }
+
+  return D3D9DrawPrimitive_Original ( This, PrimitiveType,
+                                        StartVertex, PrimitiveCount );
+}
+
+const wchar_t*
+SK_D3D9_PrimitiveTypeToStr (D3DPRIMITIVETYPE pt)
+{
+  switch (pt)
+  {
+    case D3DPT_POINTLIST             : return L"D3DPT_POINTLIST";
+    case D3DPT_LINELIST              : return L"D3DPT_LINELIST";
+    case D3DPT_LINESTRIP             : return L"D3DPT_LINESTRIP";
+    case D3DPT_TRIANGLELIST          : return L"D3DPT_TRIANGLELIST";
+    case D3DPT_TRIANGLESTRIP         : return L"D3DPT_TRIANGLESTRIP";
+    case D3DPT_TRIANGLEFAN           : return L"D3DPT_TRIANGLEFAN";
+  }
+
+  return L"Invalid Primitive";
+}
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -803,16 +882,22 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   }
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[Frame Trace] DrawIndexedPrimitive - %X, BaseIdx: %li, MinVtxIdx: %lu, NumVertices: %lu, "
-                                              L"startIndex: %lu, primCount: %lu",
-                    Type, BaseVertexIndex, MinVertexIndex,
-                      NumVertices, startIndex, primCount );
+    dll_log.Log ( L"[FrameTrace] DrawIndexedPrimitive   (Type: %s)\n"
+                  L"                         [FrameTrace]                 -"
+                  L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
+                  L"                         [FrameTrace]                 -"
+                  L"    NumVertices: %5lu, startIndex: %5lu,\n"
+                  L"                         [FrameTrace]                 -"
+                  L"    primCount:   %5lu",
+                    SK_D3D9_PrimitiveTypeToStr (Type),
+                      BaseVertexIndex, MinVertexIndex,
+                        NumVertices, startIndex, primCount );
 
     if (tsf::RenderFix::draw_state.outlines)
-      dll_log.Log ( L"[Frame Trace]  ** Outline ** ");
+      dll_log.Log ( L"[FrameTrace]  ** Outline ** ");
 
     else if (weapon_outline)
-      dll_log.Log ( L"[Frame Trace]  ** Weapon Outline ** ");
+      dll_log.Log ( L"[FrameTrace]  ** Weapon Outline ** ");
   }
 
   //
@@ -820,21 +905,15 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   //
   bool disable_outlines = false;
 
-  static D3DVIEWPORT9 vp_orig;
-  static D3DVIEWPORT9 vp;
+  float neutral_depth = 0.0f;
 
   if ( weapon_outline || tsf::RenderFix::draw_state.outlines ) {
-    if (depth_offset != 0.0f) {
-      This->GetViewport (&vp_orig);
-
-      vp = vp_orig;
-
-      vp.MaxZ += depth_offset;
-      vp.MinZ += depth_offset;
-    }
-
     // Slimes (Bestiary #158)
     if (NumVertices == 348 && primCount == 1811)
+      disable_outlines = true;
+
+    // Man-Eater (Bestiary #?)
+    if (NumVertices == 348 && primCount == 1761)
       disable_outlines = true;
 
     // Sword on Fire Warrior (Bestiary #72)
@@ -857,7 +936,8 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
       D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_ZERO);
     }
 
-    D3D9SetViewport_Original (This, &vp);
+    D3D9SetRenderState_Original (This, D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD *)&depth_offset2);
+    D3D9SetRenderState_Original (This, D3DRS_DEPTHBIAS,           *(DWORD *)&depth_offset1);
   }
 
   HRESULT hr = D3D9DrawIndexedPrimitive_Original ( This, Type,
@@ -866,8 +946,8 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                                                          primCount );
 
   if ( weapon_outline || tsf::RenderFix::draw_state.outlines ) {
-    if (depth_offset != 0.0f)
-      D3D9SetViewport_Original (This, &vp_orig);
+    D3D9SetRenderState_Original (This, D3DRS_DEPTHBIAS,           *(DWORD *)&neutral_depth);
+    D3D9SetRenderState_Original (This, D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD *)&neutral_depth);
   }
 
   //
@@ -896,6 +976,77 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
+D3D9DrawPrimitiveUP_Detour ( IDirect3DDevice9* This,
+                             D3DPRIMITIVETYPE  PrimitiveType,
+                             UINT              PrimitiveCount,
+                             const void       *pVertexStreamZeroData,
+                             UINT              VertexStreamZeroStride )
+{
+  if (tsf::RenderFix::tracer.log && This == tsf::RenderFix::pDevice) {
+    dll_log.Log ( L"[FrameTrace] DrawPrimitiveUP   (Type: %s) - PrimitiveCount: %lu"/*
+                  L"                         [FrameTrace]                 -"
+                  L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
+                  L"                         [FrameTrace]                 -"
+                  L"    NumVertices: %5lu, startIndex: %5lu,\n"
+                  L"                         [FrameTrace]                 -"
+                  L"    primCount:   %5lu"*/,
+                    SK_D3D9_PrimitiveTypeToStr (PrimitiveType),
+                      PrimitiveCount/*,
+                      BaseVertexIndex, MinVertexIndex,
+                        NumVertices, startIndex, primCount*/ );
+  }
+
+  return
+    D3D9DrawPrimitiveUP_Original ( This,
+                                     PrimitiveType,
+                                       PrimitiveCount,
+                                         pVertexStreamZeroData,
+                                           VertexStreamZeroStride );
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9DrawIndexedPrimitiveUP_Detour ( IDirect3DDevice9* This,
+                                    D3DPRIMITIVETYPE  PrimitiveType,
+                                    UINT              MinVertexIndex,
+                                    UINT              NumVertices,
+                                    UINT              PrimitiveCount,
+                                    const void       *pIndexData,
+                                    D3DFORMAT         IndexDataFormat,
+                                    const void       *pVertexStreamZeroData,
+                                    UINT              VertexStreamZeroStride )
+{
+  if (tsf::RenderFix::tracer.log && This == tsf::RenderFix::pDevice) {
+    dll_log.Log ( L"[FrameTrace] DrawIndexedPrimitiveUP   (Type: %s) - NumVertices: %lu, PrimitiveCount: %lu"/*
+                  L"                         [FrameTrace]                 -"
+                  L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
+                  L"                         [FrameTrace]                 -"
+                  L"    NumVertices: %5lu, startIndex: %5lu,\n"
+                  L"                         [FrameTrace]                 -"
+                  L"    primCount:   %5lu"*/,
+                    SK_D3D9_PrimitiveTypeToStr (PrimitiveType),
+                      NumVertices, PrimitiveCount/*,
+                      BaseVertexIndex, MinVertexIndex,
+                        NumVertices, startIndex, primCount*/ );
+  }
+
+  return
+    D3D9DrawIndexedPrimitiveUP_Original (
+      This,
+        PrimitiveType,
+          MinVertexIndex,
+            NumVertices,
+              PrimitiveCount,
+                pIndexData,
+                  IndexDataFormat,
+                    pVertexStreamZeroData,
+                      VertexStreamZeroStride );
+}
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
 D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
                            D3DRENDERSTATETYPE State,
                            DWORD              Value)
@@ -906,7 +1057,7 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
   }
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[Frame Trace] SetRenderState - State: %24s, Value: %lu",
+    dll_log.Log ( L"[FrameTrace] SetRenderState  - State: %24s, Value: %lu",
                     SK_D3D9_RenderStateToStr (State),
                       Value );
   }
@@ -962,6 +1113,33 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
   return D3D9SetRenderState_Original (This, State, Value);
 }
 
+const wchar_t*
+SK_D3D9_SamplerStateTypeToStr (D3DSAMPLERSTATETYPE sst)
+{
+  switch (sst)
+  {
+    case D3DSAMP_ADDRESSU       : return L"D3DSAMP_ADDRESSU";
+    case D3DSAMP_ADDRESSV       : return L"D3DSAMP_ADDRESSV";
+    case D3DSAMP_ADDRESSW       : return L"D3DSAMP_ADDRESSW";
+    case D3DSAMP_BORDERCOLOR    : return L"D3DSAMP_BORDERCOLOR";
+    case D3DSAMP_MAGFILTER      : return L"D3DSAMP_MAGFILTER";
+    case D3DSAMP_MINFILTER      : return L"D3DSAMP_MINFILTER";
+    case D3DSAMP_MIPFILTER      : return L"D3DSAMP_MIPFILTER";
+    case D3DSAMP_MIPMAPLODBIAS  : return L"D3DSAMP_MIPMAPLODBIAS";
+    case D3DSAMP_MAXMIPLEVEL    : return L"D3DSAMP_MAXMIPLEVEL";
+    case D3DSAMP_MAXANISOTROPY  : return L"D3DSAMP_MAXANISOTROPY";
+    case D3DSAMP_SRGBTEXTURE    : return L"D3DSAMP_SRGBTEXTURE";
+
+    case D3DSAMP_ELEMENTINDEX   : return L"D3DSAMP_ELEMENTINDEX";
+
+    case D3DSAMP_DMAPOFFSET     : return L"D3DSAMP_DMAPOFFSET";
+  }
+
+  static wchar_t wszUnknown [32];
+  wsprintf (wszUnknown, L"UNKNOWN: %lu", sst);
+  return wszUnknown;
+}
+
 //
 // TODO: Move Me to textures.cpp
 //
@@ -977,6 +1155,13 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
   if (This != tsf::RenderFix::pDevice)
     return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
 
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L"[FrameTrace] SetSamplerState - %02lu Type: %22s, Value: %lu",
+                    Sampler,
+                      SK_D3D9_SamplerStateTypeToStr (Type),
+                        Value );
+  }
+
   //dll_log.Log ( L" [!] IDirect3DDevice9::SetSamplerState (%lu, %lu, %lu)",
                   //Sampler, Type, Value );
   if (Type == D3DSAMP_MIPFILTER ||
@@ -985,32 +1170,40 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
       Type == D3DSAMP_MIPMAPLODBIAS) {
     //dll_log.Log (L" [!] IDirect3DDevice9::SetSamplerState (...)");
     if (Type < 8) {
+      bool aniso_override = false;
+
       //if (Value != D3DTEXF_ANISOTROPIC)
         //D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, aniso);
       //dll_log.Log (L" %s Filter: %x", Type == D3DSAMP_MIPFILTER ? L"Mip" : Type == D3DSAMP_MINFILTER ? L"Min" : L"Mag", Value);
       if (Type == D3DSAMP_MIPFILTER) {
-        if (Value != D3DTEXF_NONE)
-          Value = D3DTEXF_ANISOTROPIC;
+        if (Value != D3DTEXF_NONE && tsf::RenderFix::draw_state.max_aniso != 0)
+          aniso_override = true;
       }
       if (Type == D3DSAMP_MAGFILTER ||
-                  D3DSAMP_MINFILTER)
-        if (Value != D3DTEXF_POINT)
-          Value = D3DTEXF_ANISOTROPIC;
+          Type == D3DSAMP_MINFILTER) {
+        if (Value != D3DTEXF_POINT && tsf::RenderFix::draw_state.max_aniso != 0) {
+          aniso_override = true;
+        }
+      }
+
+      if (aniso_override) {
+        Value = D3DTEXF_ANISOTROPIC;
 
         //
         // The game apparently never sets this, so that's a problem...
         //
-        D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, config.textures.max_anisotropy);
+        D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, tsf::RenderFix::draw_state.max_aniso);
         //
         // End things the game is supposed to, but never sets.
         //
+      }
     }
   }
 
   if (Type == D3DSAMP_MAXANISOTROPY) {
     if (tsf::RenderFix::tracer.log)
-      dll_log.Log (L"[Render Fix] Max Anisotropy Set: %d", Value);
-    Value = config.textures.max_anisotropy;
+      dll_log.Log (L"[Render Fix] Max Anisotropy Set (it's a miracle!): %d", Value);
+    Value = tsf::RenderFix::draw_state.max_aniso;
   }
 
   return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
@@ -1037,9 +1230,24 @@ tsf::RenderFix::Init (void)
                (LPVOID*)&D3D9SetVertexShaderConstantF_Original );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawPrimitive_Override",
+                         D3D9DrawPrimitive_Detour,
+               (LPVOID*)&D3D9DrawPrimitive_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9DrawIndexedPrimitive_Override",
                          D3D9DrawIndexedPrimitive_Detour,
                (LPVOID*)&D3D9DrawIndexedPrimitive_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawPrimitiveUP_Override",
+                         D3D9DrawPrimitiveUP_Detour,
+               (LPVOID*)&D3D9DrawPrimitiveUP_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawIndexedPrimitiveUP_Override",
+                         D3D9DrawIndexedPrimitiveUP_Detour,
+               (LPVOID*)&D3D9DrawIndexedPrimitiveUP_Original );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9SetRenderState_Override",
@@ -1082,7 +1290,11 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Trace.NumFrames", new eTB_VarStub <int>  (&tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    new eTB_VarStub <bool> (&tracer.log));
 
-  pCommandProc->AddVariable ("Render.OutlineOffset", new eTB_VarStub <float> (&depth_offset));
+  pCommandProc->AddVariable ("Render.OutlineOffsetC", new eTB_VarStub <float> (&depth_offset1));
+  pCommandProc->AddVariable ("Render.OutlineOffsetS", new eTB_VarStub <float> (&depth_offset2));
+
+  draw_state.max_aniso = config.textures.max_anisotropy;
+  pCommandProc->AddVariable ("Render.MaxAniso", new eTB_VarStub <int> (&draw_state.max_aniso));
 
 #if 0
   D3DXCreateFontW =

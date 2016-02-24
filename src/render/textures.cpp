@@ -287,7 +287,7 @@ D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
                         const RECT                *pDestRect,
                               D3DTEXTUREFILTERTYPE Filter )
 {
-#if 0
+  if (tsf::RenderFix::tracer.log)
   {
     RECT source, dest;
 
@@ -311,16 +311,15 @@ D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
     } else
       dest = *pDestRect;
 
-  tex_log.Log ( L" [!] IDirect3DDevice9::StretchRect (...) "
-                L"%s[%lu,%lu/%lu,%lu] :%s[%lu,%lu/%lu,%lu]",
-                pSourceRect != nullptr ?
-                  L" " : L" *",
-                source.left, source.top, source.right, source.bottom,
-                pDestRect != nullptr ?
-                  L" " : L" *",
-                dest.left,   dest.top,   dest.right,   dest.bottom );
+    dll_log.Log ( L"[FrameTrace] StretchRect      - "
+                  L"%s[%lu,%lu/%lu,%lu] ==> %s[%lu,%lu/%lu,%lu]",
+                  pSourceRect != nullptr ?
+                    L" " : L" *",
+                  source.left, source.top, source.right, source.bottom,
+                  pDestRect != nullptr ?
+                    L" " : L" *",
+                  dest.left,   dest.top,   dest.right,   dest.bottom );
   }
-#endif
 
   return D3D9StretchRect_Original (This, pSourceSurface, pSourceRect,
                                          pDestSurface,   pDestRect,
@@ -389,6 +388,8 @@ tsf::RenderFix::TextureManager::numMSAASurfs (void)
   return msaa_surfs.size ();
 }
 
+#include "../render.h"
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -402,6 +403,14 @@ D3D9SetTexture_Detour (
   if (This != tsf::RenderFix::pDevice) {
     return D3D9SetTexture_Original (This, Sampler, pTexture);
   }
+
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L"[FrameTrace] SetTexture      - Sampler: %lu, pTexture: %ph",
+                     Sampler, pTexture );
+  }
+
+  extern SetSamplerState_pfn D3D9SetSamplerState_Original;
+  D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, tsf::RenderFix::draw_state.max_aniso);
 
   //
   // MSAA Blit (Before binding a texture, do MSAA resolve from its backing store)
@@ -446,6 +455,11 @@ D3D9SetRenderTarget_Detour (
     return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pRenderTarget);
   }
 
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L"[FrameTrace] SetRenderTarget - RenderTargetIndex: %lu, pRenderTarget: %ph",
+                    RenderTargetIndex, pRenderTarget );
+  }
+
   //
   // MSAA Override
   //
@@ -473,6 +487,12 @@ D3D9SetDepthStencilSurface_Detour (
   if (This != tsf::RenderFix::pDevice) {
     return D3D9SetDepthStencilSurface_Original (This, pNewZStencil);
   }
+
+  if (tsf::RenderFix::tracer.log) {
+    dll_log.Log ( L"[FrameTrace] SetDepthStencilSurface   (%ph)",
+                    pNewZStencil );
+  }
+
 
   //
   // MSAA Depth/Stencil Override
@@ -521,8 +541,9 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
 
   // Resize the primary framebuffer
   if (Width == 1280 && Height == 720) {
-    if (((Usage & D3DUSAGE_RENDERTARGET) && Format == D3DFMT_A8R8G8B8) ||
-                                            Format == D3DFMT_D24S8) {
+    if (((Usage & D3DUSAGE_RENDERTARGET) && (Format == D3DFMT_A8R8G8B8 ||
+                                             Format == D3DFMT_R32F))   ||
+                                             Format == D3DFMT_D24S8) {
       Width  = tsf::RenderFix::width;
       Height = tsf::RenderFix::height;
     } else {
@@ -534,6 +555,11 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
   else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
     Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
     Height = tsf::RenderFix::height * config.render.postproc_ratio;
+  }
+
+  else if (Width == 256 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
+    Width  = Width  * 2 * config.render.postproc_ratio;
+    Height = Height * 2 * config.render.postproc_ratio;
   }
 
   else {

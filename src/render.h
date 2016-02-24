@@ -43,6 +43,7 @@ namespace tsf
 
     struct tsf_draw_states_s {
       bool         has_aniso      = false; // Has he game even once set anisotropy?!
+      int          max_aniso      = 4;
       bool         has_msaa       = false;
       bool         use_msaa       = true;  // Allow MSAA toggle via console
                                            //  without changing the swapchain.
@@ -143,6 +144,14 @@ typedef HRESULT (STDMETHODCALLTYPE *SetVertexShaderConstantF_pfn)
         UINT              Vector4fCount
 );
 
+typedef HRESULT (STDMETHODCALLTYPE *DrawPrimitive_pfn)
+(
+  IDirect3DDevice9 *This,
+  D3DPRIMITIVETYPE  PrimitiveType,
+  UINT              StartVertex,
+  UINT              PrimitiveCount
+);
+
 typedef HRESULT (STDMETHODCALLTYPE *DrawIndexedPrimitive_pfn)
 (
   IDirect3DDevice9 *This,
@@ -152,6 +161,28 @@ typedef HRESULT (STDMETHODCALLTYPE *DrawIndexedPrimitive_pfn)
   UINT              NumVertices,
   UINT              startIndex,
   UINT              primCount
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *DrawPrimitiveUP_pfn)
+(
+  IDirect3DDevice9 *This,
+  D3DPRIMITIVETYPE  PrimitiveType,
+  UINT              PrimitiveCount,
+  const void       *pVertexStreamZeroData,
+  UINT              VertexStreamZeroStride
+);
+
+typedef HRESULT (STDMETHODCALLTYPE *DrawIndexedPrimitiveUP_pfn)
+(
+  IDirect3DDevice9 *This,
+  D3DPRIMITIVETYPE  PrimitiveType,
+  UINT              MinVertexIndex,
+  UINT              NumVertices,
+  UINT              PrimitiveCount,
+  const void       *pIndexData,
+  D3DFORMAT         IndexDataFormat,
+  const void       *pVertexStreamZeroData,
+  UINT              VertexStreamZeroStride
 );
 
 typedef HRESULT (STDMETHODCALLTYPE *BMF_EndBufferSwap_pfn)
