@@ -50,6 +50,9 @@ tsf::RenderFix::TextureManager
 
 tsf_logger_s tex_log;
 
+// D3DXSaveSurfaceToFile issues a StretchRect, but we don't want to log that...
+bool dumping = false;
+
 std::wstring
 SK_D3D9_UsageToStr (DWORD dwUsage)
 {
@@ -287,7 +290,7 @@ D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
                         const RECT                *pDestRect,
                               D3DTEXTUREFILTERTYPE Filter )
 {
-  if (tsf::RenderFix::tracer.log)
+  if (tsf::RenderFix::tracer.log && (! dumping))
   {
     RECT source, dest;
 
@@ -320,6 +323,8 @@ D3D9StretchRect_Detour (      IDirect3DDevice9    *This,
                     L" " : L" *",
                   dest.left,   dest.top,   dest.right,   dest.bottom );
   }
+
+  dumping = false;
 
   return D3D9StretchRect_Original (This, pSourceSurface, pSourceRect,
                                          pDestSurface,   pDestRect,
@@ -441,6 +446,12 @@ D3D9SetTexture_Detour (
   return D3D9SetTexture_Original (This, Sampler, pTexture);
 }
 
+D3DXSaveSurfaceToFile_pfn D3DXSaveSurfaceToFileW = nullptr;
+
+IDirect3DSurface9* pOld = nullptr;
+
+#define D3DXSaveSurfaceToFile D3DXSaveSurfaceToFileW
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -450,14 +461,51 @@ D3D9SetRenderTarget_Detour (
                   _In_ IDirect3DSurface9 *pRenderTarget
 )
 {
+  static int draw_counter = 0;
+
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
     return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pRenderTarget);
   }
 
   if (tsf::RenderFix::tracer.log) {
+#ifdef DUMP_RT
+    if (D3DXSaveSurfaceToFileW == nullptr) {
+      D3DXSaveSurfaceToFileW =
+        (D3DXSaveSurfaceToFile_pfn)
+          GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
+                             "D3DXSaveSurfaceToFileW" );
+    }
+
+    wchar_t wszDumpName [MAX_PATH];
+
+    if (pRenderTarget != pOld) {
+      if (pOld != nullptr) {
+        wsprintf (wszDumpName, L"dump\\%03d_out_%p.dds", draw_counter, pOld);
+
+        dll_log.Log ( L"[FrameTrace] >>> Dumped: Output RT to %s >>>", wszDumpName );
+
+        dumping = true;
+        D3DXSaveSurfaceToFile (wszDumpName, D3DXIFF_DDS, pOld, nullptr, nullptr);
+      }
+    }
+#endif
+
     dll_log.Log ( L"[FrameTrace] SetRenderTarget - RenderTargetIndex: %lu, pRenderTarget: %ph",
                     RenderTargetIndex, pRenderTarget );
+
+#ifdef DUMP_RT
+    if (pRenderTarget != pOld) {
+      pOld = pRenderTarget;
+
+      wsprintf (wszDumpName, L"dump\\%03d_in_%p.dds", ++draw_counter, pRenderTarget);
+
+      dll_log.Log ( L"[FrameTrace] <<< Dumped: Input RT to  %s  <<<", wszDumpName );
+
+      dumping = true;
+      D3DXSaveSurfaceToFile (wszDumpName, D3DXIFF_DDS, pRenderTarget, nullptr, nullptr);
+    }
+#endif
   }
 
   //
@@ -553,13 +601,13 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
   }
 
   else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
-    Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
-    Height = tsf::RenderFix::height * config.render.postproc_ratio;
+    Width  = tsf::RenderFix::width  * 1.0f;//config.render.postproc_ratio;
+    Height = tsf::RenderFix::height * 1.0f;//config.render.postproc_ratio;
   }
 
   else if (Width == 256 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
-    Width  = Width  * 2 * config.render.postproc_ratio;
-    Height = Height * 2 * config.render.postproc_ratio;
+    Width  = Width  * config.render.postproc_ratio;
+    Height = Height * config.render.postproc_ratio;
   }
 
   else {

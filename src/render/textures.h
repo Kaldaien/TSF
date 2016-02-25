@@ -112,6 +112,15 @@ typedef HRESULT (STDMETHODCALLTYPE *D3DXSaveTextureToFile_pfn)(
   _In_ const PALETTEENTRY           *pSrcPalette
 );
 
+typedef HRESULT (WINAPI *D3DXSaveSurfaceToFile_pfn)
+(
+  _In_       LPCWSTR              pDestFile,
+  _In_       D3DXIMAGE_FILEFORMAT DestFormat,
+  _In_       LPDIRECT3DSURFACE9   pSrcSurface,
+  _In_ const PALETTEENTRY         *pSrcPalette,
+  _In_ const RECT                 *pSrcRect
+);
+
 typedef HRESULT (STDMETHODCALLTYPE *CreateTexture_pfn)
 (
   IDirect3DDevice9   *This,

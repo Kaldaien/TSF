@@ -52,6 +52,8 @@ namespace tsf
       bool         postprocessing = false;
       bool         fullscreen     = false;
 
+      DWORD        srcblend       = 0;
+      DWORD        dstblend       = 0;
       DWORD        srcalpha       = 0;     // Separate Alpha Blend Eq: Src
       DWORD        dstalpha       = 0;     // Separate Alpha Blend Eq: Dst
       bool         alpha_test     = false; // Test Alpha?

@@ -56,6 +56,107 @@ tsf::RenderFix::tracer_s
 tsf::RenderFix::tsf_draw_states_s
   tsf::RenderFix::draw_state;
 
+#include <map>
+std::unordered_map <LPVOID, uint32_t> vs_checksums;
+std::unordered_map <LPVOID, uint32_t> ps_checksums;
+
+IDirect3DVertexShader9* g_pVS;
+IDirect3DPixelShader9*  g_pPS;
+
+// Store the CURRENT shader's checksum instead of repeatedly
+//   looking it up in the above hashmaps.
+uint32_t vs_checksum = 0;
+uint32_t ps_checksum = 0;
+
+extern uint32_t
+crc32 (uint32_t crc, const void *buf, size_t size);
+
+typedef HRESULT (STDMETHODCALLTYPE *SetVertexShader_t)
+  (IDirect3DDevice9*       This,
+   IDirect3DVertexShader9* pShader);
+
+SetVertexShader_t D3D9SetVertexShader_Original = nullptr;
+
+HRESULT
+STDMETHODCALLTYPE
+D3D9SetVertexShader_Detour (IDirect3DDevice9*       This,
+                            IDirect3DVertexShader9* pShader)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice)
+    return D3D9SetVertexShader_Original (This, pShader);
+
+  if (g_pVS != pShader) {
+    if (pShader != nullptr) {
+      if (vs_checksums.find (pShader) == vs_checksums.end ()) {
+        UINT len;
+        pShader->GetFunction (nullptr, &len);
+
+        void* pbFunc = malloc (len);
+
+        if (pbFunc != nullptr) {
+          pShader->GetFunction (pbFunc, &len);
+
+          vs_checksums [pShader] = crc32 (0, pbFunc, len);
+
+          free (pbFunc);
+        }
+      }
+    }
+    else {
+      vs_checksum = 0;
+    }
+  }
+
+  vs_checksum = vs_checksums [pShader];
+
+  g_pVS = pShader;
+  return D3D9SetVertexShader_Original (This, pShader);
+}
+
+
+typedef HRESULT (STDMETHODCALLTYPE *SetPixelShader_t)
+  (IDirect3DDevice9*      This,
+   IDirect3DPixelShader9* pShader);
+
+SetPixelShader_t D3D9SetPixelShader_Original = nullptr;
+
+HRESULT
+STDMETHODCALLTYPE
+D3D9SetPixelShader_Detour (IDirect3DDevice9*      This,
+                           IDirect3DPixelShader9* pShader)
+{
+  // Ignore anything that's not the primary render device.
+  if (This != tsf::RenderFix::pDevice)
+    return D3D9SetPixelShader_Original (This, pShader);
+
+  if (g_pPS != pShader) {
+    if (pShader != nullptr) {
+      if (ps_checksums.find (pShader) == ps_checksums.end ()) {
+        UINT len;
+        pShader->GetFunction (nullptr, &len);
+
+        void* pbFunc = malloc (len);
+
+        if (pbFunc != nullptr) {
+          pShader->GetFunction (pbFunc, &len);
+
+          ps_checksums [pShader] = crc32 (0, pbFunc, len);
+
+          free (pbFunc);
+        }
+      }
+    } else {
+      ps_checksum = 0;
+    }
+  }
+
+  ps_checksum = ps_checksums [pShader];
+
+  g_pPS = pShader;
+  return D3D9SetPixelShader_Original (This, pShader);
+}
+
 #include <set>
 // Store previously draw calls so we can discard erraneously detected
 //   weapon outlines.
@@ -196,8 +297,11 @@ STDMETHODCALLTYPE
 D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
 {
   // Ignore anything that's not the primary render device.
-  if (device != tsf::RenderFix::pDevice)
+  if (device != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 frame ended on unknown IDirect3DDevice9! << ");
+
     return BMF_EndBufferSwap (hr, device);
+  }
 
   tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
 
@@ -271,7 +375,7 @@ D3D9Reset_Detour ( IDirect3DDevice9      *This,
   }                                                                            \
  }
 
-COM_DECLSPEC_NOTHROW
+__declspec (noinline)
 D3DPRESENT_PARAMETERS*
 __stdcall
 BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
@@ -347,14 +451,15 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     if (device != nullptr) {
       dll_log.Log ( L"[Render Fix] %% Caught D3D9 Swapchain :: Fullscreen=%s "
                     L" (%lux%lu@%lu Hz) "
-                    L" [Device Window: 0x%04X]",
+                    L" [Device Window: 0x%04X, Pointer: %ph]",
                       pparams->Windowed ? L"False" :
                    
                        L"True",
                         pparams->BackBufferWidth,
                           pparams->BackBufferHeight,
                             pparams->FullScreen_RefreshRateInHz,
-                              pparams->hDeviceWindow );
+                              pparams->hDeviceWindow,
+                                device );
     }
 
     // Some games don't set this even though it's supposed to be
@@ -446,7 +551,9 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
             SWP_FRAMECHANGED );
   }
 
-  return BMF_SetPresentParamsD3D9_Original (device, pparams);
+  
+
+  return BMF_SetPresentParamsD3D9_Original (device, &present_params);
 }
 
 #include "hook.h"
@@ -494,8 +601,10 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
                   CONST D3DVIEWPORT9*     pViewport)
 {
   // Ignore anything that's not the primary render device.
-  if (This != tsf::RenderFix::pDevice)
+  if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 command came from unknown IDirect3DDevice9! << ");
     return D3D9SetViewport_Original (This, pViewport);
+  }
 
   tsf::RenderFix::draw_state.vp = *pViewport;
 
@@ -529,8 +638,8 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 
     D3DVIEWPORT9 newView = *pViewport;
 
-    newView.Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
-    newView.Height = tsf::RenderFix::height * config.render.postproc_ratio;
+    newView.Width  = tsf::RenderFix::width  * 1.0f;//config.render.postproc_ratio;
+    newView.Height = tsf::RenderFix::height * 1.0f;//config.render.postproc_ratio;
 
     return D3D9SetViewport_Original (This, &newView);
   }
@@ -542,8 +651,8 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 
     D3DVIEWPORT9 newView = *pViewport;
 
-    newView.Width  = pViewport->Width  * 2 * config.render.postproc_ratio;
-    newView.Height = pViewport->Height * 2 * config.render.postproc_ratio;
+    newView.Width  = pViewport->Width  * config.render.postproc_ratio;
+    newView.Height = pViewport->Height * config.render.postproc_ratio;
 
     return D3D9SetViewport_Original (This, &newView);
   }
@@ -562,6 +671,8 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 command came from unknown IDirect3DDevice9! << ");
+
     return D3D9SetVertexShaderConstantF_Original ( This,
                                                      StartRegister,
                                                        pConstantData,
@@ -616,6 +727,8 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 BeginScene came from unknown IDirect3DDevice9! << ");
+
     return D3D9BeginScene_Original (This);
   }
 
@@ -701,6 +814,8 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: SetScissorRect came from unknown IDirect3DDevice9! << ");
+
     return D3D9SetScissorRect_Original (This, pRect);
   }
 
@@ -768,11 +883,11 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
       ndc_scissor.bottom =
         2.0f * ((float)(pRect->bottom) / (float)in.height) - 1.0f;
 
-      // Just move the entire thing all the way to the left for this one screen
-      //   otherwise the loading text will be clipped...
+      // Add +/- 1% to left/right
       if (pRect->left == 188 && pRect->top == 114 /*&&
           in.width    == 720 && in.height  == 1280*/) {
-        ndc_scissor.left = -1.0f;
+        ndc_scissor.left  -= 0.01f;
+        ndc_scissor.right += 0.01f;
       }
 
       newR.right  = (ndc_scissor.right  * out.width  + out.width)  / 2;
@@ -791,6 +906,7 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
 // Optimal depth offsets
 float depth_offset1 =  0.000001f; // Constant
 float depth_offset2 = -0.666666f; // Slope
+float depth_offset  =  0.000255f;
 
 bool doing_outlines = false;
 
@@ -804,6 +920,8 @@ D3D9DrawPrimitive_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: DrawPrimitive came from unknown IDirect3DDevice9! << ");
+
     return D3D9DrawPrimitive_Original ( This, PrimitiveType,
                                                  StartVertex, PrimitiveCount );
   }
@@ -846,6 +964,8 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: DrawIndexedPrimitive came from unknown IDirect3DDevice9! << ");
+
     return D3D9DrawIndexedPrimitive_Original ( This, Type,
                                                  BaseVertexIndex, MinVertexIndex,
                                                    NumVertices, startIndex,
@@ -856,8 +976,11 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   //   winding direction is not reversed...
   bool weapon_outline = false;
 
+// This whole thing is really convoluted, in a few versions please remove it
+//   ...
+#if 0
   // Outlines end on the first non-triangle strip primitive drawn
-  if (Type == D3DPT_TRIANGLESTRIP) {
+  if (Type == D3DPT_TRIANGLESTRIP && config.render.outline_technique == OUTLINE_KALDAIEN) {
     if (tsf::RenderFix::draw_state.outlines)
       doing_outlines = true;
 
@@ -880,6 +1003,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   else {
     doing_outlines = false;
   }
+#endif
 
   if (tsf::RenderFix::tracer.log) {
     dll_log.Log ( L"[FrameTrace] DrawIndexedPrimitive   (Type: %s)\n"
@@ -894,18 +1018,58 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                         NumVertices, startIndex, primCount );
 
     if (tsf::RenderFix::draw_state.outlines)
-      dll_log.Log ( L"[FrameTrace]  ** Outline ** ");
+      dll_log.Log ( L"[FrameTrace]  ** Outline        (vs=%X, ps=%X) **",
+                      vs_checksum, ps_checksum );
 
     else if (weapon_outline)
-      dll_log.Log ( L"[FrameTrace]  ** Weapon Outline ** ");
+      dll_log.Log ( L"[FrameTrace]  ** Weapon Outline (vs=%X, ps=%X) **",
+                      vs_checksum, ps_checksum );
+    else if (Type == D3DPT_TRIANGLESTRIP && primCount > 1)
+      dll_log.Log ( L"[FrameTrace]  ** Possible Outline (vs=%X, ps=%X) **",
+                      vs_checksum, ps_checksum );
   }
+
+  if ( config.render.outline_technique == OUTLINE_KALDAIEN ) {
+    bool outline_detect = false;
+
+    if ( tsf::RenderFix::draw_state.dstblend == D3DBLEND_INVSRCALPHA &&
+         tsf::RenderFix::draw_state.srcalpha == D3DBLEND_ZERO &&
+         tsf::RenderFix::draw_state.dstalpha == D3DBLEND_ONE ) {
+      // Regular Outlines
+      if (vs_checksum == 0x39736C4E && ps_checksum == 0x49AC1497) {
+        outline_detect = true;
+      }
+
+      // Weapons (and Rheairds / world geometry)
+      if (vs_checksum == 0xF03FCE8D && ps_checksum != 0x99B99471) {
+                                                   // ^^^ Spectres
+        // Avoid making weapons opaque by mistake ;)
+        if (! (tsf::RenderFix::draw_state.alpha_test && ps_checksum == 0xBDCA3F2C)) {
+          // Filter foliage and special effects
+          if (ps_checksum != 0xA5BBB3F || primCount > 256)
+            outline_detect = true;
+        }
+      }
+    }
+
+    if (outline_detect && tsf::RenderFix::draw_state.zwrite) {
+      weapon_outline                      = true;
+      if (tsf::RenderFix::tracer.log)
+        dll_log.Log (L"[FrameTrace] *** Kaldaien Outline ***");
+    } else {
+      weapon_outline                      = false;
+      tsf::RenderFix::draw_state.outlines = false;
+    }
+  }
+
+  static D3DVIEWPORT9 vp;
+  static D3DVIEWPORT9 vp_orig;
 
   //
   // Detect Enemies with Invalid Outlines
   //
-  bool disable_outlines = false;
-
-  float neutral_depth = 0.0f;
+  bool  disable_outlines = false;
+  float neutral_depth    = 0.0f;
 
   if ( weapon_outline || tsf::RenderFix::draw_state.outlines ) {
     // Slimes (Bestiary #158)
@@ -917,27 +1081,44 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
       disable_outlines = true;
 
     // Sword on Fire Warrior (Bestiary #72)
-    if (NumVertices == 198 && primCount == 465)
+    if (NumVertices == 198 && primCount == 465) {
+      if (tsf::RenderFix::tracer.log) {
+        dll_log.Log (L"[FrameTrace] *** Warrior Handle ***");
+      }
       disable_outlines = true;
+    }
 
     // Feathers on Cockatrice (Bestiary #123) -- Find a better solution, this kills the entire
     //                                             outline for a few minor issues...
     ////if (NumVertices == 1273 && primCount == 3734)
       ////disable_outlines = true;
 
-    if (disable_outlines) {
-      D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
-      D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    // If ONLY weapon_outline is true, this is an outline that Durante's method would have
+    //   missed...
+    if (! disable_outlines) {
+      if (weapon_outline) {
+        D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
+        D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_ZERO);
+      }
     }
 
-    // Outlines that we only detected by searching for matching draw calls
-    if (weapon_outline) {
-      D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
-      D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_ZERO);
+    // Some outlines are hopelessly broken and we need to bypass them.
+    else {
+      D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  tsf::RenderFix::draw_state.srcblend);
+      D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, tsf::RenderFix::draw_state.dstblend);
     }
 
-    D3D9SetRenderState_Original (This, D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD *)&depth_offset2);
-    D3D9SetRenderState_Original (This, D3DRS_DEPTHBIAS,           *(DWORD *)&depth_offset1);
+    if (config.render.outline_technique == OUTLINE_KALDAIEN) {
+      //D3D9SetRenderState_Original (This, D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD *)&depth_offset2);
+      //D3D9SetRenderState_Original (This, D3DRS_DEPTHBIAS,           *(DWORD *)&depth_offset1);
+
+      This->GetViewport (&vp_orig);
+
+      vp = vp_orig;
+
+      vp.MaxZ += depth_offset;
+      vp.MinZ += depth_offset;
+    }
   }
 
   HRESULT hr = D3D9DrawIndexedPrimitive_Original ( This, Type,
@@ -945,9 +1126,12 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                                                        NumVertices, startIndex,
                                                          primCount );
 
-  if ( weapon_outline || tsf::RenderFix::draw_state.outlines ) {
-    D3D9SetRenderState_Original (This, D3DRS_DEPTHBIAS,           *(DWORD *)&neutral_depth);
-    D3D9SetRenderState_Original (This, D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD *)&neutral_depth);
+  if ( (weapon_outline || tsf::RenderFix::draw_state.outlines) &&
+       config.render.outline_technique == OUTLINE_KALDAIEN ) {
+    //D3D9SetRenderState_Original (This, D3DRS_DEPTHBIAS,           *(DWORD *)&neutral_depth);
+    //D3D9SetRenderState_Original (This, D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD *)&neutral_depth);
+
+    D3D9SetViewport_Original (This, &vp_orig);
   }
 
   //
@@ -966,8 +1150,8 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
   // Restore normal blending
   if (weapon_outline) {
-    D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA);
-    D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    D3D9SetRenderState_Original (This, D3DRS_SRCBLEND,  tsf::RenderFix::draw_state.srcblend);
+    D3D9SetRenderState_Original (This, D3DRS_DESTBLEND, tsf::RenderFix::draw_state.dstblend);
   }
 
   return hr;
@@ -1053,6 +1237,8 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: SetRenderState came from unknown IDirect3DDevice9! << ");
+
     return D3D9SetRenderState_Original (This, State, Value);
   }
 
@@ -1081,6 +1267,12 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
       break;
     case D3DRS_SRCBLENDALPHA:
       tsf::RenderFix::draw_state.srcalpha = Value;
+      break;
+    case D3DRS_DESTBLEND:
+      tsf::RenderFix::draw_state.dstblend = Value;
+      break;
+    case D3DRS_SRCBLEND:
+      tsf::RenderFix::draw_state.srcblend = Value;
       break;
     case D3DRS_MULTISAMPLEANTIALIAS:
       if ( config.render.msaa_samples > 0      &&
@@ -1152,8 +1344,11 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
                             DWORD               Value)
 {
   // Ignore anything that's not the primary render device.
-  if (This != tsf::RenderFix::pDevice)
+  if (This != tsf::RenderFix::pDevice) {
+    dll_log.Log (L"[Render Fix] >> WARNING: SetSamplerState came from unknown IDirect3DDevice9! << ");
+
     return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
+  }
 
   if (tsf::RenderFix::tracer.log) {
     dll_log.Log ( L"[FrameTrace] SetSamplerState - %02lu Type: %22s, Value: %lu",
@@ -1214,51 +1409,8 @@ tsf::RenderFix::Init (void)
 {
   d3dx9_43_dll = LoadLibrary (L"D3DX9_43.DLL");
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetViewport_Override",
-                         D3D9SetViewport_Detour,
-               (LPVOID*)&D3D9SetViewport_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetScissorRect_Override",
-                         D3D9SetScissorRect_Detour,
-               (LPVOID*)&D3D9SetScissorRect_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetVertexShaderConstantF_Override",
-                         D3D9SetVertexShaderConstantF_Detour,
-               (LPVOID*)&D3D9SetVertexShaderConstantF_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawPrimitive_Override",
-                         D3D9DrawPrimitive_Detour,
-               (LPVOID*)&D3D9DrawPrimitive_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawIndexedPrimitive_Override",
-                         D3D9DrawIndexedPrimitive_Detour,
-               (LPVOID*)&D3D9DrawIndexedPrimitive_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawPrimitiveUP_Override",
-                         D3D9DrawPrimitiveUP_Detour,
-               (LPVOID*)&D3D9DrawPrimitiveUP_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawIndexedPrimitiveUP_Override",
-                         D3D9DrawIndexedPrimitiveUP_Detour,
-               (LPVOID*)&D3D9DrawIndexedPrimitiveUP_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetRenderState_Override",
-                         D3D9SetRenderState_Detour,
-               (LPVOID*)&D3D9SetRenderState_Original );
-
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9BeginScene_Override",
-                         D3D9BeginScene_Detour,
-               (LPVOID*)&D3D9BeginScene_Original );
-
+  void SK_SetupD3D9Hooks (void);
+  SK_SetupD3D9Hooks ();
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "BMF_EndBufferSwap",
@@ -1333,6 +1485,66 @@ bool
 tsf::RenderFix::CommandProcessor::OnVarChange (eTB_Variable* var, void* val)
 {
   return true;
+}
+
+
+void
+SK_SetupD3D9Hooks (void)
+{
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetViewport_Override",
+                         D3D9SetViewport_Detour,
+               (LPVOID*)&D3D9SetViewport_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetScissorRect_Override",
+                         D3D9SetScissorRect_Detour,
+               (LPVOID*)&D3D9SetScissorRect_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetVertexShaderConstantF_Override",
+                         D3D9SetVertexShaderConstantF_Detour,
+               (LPVOID*)&D3D9SetVertexShaderConstantF_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawPrimitive_Override",
+                         D3D9DrawPrimitive_Detour,
+               (LPVOID*)&D3D9DrawPrimitive_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawIndexedPrimitive_Override",
+                         D3D9DrawIndexedPrimitive_Detour,
+               (LPVOID*)&D3D9DrawIndexedPrimitive_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawPrimitiveUP_Override",
+                         D3D9DrawPrimitiveUP_Detour,
+               (LPVOID*)&D3D9DrawPrimitiveUP_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9DrawIndexedPrimitiveUP_Override",
+                         D3D9DrawIndexedPrimitiveUP_Detour,
+               (LPVOID*)&D3D9DrawIndexedPrimitiveUP_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetRenderState_Override",
+                         D3D9SetRenderState_Detour,
+               (LPVOID*)&D3D9SetRenderState_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9BeginScene_Override",
+                         D3D9BeginScene_Detour,
+               (LPVOID*)&D3D9BeginScene_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetVertexShader_Override",
+                         D3D9SetVertexShader_Detour,
+               (LPVOID*)&D3D9SetVertexShader_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetPixelShader_Override",
+                         D3D9SetPixelShader_Detour,
+               (LPVOID*)&D3D9SetPixelShader_Original );
 }
 
 
