@@ -972,6 +972,44 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                                                      primCount );
   }
 
+  if (config.render.remove_blur && 
+    /*Type == D3DPT_TRIANGLELIST && NumVertices == 3 && primCount == 1 &&*/
+      (ps_checksum == 0x1e8447cc && vs_checksum == 0x2def1491)) {
+    IDirect3DTexture9* pTex = nullptr;
+
+    This->GetTexture (0, (IDirect3DBaseTexture9 **)&pTex);
+
+    if (pTex != nullptr)
+    {
+      IDirect3DSurface9* pSrc = nullptr;
+
+      pTex->GetSurfaceLevel (0, &pSrc);
+
+      if (pSrc != nullptr)
+      {
+        IDirect3DSurface9* pDst = nullptr;
+
+        This->GetRenderTarget (0, &pDst);
+
+        if (pDst != nullptr)
+        {
+          This->StretchRect (pSrc, nullptr, pDst, nullptr, D3DTEXF_NONE);
+
+          if (tsf::RenderFix::tracer.log)
+            dll_log.Log (L"[FrameTrace] ### Removed Blur ###", vs_checksum, ps_checksum);
+
+          pDst->Release ();
+        }
+
+        pSrc->Release ();
+      }
+
+      pTex->Release ();
+    }
+
+    return S_OK;
+  }
+
   // These are outlines that would not normally be detected because the polygon
   //   winding direction is not reversed...
   bool weapon_outline = false;
@@ -1085,6 +1123,13 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
       if (tsf::RenderFix::tracer.log) {
         dll_log.Log (L"[FrameTrace] *** Warrior Handle ***");
       }
+      disable_outlines = true;
+    }
+
+    // Blob Monsters on the world map
+    if ((NumVertices == 482 && primCount == 482) ||
+        (NumVertices == 320 && primCount == 763) ||
+        (NumVertices == 204 && primCount == 482)) {
       disable_outlines = true;
     }
 
@@ -1446,7 +1491,8 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.OutlineOffsetS", new eTB_VarStub <float> (&depth_offset2));
 
   draw_state.max_aniso = config.textures.max_anisotropy;
-  pCommandProc->AddVariable ("Render.MaxAniso", new eTB_VarStub <int> (&draw_state.max_aniso));
+  pCommandProc->AddVariable ("Render.MaxAniso",   new eTB_VarStub <int>  (&draw_state.max_aniso));
+  pCommandProc->AddVariable ("Render.RemoveBlur", new eTB_VarStub <bool> (&config.render.remove_blur));
 
 #if 0
   D3DXCreateFontW =

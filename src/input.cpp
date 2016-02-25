@@ -971,8 +971,15 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           pCommandProc->ProcessCommandLine ("Trace.Enable true");
         }
 
+// Not really that useful, and we want the 'B' key for something else
+#if 0
         else if (keys_ [VK_MENU] && vkCode == 'B' && new_press) {
           pCommandProc->ProcessCommandLine ("Render.AllowBG toggle");
+        }
+#endif
+
+        else if (vkCode == 'B' && new_press) {
+          pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
         }
 
         else if (vkCode == VK_OEM_PERIOD && new_press) {

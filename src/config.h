@@ -46,6 +46,7 @@ struct tsf_config_s
     int      msaa_quality      = 0;
     bool     disable_bg_msaa   = true; // NV compatibility hack
     bool     durante_scissor   = false;
+    bool     remove_blur       = true;
   } render;
 
   struct {

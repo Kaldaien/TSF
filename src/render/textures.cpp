@@ -452,6 +452,8 @@ IDirect3DSurface9* pOld = nullptr;
 
 #define D3DXSaveSurfaceToFile D3DXSaveSurfaceToFileW
 
+#define DUMP_RT
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -481,12 +483,12 @@ D3D9SetRenderTarget_Detour (
 
     if (pRenderTarget != pOld) {
       if (pOld != nullptr) {
-        wsprintf (wszDumpName, L"dump\\%03d_out_%p.dds", draw_counter, pOld);
+        wsprintf (wszDumpName, L"dump\\%03d_out_%p.png", draw_counter, pOld);
 
         dll_log.Log ( L"[FrameTrace] >>> Dumped: Output RT to %s >>>", wszDumpName );
 
         dumping = true;
-        D3DXSaveSurfaceToFile (wszDumpName, D3DXIFF_DDS, pOld, nullptr, nullptr);
+        //D3DXSaveSurfaceToFile (wszDumpName, D3DXIFF_PNG, pOld, nullptr, nullptr);
       }
     }
 #endif
@@ -498,12 +500,12 @@ D3D9SetRenderTarget_Detour (
     if (pRenderTarget != pOld) {
       pOld = pRenderTarget;
 
-      wsprintf (wszDumpName, L"dump\\%03d_in_%p.dds", ++draw_counter, pRenderTarget);
+      wsprintf (wszDumpName, L"dump\\%03d_in_%p.png", ++draw_counter, pRenderTarget);
 
       dll_log.Log ( L"[FrameTrace] <<< Dumped: Input RT to  %s  <<<", wszDumpName );
 
       dumping = true;
-      D3DXSaveSurfaceToFile (wszDumpName, D3DXIFF_DDS, pRenderTarget, nullptr, nullptr);
+      //D3DXSaveSurfaceToFile (wszDumpName, D3DXIFF_PNG, pRenderTarget, nullptr, nullptr);
     }
 #endif
   }

@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.5.4";
+std::wstring TSFIX_VER_STR = L"0.6.0";
 tsf_config_s config;
 
 struct {
@@ -41,6 +41,7 @@ struct {
   tsf::ParameterInt*     msaa_samples;
   tsf::ParameterInt*     msaa_quality;
   tsf::ParameterBool*    background_msaa;
+  tsf::ParameterBool*    remove_blur;
 } render;
 
 struct {
@@ -184,6 +185,16 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Render",
         L"BackgroundMSAA" );
+
+  render.remove_blur =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Remove Blur")
+      );
+  render.remove_blur->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"RemoveBlur" );
 
 
 
@@ -411,6 +422,9 @@ TSFix_LoadConfig (std::wstring name) {
   if (render.background_msaa->load ())
     config.render.disable_bg_msaa = (! render.background_msaa->get_value ());
 
+  if (render.remove_blur->load ())
+    config.render.remove_blur = render.remove_blur->get_value ();
+
 
   if (stutter.fix->load ())
     config.stutter.fix = stutter.fix->get_value ();
@@ -503,6 +517,9 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   render.msaa_quality->set_value      (config.render.msaa_quality);
   render.msaa_quality->store          ();
+
+  render.remove_blur->set_value       (config.render.remove_blur);
+  render.remove_blur->store           ();
 
 
   stutter.fix->set_value              (config.stutter.fix);
