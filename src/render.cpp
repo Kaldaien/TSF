@@ -56,6 +56,9 @@ tsf::RenderFix::tracer_s
 tsf::RenderFix::tsf_draw_states_s
   tsf::RenderFix::draw_state;
 
+// One copy per-frame is enough.
+int blur_bypass = 0;
+
 #include <map>
 std::unordered_map <LPVOID, uint32_t> vs_checksums;
 std::unordered_map <LPVOID, uint32_t> ps_checksums;
@@ -316,6 +319,10 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
       tsf::RenderFix::tracer.log = false;
   }
 
+  blur_bypass = 0;
+  tsf::RenderFix::draw_state.frames++;
+
+
   // Push any changes to this state at the very end of a frame.
   tsf::RenderFix::draw_state.use_msaa = use_msaa &&
                                         tsf::RenderFix::draw_state.has_msaa;
@@ -394,7 +401,10 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     return BMF_SetPresentParamsD3D9_Original (device, pparams);
   }
 
-  tsf::RenderFix::tex_mgr.reset        ();
+  // We must let this go, it's not valid anymore.
+  tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
+  tsf::RenderFix::active_samplers.clear ();
+  tsf::RenderFix::tex_mgr.reset         ();
 
   if (pparams != nullptr) {
     //
@@ -638,8 +648,8 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 
     D3DVIEWPORT9 newView = *pViewport;
 
-    newView.Width  = tsf::RenderFix::width  * 1.0f;//config.render.postproc_ratio;
-    newView.Height = tsf::RenderFix::height * 1.0f;//config.render.postproc_ratio;
+    newView.Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
+    newView.Height = tsf::RenderFix::height * config.render.postproc_ratio;
 
     return D3D9SetViewport_Original (This, &newView);
   }
@@ -651,8 +661,8 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 
     D3DVIEWPORT9 newView = *pViewport;
 
-    newView.Width  = pViewport->Width  * config.render.postproc_ratio;
-    newView.Height = pViewport->Height * config.render.postproc_ratio;
+    newView.Width  = pViewport->Width;//  * config.render.postproc_ratio;
+    newView.Height = pViewport->Height;// * config.render.postproc_ratio;
 
     return D3D9SetViewport_Original (This, &newView);
   }
@@ -756,7 +766,7 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
                             0, false,
                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                                 DEFAULT_PITCH | FF_DONTCARE,
-                                  L"Arial", 
+sss                                  L"Arial", 
                                     &tsf::RenderFix::pFont );
   }
 #endif
@@ -993,10 +1003,47 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
         if (pDst != nullptr)
         {
-          This->StretchRect (pSrc, nullptr, pDst, nullptr, D3DTEXF_NONE);
-
           if (tsf::RenderFix::tracer.log)
-            dll_log.Log (L"[FrameTrace] ### Removed Blur ###", vs_checksum, ps_checksum);
+            dll_log.Log ( L"[FrameTrace] ### Removed Blur (Readbuffer: %ph, Drawbuffer: %ph) ###",
+                            pTex, pDst );
+
+           IDirect3DTexture9* pProxyTex = nullptr;
+
+           // Since StretchRect is most expensive when used with MSAA,
+           //   as a last resort let's use the MSAA texture map to see
+           //     if we can bypass the blur without any actual work.
+           extern IDirect3DTexture9*
+           GetMSAABackingTexture (IDirect3DSurface9* pSurf);
+
+           pProxyTex = GetMSAABackingTexture (pDst);
+
+           // No MSAA backing texture, let's try the driver.
+           if (pProxyTex == nullptr) {
+             pDst->GetContainer (__uuidof (IDirect3DTexture9), (void **)&pProxyTex);
+
+             if (pProxyTex != nullptr)
+               pProxyTex->Release ();
+           }
+
+           if (pProxyTex != nullptr)
+           {
+             tsf::RenderFix::draw_state.blur_proxy.first  = pProxyTex;
+             tsf::RenderFix::draw_state.blur_proxy.second = pTex;
+
+             // We cannot do this indefinitely, we need at least one copy per-frame.
+             if (blur_bypass == 1) {
+               This->StretchRect (pSrc, nullptr, pDst, nullptr, D3DTEXF_NONE);
+             }
+
+             blur_bypass++;
+           }
+
+           else {
+             if (tsf::RenderFix::tracer.log)
+               dll_log.Log (L"[FrameTrace] >>  Blur Proxy Impossible; Resorting to Blit  <<");
+
+             This->StretchRect (pSrc, nullptr, pDst, nullptr, D3DTEXF_NONE);
+           }
 
           pDst->Release ();
         }
@@ -1080,11 +1127,12 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
       // Weapons (and Rheairds / world geometry)
       if (vs_checksum == 0xF03FCE8D && ps_checksum != 0x99B99471) {
-                                                   // ^^^ Spectres
+                                                                                                 // ^^^ Spectres
         // Avoid making weapons opaque by mistake ;)
         if (! (tsf::RenderFix::draw_state.alpha_test && ps_checksum == 0xBDCA3F2C)) {
           // Filter foliage and special effects
-          if (ps_checksum != 0xA5BBB3F || primCount > 256)
+          if (ps_checksum != 0xA5BBB3F || (primCount > 13000 && tsf::RenderFix::draw_state.alpha_ref == 0))
+          // ^^^^ At this point it would be simpler just to hard-code the vertex counts for Rheairds!
             outline_detect = true;
         }
       }
@@ -1304,6 +1352,9 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
     case D3DRS_ALPHATESTENABLE:
       tsf::RenderFix::draw_state.alpha_test = Value;
       break;
+    case D3DRS_ALPHAREF:
+      tsf::RenderFix::draw_state.alpha_ref = Value;
+      break;
     case D3DRS_ZWRITEENABLE:
       tsf::RenderFix::draw_state.zwrite = Value;
       break;
@@ -1415,27 +1466,22 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
       //if (Value != D3DTEXF_ANISOTROPIC)
         //D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, aniso);
       //dll_log.Log (L" %s Filter: %x", Type == D3DSAMP_MIPFILTER ? L"Mip" : Type == D3DSAMP_MINFILTER ? L"Min" : L"Mag", Value);
+
       if (Type == D3DSAMP_MIPFILTER) {
-        if (Value != D3DTEXF_NONE && tsf::RenderFix::draw_state.max_aniso != 0)
-          aniso_override = true;
+        if (Value != D3DTEXF_NONE)
+          aniso_override = false;
       }
+
       if (Type == D3DSAMP_MAGFILTER ||
           Type == D3DSAMP_MINFILTER) {
-        if (Value != D3DTEXF_POINT && tsf::RenderFix::draw_state.max_aniso != 0) {
+        if (Value == D3DTEXF_LINEAR) {
           aniso_override = true;
         }
       }
 
-      if (aniso_override) {
+      if (aniso_override && config.textures.max_anisotropy != 0) {
         Value = D3DTEXF_ANISOTROPIC;
-
-        //
-        // The game apparently never sets this, so that's a problem...
-        //
         D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, tsf::RenderFix::draw_state.max_aniso);
-        //
-        // End things the game is supposed to, but never sets.
-        //
       }
     }
   }

@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.6.0";
+std::wstring TSFIX_VER_STR = L"0.6.1";
 tsf_config_s config;
 
 struct {
@@ -462,6 +462,12 @@ TSFix_LoadConfig (std::wstring name) {
 
   if (textures.uncompressed->load ())
     config.textures.uncompressed = textures.uncompressed->get_value ();
+
+
+  // When this option is set, it is essential to force 16x AF on
+  if (config.textures.full_mipmaps) {
+    config.textures.max_anisotropy = 16;
+  }
 
 
   if (input.block_left_alt->load ())

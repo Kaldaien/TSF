@@ -980,6 +980,8 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
 
         else if (vkCode == 'B' && new_press) {
           pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
+          if (! config.render.remove_blur)
+            tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
         }
 
         else if (vkCode == VK_OEM_PERIOD && new_press) {

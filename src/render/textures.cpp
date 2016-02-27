@@ -53,6 +53,9 @@ tsf_logger_s tex_log;
 // D3DXSaveSurfaceToFile issues a StretchRect, but we don't want to log that...
 bool dumping = false;
 
+// All of the enumerated textures in TSFix_Textures/custom/...
+std::set <uint32_t> custom_textures;
+
 std::wstring
 SK_D3D9_UsageToStr (DWORD dwUsage)
 {
@@ -385,7 +388,20 @@ D3D9CreateDepthStencilSurface_Detour (IDirect3DDevice9     *This,
 std::set           <IDirect3DSurface9*>                     dirty_surfs;
 std::set           <IDirect3DSurface9*>                     msaa_surfs;       // Smurfs? :)
 std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*> msaa_backing_map;
+std::unordered_map <IDirect3DSurface9*, IDirect3DTexture9*> msaa_backing_map_rev;
 std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*> rt_msaa;
+
+IDirect3DTexture9*
+GetMSAABackingTexture (IDirect3DSurface9* pSurf)
+{
+  std::unordered_map <IDirect3DSurface9*, IDirect3DTexture9*>::iterator it =
+    msaa_backing_map_rev.find (pSurf);
+
+  if (it != msaa_backing_map_rev.end ())
+    return it->second;
+
+  return nullptr;
+}
 
 int
 tsf::RenderFix::TextureManager::numMSAASurfs (void)
@@ -394,6 +410,8 @@ tsf::RenderFix::TextureManager::numMSAASurfs (void)
 }
 
 #include "../render.h"
+
+std::set <UINT> tsf::RenderFix::active_samplers;
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -414,8 +432,21 @@ D3D9SetTexture_Detour (
                      Sampler, pTexture );
   }
 
-  extern SetSamplerState_pfn D3D9SetSamplerState_Original;
-  D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, tsf::RenderFix::draw_state.max_aniso);
+#if 0
+  if (pTexture != nullptr) tsf::RenderFix::active_samplers.insert (Sampler);
+  else                     tsf::RenderFix::active_samplers.erase  (Sampler);
+#endif
+
+  if ( tsf::RenderFix::draw_state.blur_proxy.first != nullptr &&
+       tsf::RenderFix::draw_state.blur_proxy.first == pTexture ) {
+    if (tsf::RenderFix::tracer.log)
+      dll_log.Log ( L"[FrameTrace] --> Proxying %ph through %ph <--",
+                              tsf::RenderFix::draw_state.blur_proxy.first,
+                                tsf::RenderFix::draw_state.blur_proxy.second );
+
+    // Intentionally run this through the HOOKED function
+    return This->SetTexture (Sampler, tsf::RenderFix::draw_state.blur_proxy.second);
+  }
 
   //
   // MSAA Blit (Before binding a texture, do MSAA resolve from its backing store)
@@ -577,6 +608,12 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                                             Pool, ppTexture, pSharedHandle );
   }
 
+  //
+  // Game is seriously screwed up: PLEASE stop creating this target every frame!
+  //
+  if (Width == 16 && Height == 1)
+    return E_FAIL;
+
   if (config.textures.log) {
     tex_log.Log ( L"[Load Trace] >> Creating Texture: "
                   L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
@@ -603,13 +640,20 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
   }
 
   else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
-    Width  = tsf::RenderFix::width  * 1.0f;//config.render.postproc_ratio;
-    Height = tsf::RenderFix::height * 1.0f;//config.render.postproc_ratio;
+    Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
+    Height = tsf::RenderFix::height * config.render.postproc_ratio;
+
+    // No geometry is rendered in this surface, it's a weird ghetto motion blur pass
+    create_msaa_surf = false;
   }
 
   else if (Width == 256 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
-    Width  = Width  * config.render.postproc_ratio;
-    Height = Height * config.render.postproc_ratio;
+    Width  = Width;//  * config.render.postproc_ratio;
+    Height = Height;// * config.render.postproc_ratio;
+
+    // I don't even know what this surface is for, much less why you'd
+    //   want to multisample it.
+    create_msaa_surf = false;
   }
 
   else {
@@ -649,6 +693,11 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
       msaa_backing_map.insert (
         std::pair <IDirect3DTexture9*, IDirect3DSurface9*> (
           *ppTexture, pSurf
+        )
+      );
+      msaa_backing_map_rev.insert (
+        std::pair <IDirect3DSurface9*,IDirect3DTexture9*> (
+          pSurf, *ppTexture
         )
       );
 
@@ -782,6 +831,10 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     crc32 (0, pSrcData, SrcDataSize);
 #endif
 
+  // Don't dump or cache these
+  if (Pool != D3DPOOL_DEFAULT || Usage == D3DUSAGE_DYNAMIC)
+    checksum = 0x00;
+
   if (config.textures.cache) {
     tsf::RenderFix::Texture* pTex = tsf::RenderFix::tex_mgr.getTexture (checksum);
 
@@ -798,7 +851,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   if (config.textures.dump)
     Usage = D3DUSAGE_DYNAMIC;
 
-  if (config.textures.uncompressed) {
+  if ((! config.textures.dump) && config.textures.uncompressed) {
     if (Format == D3DFMT_DXT1 ||
         Format == D3DFMT_DXT3 ||
         Format == D3DFMT_DXT5) {
@@ -808,30 +861,27 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     }
   }
 
-  if (config.textures.optimize_ui) {
+  if ((! config.textures.dump) && config.textures.optimize_ui) {
     // Generating mipmaps adds a lot of overhead, don't do it for
     //   UI textures and that will speed things up.
-    if (Width <= 128 || Height <= 128)
+    if (Width < 128 || Height < 128)
       MipLevels = 1;
   }
 
   // Generate complete mipmap chains for best image quality
   //  (will increase load-time on uncached textures)
-  if (config.textures.full_mipmaps) {
-    if (Width > 128 || Height > 128)
+  if ((! config.textures.dump) && config.textures.full_mipmaps) {
+    if (Width >= 128 || Height >= 128)
       MipLevels = D3DX_DEFAULT;
   }
 
   HRESULT hr = E_FAIL;
 
+  //
+  // Custom font
+  //
   if (checksum == FONT_CRC32) {
     if (GetFileAttributes (L"font.dds") != INVALID_FILE_ATTRIBUTES) {
-      if (D3DXCreateTextureFromFile == nullptr) {
-        D3DXCreateTextureFromFile =
-          (D3DXCreateTextureFromFile_pfn)
-            GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
-                               "D3DXCreateTextureFromFileW" );
-      }
       tex_log.LogEx (true, L"[   Font   ] Loading user-defined font... ");
 
       hr = D3DXCreateTextureFromFile (pDevice, L"font.dds", ppTexture);
@@ -841,6 +891,34 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
         (*ppTexture)->Release ();
       } else
         tex_log.LogEx (false, L"failed (%x)\n", hr);
+    }
+  }
+
+  //
+  // Generic custom textures
+  //
+  else if (custom_textures.find (checksum) != custom_textures.end ()) {
+    tex_log.LogEx ( true, L"[Custom Tex] Loading custom texture for checksum (%x)... ",
+                      checksum );
+
+    wchar_t wszFileName [MAX_PATH] = { L'\0' };
+    _swprintf ( wszFileName, L"%s\\custom\\%x%s",
+                  TSFIX_TEXTURE_DIR,
+                    checksum,
+                      TSFIX_TEXTURE_EXT );
+
+    // If this texture exists, override the game
+    if (GetFileAttributes (wszFileName) != INVALID_FILE_ATTRIBUTES) {
+      hr = D3DXCreateTextureFromFile (pDevice, wszFileName, ppTexture);
+
+      if (SUCCEEDED (hr)) {
+        tex_log.LogEx (false, L"done\n");
+        (*ppTexture)->Release ();
+      } else {
+        tex_log.LogEx (false, L"failed (%s)\n", hr);
+      }
+    } else {
+      tex_log.LogEx (false, L"file is missing?!\n");
     }
   }
 
@@ -893,7 +971,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 
   if (config.textures.dump) {
     wchar_t wszFileName [MAX_PATH] = { L'\0' };
-    _swprintf ( wszFileName, L"%s\\MemoryTex_%x%s",
+    _swprintf ( wszFileName, L"%s\\dump\\MemoryTex_%x%s",
                   TSFIX_TEXTURE_DIR,
                     checksum,
                       TSFIX_TEXTURE_EXT );
@@ -942,10 +1020,53 @@ tsf::RenderFix::TextureManager::Init (void)
 {
   // Create the directory to store dumped textures
   if (config.textures.dump)
-    CreateDirectoryW (L"TSFix_Textures", nullptr);
+    CreateDirectoryW (TSFIX_TEXTURE_DIR, nullptr);
 
   tex_log.silent = false;
   tex_log.init ("logs/textures.log", "w+");
+
+  //
+  // Walk custom textures so we don't have to query the filesystem on every
+  //   texture load to check if a custom one exists.
+  //
+  if ( GetFileAttributesW (TSFIX_TEXTURE_DIR L"\\custom") !=
+         INVALID_FILE_ATTRIBUTES ) {
+    WIN32_FIND_DATA fd;
+    HANDLE          hFind  = INVALID_HANDLE_VALUE;
+    int             files  = 0;
+    LARGE_INTEGER   liSize = { 0 };
+
+    tex_log.LogEx ( true, L"[Custom Tex] Enumerating custom textures..." );
+
+    hFind = FindFirstFileW (TSFIX_TEXTURE_DIR L"\\custom\\*", &fd);
+
+    if (hFind != INVALID_HANDLE_VALUE) {
+      do {
+        if (fd.dwFileAttributes != INVALID_FILE_ATTRIBUTES) {
+          if (wcsstr (fd.cFileName, TSFIX_TEXTURE_EXT)) {
+            uint32_t checksum;
+            swscanf (fd.cFileName, L"%x" TSFIX_TEXTURE_EXT, &checksum);
+
+            ++files;
+
+            LARGE_INTEGER fsize;
+
+            fsize.HighPart = fd.nFileSizeHigh;
+            fsize.LowPart  = fd.nFileSizeLow;
+
+            liSize.QuadPart += fsize.QuadPart;
+
+            custom_textures.insert (checksum);
+          }
+        }
+      } while (FindNextFileW (hFind, &fd) != 0);
+
+      FindClose (hFind);
+    }
+
+    tex_log.LogEx ( false, L" %lu files (%3.1f MiB)\n",
+                      files, (double)liSize.QuadPart / (1024.0 * 1024.0) );
+  }
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9StretchRect_Override",
@@ -986,7 +1107,12 @@ tsf::RenderFix::TextureManager::Init (void)
   D3DXSaveTextureToFile =
     (D3DXSaveTextureToFile_pfn)
       GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
-        "D3DXSaveTextureToFileW" );
+                         "D3DXSaveTextureToFileW" );
+
+  D3DXCreateTextureFromFile =
+    (D3DXCreateTextureFromFile_pfn)
+      GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
+                         "D3DXCreateTextureFromFileW" );
 
   // We don't hook this, but we still use it...
   if (D3D9CreateRenderTarget_Original == nullptr) {
@@ -1008,6 +1134,7 @@ tsf::RenderFix::TextureManager::Init (void)
 
   time_saved = 0.0f;
 }
+
 
 void
 tsf::RenderFix::TextureManager::Shutdown (void)
@@ -1102,9 +1229,10 @@ tsf::RenderFix::TextureManager::reset (void)
       it = rt_msaa.erase (it);
     }
 
-    dirty_surfs.clear      ();
-    msaa_surfs.clear       ();
-    msaa_backing_map.clear ();
+    dirty_surfs.clear          ();
+    msaa_surfs.clear           ();
+    msaa_backing_map.clear     ();
+    msaa_backing_map_rev.clear ();
 
     tex_log.Log ( L"[ MSAA Mgr ]   %4d surfaces (%4d zombies)",
                       count, refs );

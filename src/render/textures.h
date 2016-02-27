@@ -29,6 +29,15 @@
 
 namespace tsf {
 namespace RenderFix {
+#if 0
+  class Sampler {
+    int                id;
+    IDirect3DTexture9* pTex;
+  };
+#endif
+
+  extern std::set <UINT> active_samplers;
+
   class Texture {
   public:
     uint32_t           crc32;

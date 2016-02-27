@@ -57,10 +57,17 @@ namespace tsf
       DWORD        srcalpha       = 0;     // Separate Alpha Blend Eq: Src
       DWORD        dstalpha       = 0;     // Separate Alpha Blend Eq: Dst
       bool         alpha_test     = false; // Test Alpha?
+      DWORD        alpha_ref      = 0;     // Value to test.
       bool         zwrite         = false; // Depth Mask
 
       int          last_vs_vec4   = 0; // Number of vectors in the last call to
                                        //   set vertex shader constant...
+
+      std::pair <IDirect3DTexture9*, IDirect3DTexture9*>
+                   blur_proxy; // If non-null, then bypass the blur
+                               //   filter via texture indirection.
+
+      int          frames         = 0;
     } extern draw_state;
 
 

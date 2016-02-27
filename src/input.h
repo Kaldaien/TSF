@@ -71,7 +71,8 @@ namespace tsf
 
       void consumeKey (SHORT virtKey) {
         GetAsyncKeyState (virtKey);
-        keys_ [virtKey & 0xff] = 0x00;
+        keys_ [virtKey & 0xff] = 0x01;
+        SetKeyboardState (keys_);
       }
 
       void Start (void);
