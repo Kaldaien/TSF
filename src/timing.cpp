@@ -252,6 +252,97 @@ QueryPerformanceCounter_Detour (
   return ret;
 }
 
+typedef BOOL (WINAPI *CreateTimerQueueTimer_pfn)
+(
+  _Out_    PHANDLE             phNewTimer,
+  _In_opt_ HANDLE              TimerQueue,
+  _In_     WAITORTIMERCALLBACK Callback,
+  _In_opt_ PVOID               Parameter,
+  _In_     DWORD               DueTime,
+  _In_     DWORD               Period,
+  _In_     ULONG               Flags
+);
+
+CreateTimerQueueTimer_pfn CreateTimerQueueTimer_Original = nullptr;
+
+BOOL
+WINAPI
+CreateTimerQueueTimer_Override (
+  _Out_    PHANDLE             phNewTimer,
+  _In_opt_ HANDLE              TimerQueue,
+  _In_     WAITORTIMERCALLBACK Callback,
+  _In_opt_ PVOID               Parameter,
+  _In_     DWORD               DueTime,
+  _In_     DWORD               Period,
+  _In_     ULONG               Flags
+)
+{
+  dll_log.Log ( L"[  60 FPS  ][!]CreateTimerQueueTimer (... %lu ms, %lu ms, ...)",
+                  DueTime, Period );
+
+  return CreateTimerQueueTimer_Original (phNewTimer, TimerQueue, Callback, Parameter, 2, 2, Flags);
+}
+
+
+struct namco_rate_control_s {
+  bool   Half               = false;
+  bool   Hyper              = false;
+  LPVOID NamcoTimerFunc     = nullptr;
+  LPVOID NamcoTimerAddr     = (void *)0x5CBF20;
+
+  LPVOID NamcoTimerTickInst = (void *)0x5CBF18;
+  LPVOID NamcoTimerTickOrig = nullptr;
+} game_speed;
+
+DWORD* dwFrameCount  = (DWORD *)0x008A6050;
+DWORD* dwFrameCount2 = (DWORD *)0x008A6058;
+
+void
+__declspec (naked)
+NamcoTick_ (void)
+{
+  __asm {
+    pushad
+  }
+
+  if (game_speed.Half) {
+    static int frame = 0;
+    //if (frame++ % 2) {
+      *dwFrameCount   = *dwFrameCount  + 1;
+      *dwFrameCount2  = *dwFrameCount2 + 1;
+    //}
+  }
+
+  __asm {
+    popad
+    jmp game_speed.NamcoTimerTickOrig
+  }
+}
+
+void
+__cdecl
+NamcoTimer_Imp (void)
+{
+  __asm {
+    call game_speed.NamcoTimerFunc
+  }
+}
+
+void
+__cdecl
+NamcoUnknown_Detour (void)
+{
+  if (! game_speed.Hyper) {
+    if (! game_speed.Half) {
+      NamcoTimer_Imp ();
+    }
+    else {
+      NamcoTimer_Imp ();
+      //NamcoTimer_Imp ();
+    }
+  }
+}
+
 // Bugger off!
 void
 NamcoLimiter_Detour (DWORD dwUnknown0, DWORD dwUnknown1, DWORD dwUnknwnown2)
@@ -292,6 +383,10 @@ NtSetTimerResolution_pfn   NtSetTimerResolution   = nullptr;
 void
 tsf::TimingFix::Init (void)
 {
+  TSFix_CreateDLLHook ( L"kernel32.dll", "CreateTimerQueueTimer",
+                          CreateTimerQueueTimer_Override,
+               (LPVOID *)&CreateTimerQueueTimer_Original );
+
   if (NtDll == 0) {
     NtDll = LoadLibrary (L"ntdll.dll");
 
@@ -382,6 +477,19 @@ tsf::TimingFix::Init (void)
                            &lpvDontCare );
     TSFix_EnableHook     (pLimiterFunc);
 
+    TSFix_CreateFuncHook ( L"NamcoUnknown",
+                          game_speed.NamcoTimerAddr,
+                          NamcoUnknown_Detour,
+                         &game_speed.NamcoTimerFunc );
+    TSFix_EnableHook     (game_speed.NamcoTimerAddr);
+
+#if 0
+    TSFix_CreateFuncHook ( L"NamcoFrameCounter",
+                          game_speed.NamcoTimerTickInst,
+                          NamcoTick_,
+                         &game_speed.NamcoTimerTickOrig );
+    TSFix_EnableHook     (game_speed.NamcoTimerTickInst);
+#endif
 
     HMODULE hModKernel32 = GetModuleHandle (L"kernel32.dll");
 
@@ -414,6 +522,11 @@ tsf::TimingFix::Init (void)
                           Sleep_Detour, 
                (LPVOID *)&Sleep_Original );
   }
+
+  eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
+
+  pCommandProc->AddVariable ("Timing.RouteSixty", new eTB_VarStub <bool>(&game_speed.Half));
+  pCommandProc->AddVariable ("Timing.HyperSpeed", new eTB_VarStub <bool>(&game_speed.Hyper));
 }
 
 void

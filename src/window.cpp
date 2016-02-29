@@ -376,72 +376,15 @@ DetourWindowProc ( _In_  HWND   hWnd,
                    _In_  WPARAM wParam,
                    _In_  LPARAM lParam )
 {
+  bool last_active = tsf::window.active;
+  tsf::window.active = GetForegroundWindow_Original () == tsf::window.hwnd ||
+                       GetForegroundWindow_Original () == nullptr;
+
   bool console_visible   =
     tsf::InputManager::Hooker::getInstance ()->isVisible ();
 
   bool background_render =
     config.render.allow_background && (! tsf::window.active);
-
-  // Block keyboard input to the game while the console is visible
-  if (console_visible || background_render) {
-    // Only prevent the mouse from working while the window is in the bg
-    if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
-      return DefWindowProc (hWnd, uMsg, wParam, lParam);
-
-    if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
-      return 0;
-      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
-
-    // Block RAW Input
-    if (uMsg == WM_INPUT)
-      return 0;
-      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
-  }
-
-  // Block the menu key from messing with stuff
-  if (config.input.block_left_alt &&
-      (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP)) {
-    // Make an exception for Alt+Enter, for fullscreen mode toggle.
-    //   F4 as well for exit
-    if (wParam != VK_RETURN && wParam != VK_F4)
-      return 0;
-  }
-
-  const int32_t  WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS  = 0x02D2;
-  const uint32_t SYSTEM_GESTURE_STATUS_NOHOLD           = 0x0001;
-  const uint32_t SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF = 0x0200;
-
-  if (uMsg == WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS) {
-    dll_log.Log (L"[Window Mgr] Disabling Tablet Gesture Support...");
-    int result = 0x00;
-    result |= (SYSTEM_GESTURE_STATUS_NOHOLD |
-               SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF);
-    return result;
-  }
-
-  // Ignore ALL touch-based windows messages, because some of them crash the game
-  bool tablet_msg = false;
-
-  if (uMsg >= WM_TABLET_FIRST        && uMsg <= WM_TABLET_LAST)    tablet_msg = true;
-  if (uMsg >= WM_PENWINFIRST         && uMsg <= WM_PENWINLAST)     tablet_msg = true;
-  if (uMsg >= WM_POINTERDEVICECHANGE && uMsg <= DM_POINTERHITTEST) tablet_msg = true;
-  if (uMsg == WM_GESTURE             || uMsg == WM_GESTURENOTIFY)  tablet_msg = true;
-
-  if (tablet_msg) {
-    // Close the handle; we never wanted it in the first place.
-    if (uMsg == WM_TOUCH)
-      CloseTouchInputHandle ((HTOUCHINPUT)lParam);
-
-    dll_log.Log ( L"[Window Mgr] >> Filtering Out Tablet Input "
-                  L"(uMsg=0x%04X, wParam=%p, lParam=%p)",
-                    uMsg, wParam, lParam );
-    //return 0;
-    return DefWindowProc (hWnd, uMsg, wParam, lParam);
-  }
-
-  bool last_active = tsf::window.active;
-  tsf::window.active = GetForegroundWindow_Original () == tsf::window.hwnd ||
-                       GetForegroundWindow_Original () == nullptr;
 
   //
   // The window activation state is changing, among other things we can take
@@ -462,8 +405,9 @@ DetourWindowProc ( _In_  HWND   hWnd,
       pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.background_fps);
 
     // Went from inactive to active (restore foreground limit)
-    else
+    else {
       pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
+    }
 
     // Unrestrict the mouse when the app is deactivated
     if ((! tsf::window.active) && config.render.allow_background) {
@@ -499,6 +443,65 @@ DetourWindowProc ( _In_  HWND   hWnd,
     }
   }
 
+
+  // Block keyboard input to the game while the console is visible
+  if (console_visible || background_render) {
+    // Only prevent the mouse from working while the window is in the bg
+    if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
+      return DefWindowProc (hWnd, uMsg, wParam, lParam);
+
+    if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
+      return 0;
+      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+
+    // Block RAW Input
+    if (uMsg == WM_INPUT)
+      return 0;
+      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+  }
+
+  // Block the menu key from messing with stuff
+  if (config.input.block_left_alt &&
+      (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP)) {
+    // Make an exception for Alt+Enter, for fullscreen mode toggle.
+    //   F4 as well for exit
+    if (wParam != VK_RETURN && wParam != VK_F4)
+      return 0;
+  }
+
+#if 0
+  const int32_t  WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS  = 0x02D2;
+  const uint32_t SYSTEM_GESTURE_STATUS_NOHOLD           = 0x0001;
+  const uint32_t SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF = 0x0200;
+
+  if (uMsg == WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS) {
+    dll_log.Log (L"[Window Mgr] Disabling Tablet Gesture Support...");
+    int result = 0x00;
+    result |= (SYSTEM_GESTURE_STATUS_NOHOLD |
+               SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF);
+    return result;
+  }
+
+  // Ignore ALL touch-based windows messages, because some of them crash the game
+  bool tablet_msg = false;
+
+  if (uMsg >= WM_TABLET_FIRST        && uMsg <= WM_TABLET_LAST)    tablet_msg = true;
+  if (uMsg >= WM_PENWINFIRST         && uMsg <= WM_PENWINLAST)     tablet_msg = true;
+  if (uMsg >= WM_POINTERDEVICECHANGE && uMsg <= DM_POINTERHITTEST) tablet_msg = true;
+  if (uMsg == WM_GESTURE             || uMsg == WM_GESTURENOTIFY)  tablet_msg = true;
+
+  if (tablet_msg) {
+    // Close the handle; we never wanted it in the first place.
+    if (uMsg == WM_TOUCH)
+      CloseTouchInputHandle ((HTOUCHINPUT)lParam);
+
+    dll_log.Log ( L"[Window Mgr] >> Filtering Out Tablet Input "
+                  L"(uMsg=0x%04X, wParam=%p, lParam=%p)",
+                    uMsg, wParam, lParam );
+    //return 0;
+    return DefWindowProc (hWnd, uMsg, wParam, lParam);
+  }
+#endif
 
 #if 0
   if (uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST) {

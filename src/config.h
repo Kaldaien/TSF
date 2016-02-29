@@ -65,6 +65,7 @@ struct tsf_config_s
     bool     dump             = false;
     bool     log              = false;
     bool     full_mipmaps     = false;
+    bool     cleanup          = false;
   } textures;
 
   struct {

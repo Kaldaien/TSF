@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.6.1";
+std::wstring TSFIX_VER_STR = L"0.6.2";
 tsf_config_s config;
 
 struct {
@@ -66,6 +66,7 @@ struct {
 #if 0
   tsf::ParameterInt*     mipmap_count;
 #endif
+  tsf::ParameterBool*    cleanup;
 } textures;
 
 struct {
@@ -319,6 +320,16 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Textures",
         L"FullMipmaps" );
 
+  textures.cleanup =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Cleanup low-res textures")
+      );
+  textures.cleanup->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"Cleanup" );
+
 
   input.block_left_alt =
     static_cast <tsf::ParameterBool *>
@@ -463,6 +474,8 @@ TSFix_LoadConfig (std::wstring name) {
   if (textures.uncompressed->load ())
     config.textures.uncompressed = textures.uncompressed->get_value ();
 
+  if (textures.cleanup->load ())
+    config.textures.cleanup = textures.cleanup->get_value ();
 
   // When this option is set, it is essential to force 16x AF on
   if (config.textures.full_mipmaps) {
@@ -545,8 +558,12 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
 
 
-  textures.max_anisotropy->set_value (config.textures.max_anisotropy);
-  textures.max_anisotropy->store     ();
+  //
+  // This gets set dynamically depending on certain settings, don't
+  //   save this...
+  //
+  //textures.max_anisotropy->set_value (config.textures.max_anisotropy);
+  //textures.max_anisotropy->store     ();
 
   textures.cache->set_value          (config.textures.cache);
   textures.cache->store              ();
@@ -565,6 +582,9 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   textures.full_mipmaps->set_value   (config.textures.full_mipmaps);
   textures.full_mipmaps->store       ();
+
+  textures.cleanup->set_value        (config.textures.cleanup);
+  textures.cleanup->store            ();
 
 
   input.block_left_alt->set_value  (config.input.block_left_alt);

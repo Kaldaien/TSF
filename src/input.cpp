@@ -978,6 +978,10 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
         }
 #endif
 
+        else if (keys_ [VK_MENU] && vkCode == 'H' && new_press) {
+          pCommandProc->ProcessCommandLine ("Timing.HyperSpeed toggle");
+        }
+
         else if (vkCode == 'B' && new_press) {
           pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
           if (! config.render.remove_blur)
@@ -995,58 +999,20 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
         }
 
-#if 0
-        else if (vkCode == '3' && new_press) {
-          uint32_t *pFreq = (uint32_t *)0x00B24A88;
-
-          DWORD dwOld;
-          VirtualProtect (pFreq, 4, PAGE_READWRITE, &dwOld);
-          *pFreq = freq * 2;
-          VirtualProtect (pFreq, 4, dwOld, &dwOld);
-
-          uint32_t *pTickScale = (uint32_t *)0x01DAE290;
-
-          VirtualProtect (pTickScale, 4, PAGE_READWRITE, &dwOld);
-          *pTickScale = 1;
-          VirtualProtect (pTickScale, 4, dwOld, &dwOld);
-
-          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 15.0");
-        }
-
-
         else if (vkCode == '1' && new_press) {
-          uint32_t *pFreq = (uint32_t *)0x00B24A88;
-
-          DWORD dwOld;
-          VirtualProtect (pFreq, 4, PAGE_READWRITE, &dwOld);
-          *pFreq = freq;
-          VirtualProtect (pFreq, 4, dwOld, &dwOld);
-
           pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 60.0");
-
-          uint32_t *pTickScale = (uint32_t *)0x01DAE290;
-          VirtualProtect (pTickScale, 4, PAGE_READWRITE, &dwOld);
-          *pTickScale = freq * 2;
-          VirtualProtect (pTickScale, 4, dwOld, &dwOld);
+          pCommandProc->ProcessCommandLine ("Timing.RouteSixty false");
         }
 
         else if (vkCode == '2' && new_press) {
-          uint32_t *pFreq = (uint32_t *)0x00B24A88;
-
-          DWORD dwOld;
-          VirtualProtect (pFreq, 4, PAGE_READWRITE, &dwOld);
-          *pFreq = freq;
-          VirtualProtect (pFreq, 4, dwOld, &dwOld);
-
           pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 30.0");
-
-          uint32_t *pTickScale = (uint32_t *)0x01DAE290;
-
-          VirtualProtect (pTickScale, 4, PAGE_READWRITE, &dwOld);
-          *pTickScale = 2;
-          VirtualProtect (pTickScale, 4, dwOld, &dwOld);
+          pCommandProc->ProcessCommandLine ("Timing.RouteSixty false");
         }
-#endif
+
+        else if (vkCode == '3' && new_press) {
+          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 0.0");
+          pCommandProc->ProcessCommandLine ("Timing.RouteSixty true");
+        }
       }
 
       // Don't print the tab character, it's pretty useless.

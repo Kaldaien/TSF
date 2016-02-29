@@ -412,6 +412,7 @@ tsf::RenderFix::TextureManager::numMSAASurfs (void)
 #include "../render.h"
 
 std::set <UINT> tsf::RenderFix::active_samplers;
+extern IDirect3DTexture9* pFontTex;
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -431,6 +432,32 @@ D3D9SetTexture_Detour (
     dll_log.Log ( L"[FrameTrace] SetTexture      - Sampler: %lu, pTexture: %ph",
                      Sampler, pTexture );
   }
+
+  DWORD address_mode = D3DTADDRESS_WRAP;
+
+  if (pTexture == pFontTex) {
+    // Clamp these textures to correct their texture coordinates
+    address_mode = D3DTADDRESS_CLAMP;
+
+    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSU, address_mode);
+    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSV, address_mode);
+    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSW, address_mode);
+  }
+
+#if 0
+  if (pTexture != nullptr) {
+    D3DSURFACE_DESC desc;
+    ((IDirect3DTexture9 *)pTexture)->GetLevelDesc (0, &desc);
+
+    // Fix issues with some UI textures
+    if (desc.Width < 64 || desc.Height < 64)
+      address_mode = D3DTADDRESS_CLAMP;
+
+    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSU, address_mode);
+    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSV, address_mode);
+    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSW, address_mode);
+  }
+#endif
 
 #if 0
   if (pTexture != nullptr) tsf::RenderFix::active_samplers.insert (Sampler);
@@ -588,6 +615,8 @@ D3D9SetDepthStencilSurface_Detour (
   return D3D9SetDepthStencilSurface_Original (This, pNewZStencil);
 }
 
+IDirect3DTexture9* last_tex = nullptr;
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -611,7 +640,7 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
   //
   // Game is seriously screwed up: PLEASE stop creating this target every frame!
   //
-  if (Width == 16 && Height == 1)
+  if (Width == 16 && Height == 1 && (Usage & D3DUSAGE_RENDERTARGET))
     return E_FAIL;
 
   if (config.textures.log) {
@@ -718,6 +747,9 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
     }
   }
 
+  if (Pool == D3DPOOL_DEFAULT)
+    last_tex = *ppTexture;
+
   return result;
 }
 
@@ -793,6 +825,27 @@ D3DXCreateTextureFromFile_pfn
 
 #define FONT_CRC32 0xef2d9b55
 
+#define D3DX_FILTER_NONE             0x00000001
+#define D3DX_FILTER_POINT            0x00000002
+#define D3DX_FILTER_LINEAR           0x00000003
+#define D3DX_FILTER_TRIANGLE         0x00000004
+#define D3DX_FILTER_BOX              0x00000005
+#define D3DX_FILTER_MIRROR_U         0x00010000
+#define D3DX_FILTER_MIRROR_V         0x00020000
+#define D3DX_FILTER_MIRROR_W         0x00040000
+#define D3DX_FILTER_MIRROR           0x00070000
+#define D3DX_FILTER_DITHER           0x00080000
+#define D3DX_FILTER_DITHER_DIFFUSION 0x00100000
+#define D3DX_FILTER_SRGB_IN          0x00200000
+#define D3DX_FILTER_SRGB_OUT         0x00400000
+#define D3DX_FILTER_SRGB             0x00600000
+
+
+#define D3DX_SKIP_DDS_MIP_LEVELS_MASK 0x1f
+#define D3DX_SKIP_DDS_MIP_LEVELS_SHIFT 26
+#define D3DX_SKIP_DDS_MIP_LEVELS(l, f) ((((l) & D3DX_SKIP_DDS_MIP_LEVELS_MASK) \
+<< D3DX_SKIP_DDS_MIP_LEVELS_SHIFT) | ((f) == D3DX_DEFAULT ? D3DX_FILTER_BOX : (f)))
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -832,7 +885,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 #endif
 
   // Don't dump or cache these
-  if (Pool != D3DPOOL_DEFAULT || Usage == D3DUSAGE_DYNAMIC)
+  if (Usage == D3DUSAGE_DYNAMIC)
     checksum = 0x00;
 
   if (config.textures.cache) {
@@ -848,10 +901,14 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   }
 
   // Necessary to make D3DX texture write functions work
-  if (config.textures.dump)
+  if (Pool == D3DPOOL_DEFAULT && config.textures.dump)
     Usage = D3DUSAGE_DYNAMIC;
 
-  if ((! config.textures.dump) && config.textures.uncompressed) {
+  //
+  // Generating full mipmaps is MUCH faster if we don't re-compress everything
+  //
+  if ((Pool == D3DPOOL_DEFAULT && Usage != D3DUSAGE_DYNAMIC) &&
+      (config.textures.uncompressed || config.textures.full_mipmaps)) {
     if (Format == D3DFMT_DXT1 ||
         Format == D3DFMT_DXT3 ||
         Format == D3DFMT_DXT5) {
@@ -861,7 +918,27 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     }
   }
 
-  if ((! config.textures.dump) && config.textures.optimize_ui) {
+  Filter    = D3DX_FILTER_LINEAR|D3DX_FILTER_DITHER;
+  MipFilter =  D3DX_FILTER_BOX;
+
+  if ((Pool == D3DPOOL_DEFAULT && Usage != D3DUSAGE_DYNAMIC) &&
+      config.textures.cleanup && ((Width < 64 && Height < 64) || ((Width == 256 || Width == 128) && (Height == 128 || Height == 256)))) {
+    Width    *= 2;//config.textures.rescale;
+    Height   *= 2;//config.textures.rescale;
+
+    Filter    = D3DX_FILTER_LINEAR|D3DX_FILTER_DITHER;
+    MipLevels = D3DX_DEFAULT;
+
+    if (Format == D3DFMT_DXT1 ||
+        Format == D3DFMT_DXT3 ||
+        Format == D3DFMT_DXT5) {
+      Format = D3DFMT_A8R8G8B8;
+    }
+  } else {
+  }
+
+  if ((Pool == D3DPOOL_DEFAULT && Usage != D3DUSAGE_DYNAMIC) &&
+      (! config.textures.dump) && config.textures.optimize_ui) {
     // Generating mipmaps adds a lot of overhead, don't do it for
     //   UI textures and that will speed things up.
     if (Width < 128 || Height < 128)
@@ -870,9 +947,11 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 
   // Generate complete mipmap chains for best image quality
   //  (will increase load-time on uncached textures)
-  if ((! config.textures.dump) && config.textures.full_mipmaps) {
-    if (Width >= 128 || Height >= 128)
+  if ((Pool == D3DPOOL_DEFAULT && Usage != D3DUSAGE_DYNAMIC) &&
+      (! config.textures.dump) && config.textures.full_mipmaps) {
+    if (Width >= 128 || Height >= 128) {
       MipLevels = D3DX_DEFAULT;
+    }
   }
 
   HRESULT hr = E_FAIL;
@@ -887,6 +966,8 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       hr = D3DXCreateTextureFromFile (pDevice, L"font.dds", ppTexture);
 
       if (SUCCEEDED (hr)) {
+        extern IDirect3DTexture9* pFontTex;
+        pFontTex = *ppTexture;
         tex_log.LogEx (false, L"done\n");
         (*ppTexture)->Release ();
       } else
@@ -1154,6 +1235,8 @@ tsf::RenderFix::TextureManager::Shutdown (void)
 void
 tsf::RenderFix::TextureManager::reset (void)
 {
+  last_tex = nullptr;
+
   int underflows    = 0;
 
   int ext_refs      = 0;

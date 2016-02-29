@@ -1032,7 +1032,13 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
              // We cannot do this indefinitely, we need at least one copy per-frame.
              if (blur_bypass == 1) {
-               This->StretchRect (pSrc, nullptr, pDst, nullptr, D3DTEXF_NONE);
+               D3DVIEWPORT9 vp;
+               This->GetViewport (&vp);
+
+               RECT rectOut = { vp.X,            vp.Y,
+                                vp.X + vp.Width, vp.Y + vp.Height };
+
+               This->StretchRect (pSrc, nullptr, pDst, &rectOut, D3DTEXF_NONE);
              }
 
              blur_bypass++;
@@ -1042,7 +1048,13 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
              if (tsf::RenderFix::tracer.log)
                dll_log.Log (L"[FrameTrace] >>  Blur Proxy Impossible; Resorting to Blit  <<");
 
-             This->StretchRect (pSrc, nullptr, pDst, nullptr, D3DTEXF_NONE);
+               D3DVIEWPORT9 vp;
+               This->GetViewport (&vp);
+
+               RECT rectOut = { vp.X,            vp.Y,
+                                vp.X + vp.Width, vp.Y + vp.Height };
+
+               This->StretchRect (pSrc, nullptr, pDst, &rectOut, D3DTEXF_NONE);
            }
 
           pDst->Release ();
@@ -1431,6 +1443,9 @@ SK_D3D9_SamplerStateTypeToStr (D3DSAMPLERSTATETYPE sst)
 //
 // TODO: Move Me to textures.cpp
 //
+
+IDirect3DTexture9* pFontTex;
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
