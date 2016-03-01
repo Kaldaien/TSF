@@ -421,9 +421,6 @@ DirectInput8Create_Detour ( HINSTANCE  hinst,
                                         ppvOut,
                                           punkOuter ));
 
-  extern void HookRawInput (void);
-  HookRawInput ();
-
   if (hinst != GetModuleHandle (nullptr)) {
     dll_log.Log (L"[   Input  ] >> A third-party DLL is manipulating DirectInput 8; will not hook.");
     return hr;
@@ -500,9 +497,6 @@ GetRawInputData_Detour (_In_      HRAWINPUT hRawInput,
   if (config.input.block_all_keys)
     return 0;
 
-  if (GetFocus () != tsf::RenderFix::hWndDevice || tsf::RenderFix::hWndDevice == 0)
-    return 0;
-
   int size = GetRawInputData_Original (hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
 
   // Block keyboard input to the game while the console is active
@@ -518,9 +512,11 @@ GetAsyncKeyState_Detour (_In_ int vKey)
 {
 #define TSFix_ConsumeVKey(vKey) { GetAsyncKeyState_Original(vKey); return 0; }
 
+#if 0
   // Window is not active, but we are faking it...
   if ((! tsf::window.active) && config.render.allow_background)
     TSFix_ConsumeVKey (vKey);
+#endif
 
   // Block keyboard input to the game while the console is active
   if (tsf::InputManager::Hooker::getInstance ()->isVisible ()) {
@@ -629,8 +625,10 @@ tsf::InputManager::Init (void)
 {
   FixAltTab ();
 
+#if 0
   if (config.input.disable_touch || config.input.pause_touch)
     ShutdownTouchServices ();
+#endif
 
   //
   // For this game, the only reason we hook this is to block the Windows key.
@@ -652,9 +650,7 @@ tsf::InputManager::Init (void)
   //
 
   // If DirectInput isn't going to hook this, we'll do it ourself
-  if (! config.input.block_windows) {
-    HookRawInput ();
-  }
+  HookRawInput ();
 
   TSFix_CreateDLLHook ( L"user32.dll", "GetAsyncKeyState",
                         GetAsyncKeyState_Detour,

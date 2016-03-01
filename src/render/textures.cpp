@@ -879,16 +879,16 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   checksum =
     crc32 (checksum, (uint8_t *)pSrcData + min (1, (SrcDataSize - 4096)), min (4096, 4096 - SrcDataSize - 1));
 #else
-  // FULL CRC32
+
   uint32_t checksum =
     crc32 (0, pSrcData, SrcDataSize);
 #endif
 
   // Don't dump or cache these
-  if (Usage == D3DUSAGE_DYNAMIC)
+  if (Usage == D3DUSAGE_DYNAMIC || Usage == D3DUSAGE_RENDERTARGET)
     checksum = 0x00;
 
-  if (config.textures.cache) {
+  if (config.textures.cache && checksum != 0x00) {
     tsf::RenderFix::Texture* pTex = tsf::RenderFix::tex_mgr.getTexture (checksum);
 
     if (pTex != nullptr) {
@@ -909,13 +909,13 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   //
   if ((Pool == D3DPOOL_DEFAULT && Usage != D3DUSAGE_DYNAMIC) &&
       (config.textures.uncompressed || config.textures.full_mipmaps)) {
-    if (Format == D3DFMT_DXT1 ||
-        Format == D3DFMT_DXT3 ||
-        Format == D3DFMT_DXT5) {
+    //if (Format == D3DFMT_DXT1 ||
+        //Format == D3DFMT_DXT3 ||
+        //Format == D3DFMT_DXT5) {
       Format = D3DFMT_A8R8G8B8;
 
       //MipLevels = D3DX_DEFAULT;
-    }
+    //}
   }
 
   Filter    = D3DX_FILTER_LINEAR|D3DX_FILTER_DITHER;
@@ -1022,7 +1022,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   QueryPerformanceFrequency (&freq);
 
   if (SUCCEEDED (hr)) {
-    if (config.textures.cache) {
+    if (config.textures.cache && checksum != 0x00) {
       tsf::RenderFix::Texture* pTex =
         new tsf::RenderFix::Texture ();
 

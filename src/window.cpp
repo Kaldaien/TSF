@@ -181,24 +181,6 @@ SetWindowLongA_Detour (
                       dwNewLong );
   }
 
-  //
-  // Sort of a dirty hack, but this is an opportune place to call this
-  //
-  RegisterTouchWindow (hWnd, 0);
-
-  const DWORD dwDieTablet =
-    TABLET_DISABLE_FLICKFALLBACKKEYS |
-    TABLET_DISABLE_FLICKS            |
-    TABLET_DISABLE_PENBARRELFEEDBACK |
-    TABLET_DISABLE_PENTAPFEEDBACK    |
-    TABLET_DISABLE_PRESSANDHOLD      |
-    TABLET_DISABLE_SMOOTHSCROLLING   |
-    TABLET_DISABLE_TOUCHUIFORCEOFF;
-
-  ATOM atom = GlobalAddAtom (MICROSOFT_TABLETPENSERVICE_PROPERTY);
-              SetProp (hWnd, MICROSOFT_TABLETPENSERVICE_PROPERTY, reinterpret_cast<HANDLE>(dwDieTablet));
-     GlobalDeleteAtom (atom);
-
   // Override window styles
   if (nIndex == GWL_STYLE || nIndex == GWL_EXSTYLE) {
     // For proper return behavior
@@ -210,12 +192,8 @@ SetWindowLongA_Detour (
     //if (nIndex == GWL_STYLE)
       //tsf::window.style = dwNewLong;
 
-    if (nIndex == GWL_EXSTYLE)
-      tsf::window.style_ex = dwNewLong;
-
-    tsf::window.activating = true;
-    SetActiveWindow     (tsf::RenderFix::hWndDevice);
-    tsf::window.activating = false;
+    //if (nIndex == GWL_EXSTYLE)
+      //tsf::window.style_ex = dwNewLong;
 
     // Allow the game to change its frame
     if (! config.render.borderless)
@@ -234,20 +212,18 @@ tsf::WindowManager::BorderManager::Disable (void)
 
   window.borderless = true;
 
-  // Handle window style on creation
-  //
-  //   This should be figured out at window creation time instead
-  //if (window.style == 0)
-    //window.style = GetWindowLong (window.hwnd, GWL_STYLE);
-
-  //if (window.style_ex == 0)
-    //window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
+  BringWindowToTop (window.hwnd);
+  SetActiveWindow  (window.hwnd);
 
   DWORD dwNewLong = window.style;
 
+#if 0
   dwNewLong &= ~( WS_BORDER           | WS_CAPTION  | WS_THICKFRAME |
                   WS_OVERLAPPEDWINDOW | WS_MINIMIZE | WS_MAXIMIZE   |
                   WS_SYSMENU          | WS_GROUP );
+#endif
+
+  dwNewLong = WS_POPUP | WS_MINIMIZEBOX;
 
   SetWindowLongW (window.hwnd, GWL_STYLE,   dwNewLong);
 
@@ -268,16 +244,7 @@ tsf::WindowManager::BorderManager::Enable (void)
 {
   window.borderless = false;
 
-  // Handle window style on creation
-  //
-  //   This should be figured out at window creation time instead
-  //if (window.style == 0)
-    //window.style = GetWindowLong (window.hwnd, GWL_STYLE);
-
-  //if (window.style_ex == 0)
-    //window.style_ex = GetWindowLong (window.hwnd, GWL_EXSTYLE);
-
-  SetWindowLongW (window.hwnd, GWL_STYLE,   window.style);
+  SetWindowLongW (window.hwnd, GWL_STYLE,   WS_OVERLAPPEDWINDOW);
   SetWindowLongW (window.hwnd, GWL_EXSTYLE, window.style_ex);
 
   AdjustWindow ();
@@ -286,8 +253,6 @@ tsf::WindowManager::BorderManager::Enable (void)
 void
 tsf::WindowManager::BorderManager::AdjustWindow (void)
 {
-  tsf::window.activating = true;
-
   HMONITOR hMonitor =
     MonitorFromWindow ( tsf::RenderFix::hWndDevice,
                           MONITOR_DEFAULTTONEAREST );
@@ -301,12 +266,12 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
     //dll_log.Log (L"BorderManager::AdjustWindow - Fullscreen");
 
     SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
-                              HWND_TOP,
+                              HWND_NOTOPMOST,
                                 mi.rcMonitor.left,
                                 mi.rcMonitor.top,
                                   mi.rcMonitor.right  - mi.rcMonitor.left,
                                   mi.rcMonitor.bottom - mi.rcMonitor.top,
-                                    SWP_FRAMECHANGED );
+                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
   } else {
     //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
 
@@ -317,16 +282,14 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
     window.window_rect.bottom = window.window_rect.top  + tsf::RenderFix::height;
 
     SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
-                              HWND_TOP,
+                              HWND_NOTOPMOST,
                                 window.window_rect.left, window.window_rect.top,
                                   window.window_rect.right  - window.window_rect.left,
                                   window.window_rect.bottom - window.window_rect.top,
-                                    SWP_FRAMECHANGED );
+                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
   }
 
-  BringWindowToTop (tsf::RenderFix::hWndDevice);
-  SetActiveWindow  (tsf::RenderFix::hWndDevice);
-  tsf::window.activating = false;
+  ShowWindow (window.hwnd, SW_SHOW);
 }
 
 void
@@ -354,7 +317,7 @@ GetForegroundWindow_Detour (void)
 {
   //dll_log.Log (L"[Window Mgr][!] GetForegroundWindow (...)");
 
-  if (config.render.allow_background && (! tsf::window.activating)) {
+  if (config.render.allow_background) {
     return tsf::RenderFix::hWndDevice;
   }
 
@@ -367,7 +330,7 @@ GetFocus_Detour (void)
 {
   //dll_log.Log (L"[Window Mgr][!] GetFocus (...)");
 
-  if (config.render.allow_background && (! tsf::window.activating)) {
+  if (config.render.allow_background) {
     return tsf::RenderFix::hWndDevice;
   }
 
@@ -412,12 +375,6 @@ DetourWindowProc ( _In_  HWND   hWnd,
 
     // Went from inactive to active (restore foreground limit)
     else {
-      tsf::window.activating = true;
-      SetActiveWindow     (tsf::RenderFix::hWndDevice);
-      tsf::window.activating = false;
-
-      tsf::InputManager::FixAltTab ();
-
       pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
     }
 
@@ -459,11 +416,11 @@ DetourWindowProc ( _In_  HWND   hWnd,
       //return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
-      return 0;//DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     // Block RAW Input
     if (uMsg == WM_INPUT)
-      return 0;//DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return DefWindowProc (hWnd, uMsg, wParam, lParam);
   }
 
   // Block the menu key from messing with stuff

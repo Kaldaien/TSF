@@ -554,14 +554,14 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 
     //AdjustWindowRectEx (&tsf::window.window_rect, tsf::window.style, FALSE, tsf::window.style_ex);
 
-    SetWindowPos (
-      tsf::RenderFix::hWndDevice, HWND_TOP,
+    SetWindowPos_Original (
+      tsf::RenderFix::hWndDevice, HWND_NOTOPMOST,
         0, 0,
           tsf::RenderFix::width, tsf::RenderFix::height,
-            SWP_FRAMECHANGED );
-  }
+            SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
 
-  
+    ShowWindow (tsf::RenderFix::hWndDevice, SW_SHOW);
+  }
 
   return BMF_SetPresentParamsD3D9_Original (device, &present_params);
 }
@@ -1594,6 +1594,52 @@ tsf::RenderFix::CommandProcessor::OnVarChange (eTB_Variable* var, void* val)
   return true;
 }
 
+bool draw_hud = true;
+
+typedef int (__stdcall *interpolate_pfn)(int unk0, int unk1);
+interpolate_pfn interpolate_Original;
+
+int
+__stdcall
+interpolate_Detour (int unk0, int unk1)
+{
+#if 0
+  void* This;
+
+  __asm { pushad
+          mov This, eax
+          popad
+        }
+#endif
+
+  return interpolate_Original (unk0, unk1);
+
+#if 0
+  __asm { pushad }
+
+  dll_log.Log (L" Interpolate: Offset=%d [%f], This: %ph, unk1: %X  - Ret => %d",
+   *(DWORD *)unk0, *(float *)((uint8_t *)This+8-0xC), This, unk1, ret);
+
+  __asm { popad }
+
+  return ret * 2;
+#endif
+}
+
+typedef int (__cdecl *sub_611F10_pfn)(void);
+sub_611F10_pfn sub_611F10_Original = nullptr;
+
+int
+__cdecl
+sub_611F10_Detour (void)
+{
+  static int last_ret = 0;
+
+  if (draw_hud)
+    last_ret = sub_611F10_Original ();
+
+  return last_ret;
+}
 
 void
 SK_SetupD3D9Hooks (void)
@@ -1652,6 +1698,24 @@ SK_SetupD3D9Hooks (void)
                         "D3D9SetPixelShader_Override",
                          D3D9SetPixelShader_Detour,
                (LPVOID*)&D3D9SetPixelShader_Original );
+
+  TSFix_CreateFuncHook ( L"Namco_DrawHUD",
+                 (void *)0x611F10,
+                         sub_611F10_Detour,
+               (LPVOID*)&sub_611F10_Original );
+  TSFix_EnableHook ((void *)0x611F10);
+
+  TSFix_CreateFuncHook ( L"Namco_Interpolate",
+                 (void *)0x628E70,
+                         interpolate_Detour,
+               (LPVOID*)&interpolate_Original );
+  TSFix_EnableHook ((void *)0x628E70);
+
+  eTB_CommandProcessor* pCommandProc =
+    SK_GetCommandProcessor ();
+
+  pCommandProc->AddVariable ("HUD.Show", new eTB_VarStub <bool> (&draw_hud));
+
 }
 
 

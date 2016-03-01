@@ -56,7 +56,8 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
 
   int pages = 0;
 
-#define PAGE_WALK_LIMIT (base_addr) + (4096 * 8192)
+// Scan up to 32 MiB worth of data
+#define PAGE_WALK_LIMIT (base_addr) + (1 << 26)
 
   //
   // For practical purposes, let's just assume that all valid games have less than 32 MiB of
@@ -280,7 +281,7 @@ CreateTimerQueueTimer_Override (
   dll_log.Log ( L"[  60 FPS  ][!]CreateTimerQueueTimer (... %lu ms, %lu ms, ...)",
                   DueTime, Period );
 
-  return CreateTimerQueueTimer_Original (phNewTimer, TimerQueue, Callback, Parameter, 2, 2, Flags);
+  return CreateTimerQueueTimer_Original (phNewTimer, TimerQueue, Callback, Parameter, 4, 4, Flags);
 }
 
 

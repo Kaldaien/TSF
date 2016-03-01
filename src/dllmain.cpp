@@ -89,10 +89,10 @@ DllThread (LPVOID user)
 
   // Plugin State
   if (TSFix_Init_MinHook () == MH_OK) {
+    tsf::TimingFix::Init     ();
     tsf::WindowManager::Init ();
     tsf::InputManager::Init  ();
     tsf::RenderFix::Init     ();
-    tsf::TimingFix::Init     ();
   }
 
   return 0;
@@ -110,15 +110,19 @@ DllMain (HMODULE hModule,
     {
       DisableThreadLibraryCalls ((hDLLMod = hModule));
 
-      CreateThread              (nullptr, 0, DllThread, nullptr, 0, nullptr);
+      // This is safe because this DLL is never loaded at launch, it is always
+      //   loaded from d3d9.dll
+      DllThread (nullptr);
+
+      //CreateThread              (nullptr, 0, DllThread, nullptr, 0, nullptr);
     } break;
 
     case DLL_PROCESS_DETACH:
     {
       tsf::WindowManager::Shutdown ();
       tsf::RenderFix::Shutdown     ();
-      tsf::TimingFix::Shutdown     ();
       tsf::InputManager::Shutdown  ();
+      tsf::TimingFix::Shutdown     ();
 
       TSFix_UnInit_MinHook ();
       TSFix_SaveConfig     ();

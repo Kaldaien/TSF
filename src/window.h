@@ -157,8 +157,8 @@ namespace tsf
     HICON   large_icon;
     HICON   small_icon;
 
-    DWORD   style    = WS_VISIBLE;      // Style before we removed the border
-    DWORD   style_ex = WS_EX_APPWINDOW; // StyleEX before removing the border
+    DWORD   style    = 0;//WS_VISIBLE | WS_POPUP | WS_MINIMIZEBOX; // Style before we removed the border
+    DWORD   style_ex = 0;//WS_EX_APPWINDOW;                        // StyleEX before removing the border
 
     bool    borderless = false;
   } extern window;
