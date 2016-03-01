@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.6.2";
+std::wstring TSFIX_VER_STR = L"0.6.3";
 tsf_config_s config;
 
 struct {
@@ -73,6 +73,7 @@ struct {
   tsf::ParameterBool*    block_left_alt;
   tsf::ParameterBool*    block_left_ctrl;
   tsf::ParameterBool*    block_windows;
+  tsf::ParameterBool*    block_all_keys;
   tsf::ParameterBool*    pause_touch;
   tsf::ParameterBool*    disable_touch;
 } input;
@@ -361,6 +362,17 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Input",
         L"BlockWindows" );
 
+  input.block_all_keys =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Block All Keys")
+      );
+  input.block_all_keys->register_to_ini (
+    dll_ini,
+      L"TSFix.Input",
+        L"BlockAllKeys" );
+
+
   input.disable_touch =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -492,6 +504,9 @@ TSFix_LoadConfig (std::wstring name) {
   if (input.block_windows->load ())
     config.input.block_windows = input.block_windows->get_value ();
 
+  if (input.block_all_keys->load ())
+    config.input.block_all_keys = input.block_all_keys->get_value ();
+
   if (input.disable_touch->load ())
     config.input.disable_touch = input.disable_touch->get_value ();
 
@@ -595,6 +610,9 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   input.block_windows->set_value   (config.input.block_windows);
   input.block_windows->store       ();
+
+  input.block_all_keys->set_value  (config.input.block_all_keys);
+  input.block_all_keys->store      ();
 
   input.disable_touch->set_value   (config.input.disable_touch);
   input.disable_touch->store       ();

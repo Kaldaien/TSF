@@ -213,7 +213,9 @@ SetWindowLongA_Detour (
     if (nIndex == GWL_EXSTYLE)
       tsf::window.style_ex = dwNewLong;
 
-    BringWindowToTop (hWnd);
+    tsf::window.activating = true;
+    SetActiveWindow     (tsf::RenderFix::hWndDevice);
+    tsf::window.activating = false;
 
     // Allow the game to change its frame
     if (! config.render.borderless)
@@ -284,6 +286,8 @@ tsf::WindowManager::BorderManager::Enable (void)
 void
 tsf::WindowManager::BorderManager::AdjustWindow (void)
 {
+  tsf::window.activating = true;
+
   HMONITOR hMonitor =
     MonitorFromWindow ( tsf::RenderFix::hWndDevice,
                           MONITOR_DEFAULTTONEAREST );
@@ -321,6 +325,8 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
   }
 
   BringWindowToTop (tsf::RenderFix::hWndDevice);
+  SetActiveWindow  (tsf::RenderFix::hWndDevice);
+  tsf::window.activating = false;
 }
 
 void
@@ -348,7 +354,7 @@ GetForegroundWindow_Detour (void)
 {
   //dll_log.Log (L"[Window Mgr][!] GetForegroundWindow (...)");
 
-  if (config.render.allow_background) {
+  if (config.render.allow_background && (! tsf::window.activating)) {
     return tsf::RenderFix::hWndDevice;
   }
 
@@ -361,7 +367,7 @@ GetFocus_Detour (void)
 {
   //dll_log.Log (L"[Window Mgr][!] GetFocus (...)");
 
-  if (config.render.allow_background) {
+  if (config.render.allow_background && (! tsf::window.activating)) {
     return tsf::RenderFix::hWndDevice;
   }
 
@@ -406,6 +412,12 @@ DetourWindowProc ( _In_  HWND   hWnd,
 
     // Went from inactive to active (restore foreground limit)
     else {
+      tsf::window.activating = true;
+      SetActiveWindow     (tsf::RenderFix::hWndDevice);
+      tsf::window.activating = false;
+
+      tsf::InputManager::FixAltTab ();
+
       pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
     }
 
@@ -425,16 +437,12 @@ DetourWindowProc ( _In_  HWND   hWnd,
   }
 
   // Ignore this event
-  if (uMsg == WM_MOUSEACTIVATE && config.render.allow_background)
+  if (uMsg == WM_MOUSEACTIVATE && config.render.allow_background) {
     return DefWindowProc (hWnd, uMsg, wParam, lParam);
+  }
 
   // Allow the game to run in the background
   if (uMsg == WM_ACTIVATEAPP || uMsg == WM_ACTIVATE || uMsg == WM_NCACTIVATE /*|| uMsg == WM_MOUSEACTIVATE*/) {
-    // Consume the Alt key
-    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_LMENU);
-    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_RMENU);
-    tsf::InputManager::Hooker::getInstance ()->consumeKey (VK_MENU);
-
     if (config.render.allow_background) {
       // We must fully consume one of these messages or audio will stop playing
       //   when the game loses focus, so do not simply pass this through to the
@@ -447,17 +455,15 @@ DetourWindowProc ( _In_  HWND   hWnd,
   // Block keyboard input to the game while the console is visible
   if (console_visible || background_render) {
     // Only prevent the mouse from working while the window is in the bg
-    if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
-      return DefWindowProc (hWnd, uMsg, wParam, lParam);
+    //if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
+      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
-      return 0;
-      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return 0;//DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     // Block RAW Input
     if (uMsg == WM_INPUT)
-      return 0;
-      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return 0;//DefWindowProc (hWnd, uMsg, wParam, lParam);
   }
 
   // Block the menu key from messing with stuff
@@ -466,7 +472,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
     // Make an exception for Alt+Enter, for fullscreen mode toggle.
     //   F4 as well for exit
     if (wParam != VK_RETURN && wParam != VK_F4)
-      return 0;
+      return DefWindowProc (hWnd, uMsg, wParam, lParam);
   }
 
 #if 0

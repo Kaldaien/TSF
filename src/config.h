@@ -81,6 +81,7 @@ struct tsf_config_s
     bool block_left_alt  = false;
     bool block_left_ctrl = false;
     bool block_windows   = true;
+    bool block_all_keys  = false;
     bool pause_touch     = true;
     bool disable_touch   = false;
   } input;

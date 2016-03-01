@@ -477,11 +477,13 @@ tsf::TimingFix::Init (void)
                            &lpvDontCare );
     TSFix_EnableHook     (pLimiterFunc);
 
+#if 0
     TSFix_CreateFuncHook ( L"NamcoUnknown",
                           game_speed.NamcoTimerAddr,
                           NamcoUnknown_Detour,
                          &game_speed.NamcoTimerFunc );
     TSFix_EnableHook     (game_speed.NamcoTimerAddr);
+#endif
 
 #if 0
     TSFix_CreateFuncHook ( L"NamcoFrameCounter",

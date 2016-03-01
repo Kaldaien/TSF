@@ -20,7 +20,6 @@
  *
 **/
 #define _CRT_SECURE_NO_WARNINGS
-#define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <cstdint>
 
@@ -46,6 +45,40 @@
 // General Utility Functions
 //
 ///////////////////////////////////////////////////////////////////////////////
+void
+tsf::InputManager::FixAltTab (void)
+{
+  static bool init = false;
+  //
+  // Make sure the game does not think that Alt or Tab are stuck
+  //
+  static INPUT kbd [6];
+
+  if (! init) {
+    kbd [0].type       = INPUT_KEYBOARD;
+    kbd [0].ki.wVk     = VK_MENU;
+    kbd [0].ki.dwFlags = 0;
+    kbd [0].ki.time    = 0;
+    kbd [1].type       = INPUT_KEYBOARD;
+    kbd [1].ki.wVk     = VK_MENU;
+    kbd [1].ki.dwFlags = KEYEVENTF_KEYUP;
+    kbd [1].ki.time    = 0;
+
+    kbd [2].type       = INPUT_KEYBOARD;
+    kbd [2].ki.wVk     = VK_TAB;
+    kbd [2].ki.dwFlags = 0;
+    kbd [2].ki.time    = 0;
+    kbd [3].type       = INPUT_KEYBOARD;
+    kbd [3].ki.wVk     = VK_TAB;
+    kbd [3].ki.dwFlags = KEYEVENTF_KEYUP;
+    kbd [3].ki.time    = 0;
+
+    init = true;
+  }
+
+  SendInput (4, kbd, sizeof INPUT);
+}
+
 #if 0
 void
 TSF_ComputeAspectCoeffsEx (float& x, float& y, float& xoff, float& yoff, bool force=false)
@@ -464,15 +497,19 @@ GetRawInputData_Detour (_In_      HRAWINPUT hRawInput,
                         _Inout_   PUINT     pcbSize,
                         _In_      UINT      cbSizeHeader)
 {
+  if (config.input.block_all_keys)
+    return 0;
+
+  if (GetFocus () != tsf::RenderFix::hWndDevice || tsf::RenderFix::hWndDevice == 0)
+    return 0;
+
+  int size = GetRawInputData_Original (hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
+
   // Block keyboard input to the game while the console is active
-  if (tsf::InputManager::Hooker::getInstance ()->isVisible ())
+  if (tsf::InputManager::Hooker::getInstance ()->isVisible () && uiCommand == RID_INPUT)
     return 0;
 
-  // Don't let the game know about input while the window's not active
-  if (! tsf::window.active)
-    return 0;
-
-  return GetRawInputData_Original (hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
+  return size;
 }
 
 SHORT
@@ -590,6 +627,8 @@ HookRawInput (void)
 void
 tsf::InputManager::Init (void)
 {
+  FixAltTab ();
+
   if (config.input.disable_touch || config.input.pause_touch)
     ShutdownTouchServices ();
 

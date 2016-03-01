@@ -28,6 +28,8 @@ namespace tsf
 {
   namespace InputManager
   {
+    void FixAltTab (void);
+
     void Init     ();
     void Shutdown ();
 
