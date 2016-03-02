@@ -28,28 +28,30 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.6.3";
+std::wstring TSFIX_VER_STR = L"0.7.0";
 tsf_config_s config;
 
 struct {
   tsf::ParameterBool*    allow_background;
-  tsf::ParameterBool*    borderless;
-  tsf::ParameterFloat*   foreground_fps;
-  tsf::ParameterFloat*   background_fps;
   tsf::ParameterInt*     outline_technique;
   tsf::ParameterFloat*   postproc_ratio;
   tsf::ParameterInt*     msaa_samples;
   tsf::ParameterInt*     msaa_quality;
-  tsf::ParameterBool*    background_msaa;
   tsf::ParameterBool*    remove_blur;
 } render;
 
 struct {
-  tsf::ParameterBool*    fix;
+  tsf::ParameterBool*    borderless;
+  tsf::ParameterFloat*   foreground_fps;
+  tsf::ParameterFloat*   background_fps;
+  tsf::ParameterBool*    background_msaa;
+  tsf::ParameterBool*    center;
+} window;
+
+struct {
   tsf::ParameterBool*    bypass;
-  tsf::ParameterFloat*   fudge_factor;
   tsf::ParameterFloat*   tolerance;
-  tsf::ParameterInt*     shortest_sleep;
+  //tsf::ParameterInt*     shortest_sleep;
 } stutter;
 
 struct {
@@ -66,7 +68,7 @@ struct {
 #if 0
   tsf::ParameterInt*     mipmap_count;
 #endif
-  tsf::ParameterBool*    cleanup;
+//  tsf::ParameterBool*    cleanup;
 } textures;
 
 struct {
@@ -74,8 +76,6 @@ struct {
   tsf::ParameterBool*    block_left_ctrl;
   tsf::ParameterBool*    block_windows;
   tsf::ParameterBool*    block_all_keys;
-  tsf::ParameterBool*    pause_touch;
-  tsf::ParameterBool*    disable_touch;
 } input;
 
 struct {
@@ -107,36 +107,6 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Render",
         L"AllowBackground" );
-
-  render.borderless =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"Borderless mode")
-      );
-  render.borderless->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"BorderlessWindow" );
-
-  render.foreground_fps =
-    static_cast <tsf::ParameterFloat *>
-      (g_ParameterFactory.create_parameter <float> (
-        L"Foreground Framerate Limit")
-      );
-  render.foreground_fps->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"ForegroundFPS" );
-
-  render.background_fps =
-    static_cast <tsf::ParameterFloat *>
-      (g_ParameterFactory.create_parameter <float> (
-        L"Background Framerate Limit")
-      );
-  render.background_fps->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"BackgroundFPS" );
 
   render.outline_technique =
     static_cast <tsf::ParameterInt *>
@@ -178,16 +148,6 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Render",
         L"MSAA_Quality" );
 
-  render.background_msaa =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"MSAA Disable in BG")
-      );
-  render.background_msaa->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"BackgroundMSAA" );
-
   render.remove_blur =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -199,16 +159,56 @@ TSFix_LoadConfig (std::wstring name) {
         L"RemoveBlur" );
 
 
-
-  stutter.fix =
+  window.borderless =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
-        L"Fix Stutter")
+        L"Borderless mode")
       );
-  stutter.fix->register_to_ini (
+  window.borderless->register_to_ini (
     dll_ini,
-      L"TSFix.Stutter",
-        L"Fix" );
+      L"TSFix.Window",
+        L"Borderless" );
+
+  window.foreground_fps =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Foreground Framerate Limit")
+      );
+  window.foreground_fps->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"ForegroundFPS" );
+
+  window.background_fps =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Background Framerate Limit")
+      );
+  window.background_fps->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"BackgroundFPS" );
+
+  window.background_msaa =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"MSAA Disable in BG")
+      );
+  window.background_msaa->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"BackgroundMSAA" );
+
+  window.center =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Center the window")
+      );
+  window.center->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"Center" );
+
 
   stutter.bypass =
     static_cast <tsf::ParameterBool *>
@@ -220,16 +220,6 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Stutter",
         L"Bypass" );
 
-  stutter.fudge_factor =
-    static_cast <tsf::ParameterFloat *>
-      (g_ParameterFactory.create_parameter <float> (
-        L"Cosmological Constant")
-      );
-  stutter.fudge_factor->register_to_ini (
-    dll_ini,
-      L"TSFix.Stutter",
-        L"FudgeFactor" );
-
   stutter.tolerance =
     static_cast <tsf::ParameterFloat *>
       (g_ParameterFactory.create_parameter <float> (
@@ -239,16 +229,6 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Stutter",
         L"Tolerance" );
-
-  stutter.shortest_sleep =
-    static_cast <tsf::ParameterInt *>
-      (g_ParameterFactory.create_parameter <int> (
-        L"Shortest allowable sleep")
-      );
-  stutter.shortest_sleep->register_to_ini (
-    dll_ini,
-      L"TSFix.Stutter",
-        L"ShortestSleep" );
 
 
   textures.max_anisotropy =
@@ -321,6 +301,7 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Textures",
         L"FullMipmaps" );
 
+#if 0
   textures.cleanup =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -330,7 +311,7 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Textures",
         L"Cleanup" );
-
+#endif
 
   input.block_left_alt =
     static_cast <tsf::ParameterBool *>
@@ -373,27 +354,6 @@ TSFix_LoadConfig (std::wstring name) {
         L"BlockAllKeys" );
 
 
-  input.disable_touch =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"Disable Touch Input Services")
-      );
-  input.disable_touch->register_to_ini (
-    dll_ini,
-      L"TSFix.Input",
-        L"DisableTouch" );
-
-  input.pause_touch =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"Pause Touch Input Services")
-      );
-  input.pause_touch->register_to_ini (
-    dll_ini,
-      L"TSFix.Input",
-        L"PauseTouch" );
-
-
   sys.version =
     static_cast <tsf::ParameterStringW *>
       (g_ParameterFactory.create_parameter <std::wstring> (
@@ -421,15 +381,6 @@ TSFix_LoadConfig (std::wstring name) {
   if (render.allow_background->load ())
     config.render.allow_background = render.allow_background->get_value ();
 
-  if (render.borderless->load ())
-    config.render.borderless = render.borderless->get_value ();
-
-  if (render.foreground_fps->load ())
-    config.render.foreground_fps = render.foreground_fps->get_value ();
-
-  if (render.background_fps->load ())
-    config.render.background_fps = render.background_fps->get_value ();
-
   if (render.outline_technique->load ())
     config.render.outline_technique = render.outline_technique->get_value ();
 
@@ -442,27 +393,33 @@ TSFix_LoadConfig (std::wstring name) {
   if (render.msaa_quality->load ())
     config.render.msaa_quality = render.msaa_quality->get_value ();
 
-  if (render.background_msaa->load ())
-    config.render.disable_bg_msaa = (! render.background_msaa->get_value ());
-
   if (render.remove_blur->load ())
     config.render.remove_blur = render.remove_blur->get_value ();
 
 
-  if (stutter.fix->load ())
-    config.stutter.fix = stutter.fix->get_value ();
+  if (window.borderless->load ())
+    config.window.borderless = window.borderless->get_value ();
+
+  if (window.foreground_fps->load ())
+    config.window.foreground_fps = window.foreground_fps->get_value ();
+
+  if (window.background_fps->load ())
+    config.window.background_fps = window.background_fps->get_value ();
+
+  if (window.background_msaa->load ())
+    config.window.disable_bg_msaa = (! window.background_msaa->get_value ());
+
+  if (window.center->load ())
+    config.window.center = window.center->get_value ();
 
   if (stutter.bypass->load ())
     config.stutter.bypass = stutter.bypass->get_value ();
 
-  if (stutter.fudge_factor->load ())
-    config.stutter.fudge_factor = stutter.fudge_factor->get_value ();
-
   if (stutter.tolerance->load ())
     config.stutter.tolerance = stutter.tolerance->get_value ();
 
-  if (stutter.shortest_sleep->load ())
-    config.stutter.shortest_sleep = stutter.shortest_sleep->get_value ();
+  //if (stutter.shortest_sleep->load ())
+    //config.stutter.shortest_sleep = stutter.shortest_sleep->get_value ();
 
 
   if (textures.max_anisotropy->load ())
@@ -486,8 +443,10 @@ TSFix_LoadConfig (std::wstring name) {
   if (textures.uncompressed->load ())
     config.textures.uncompressed = textures.uncompressed->get_value ();
 
+#if 0
   if (textures.cleanup->load ())
     config.textures.cleanup = textures.cleanup->get_value ();
+#endif
 
   // When this option is set, it is essential to force 16x AF on
   if (config.textures.full_mipmaps) {
@@ -507,12 +466,6 @@ TSFix_LoadConfig (std::wstring name) {
   if (input.block_all_keys->load ())
     config.input.block_all_keys = input.block_all_keys->get_value ();
 
-  if (input.disable_touch->load ())
-    config.input.disable_touch = input.disable_touch->get_value ();
-
-  if (input.pause_touch->load ())
-    config.input.pause_touch = input.pause_touch->get_value ();
-
 
   if (sys.version->load ())
     config.system.version = sys.version->get_value ();
@@ -531,15 +484,6 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   //render.allow_background->set_value  (config.render.allow_background);
   //render.allow_background->store      ();
 
-  render.borderless->set_value        (config.render.borderless);
-  render.borderless->store            ();
-
-  render.foreground_fps->set_value    (config.render.foreground_fps);
-  render.foreground_fps->store        ();
-
-  render.background_fps->set_value    (config.render.background_fps);
-  render.background_fps->store        ();
-
   render.outline_technique->set_value (config.render.outline_technique);
   render.outline_technique->store     ();
 
@@ -556,20 +500,27 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   render.remove_blur->store           ();
 
 
-  stutter.fix->set_value              (config.stutter.fix);
-  stutter.fix->store                  ();
+  window.borderless->set_value        (config.window.borderless);
+  window.borderless->store            ();
+
+  window.foreground_fps->set_value    (config.window.foreground_fps);
+  window.foreground_fps->store        ();
+
+  window.background_fps->set_value    (config.window.background_fps);
+  window.background_fps->store        ();
+
+  window.center->set_value            (config.window.center);
+  window.center->store                ();
+
 
   stutter.bypass->set_value           (config.stutter.bypass);
   stutter.bypass->store               ();
 
-  stutter.fudge_factor->set_value     (config.stutter.fudge_factor);
-  stutter.fudge_factor->store         ();
-
   stutter.tolerance->set_value        (config.stutter.tolerance);
   stutter.tolerance->store            ();
 
-  stutter.shortest_sleep->set_value   (config.stutter.shortest_sleep);
-  stutter.shortest_sleep->store       ();
+  //stutter.shortest_sleep->set_value   (config.stutter.shortest_sleep);
+  //stutter.shortest_sleep->store       ();
 
 
 
@@ -598,9 +549,10 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   textures.full_mipmaps->set_value   (config.textures.full_mipmaps);
   textures.full_mipmaps->store       ();
 
+#if 0
   textures.cleanup->set_value        (config.textures.cleanup);
   textures.cleanup->store            ();
-
+#endif
 
   input.block_left_alt->set_value  (config.input.block_left_alt);
   input.block_left_alt->store      ();
@@ -613,12 +565,6 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   input.block_all_keys->set_value  (config.input.block_all_keys);
   input.block_all_keys->store      ();
-
-  input.disable_touch->set_value   (config.input.disable_touch);
-  input.disable_touch->store       ();
-
-  input.pause_touch->set_value     (config.input.pause_touch);
-  input.pause_touch->store         ();
 
 
   sys.version->set_value  (TSFIX_VER_STR);

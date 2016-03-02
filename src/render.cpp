@@ -328,7 +328,7 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
                                         tsf::RenderFix::draw_state.has_msaa;
 
   //  Is the window in the foreground? (NV compatibility hack)
-  if ((! tsf::window.active) && config.render.disable_bg_msaa)
+  if ((! tsf::window.active) && config.window.disable_bg_msaa)
     tsf::RenderFix::draw_state.use_msaa = false;
 
   return hr;
@@ -507,9 +507,9 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     //   a window, or Alt+Tab will not work.
     //
     if (config.render.allow_background && tsf::RenderFix::fullscreen)
-      config.render.borderless = true;
+      config.window.borderless = true;
 
-    if (config.render.borderless) {
+    if (config.window.borderless) {
       // The game will draw in windowed mode, but it will think it's fullscreen
       pparams->Windowed  = true;
 
@@ -537,11 +537,12 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     }
   }
 
-  if (config.render.borderless)
+  if (config.window.borderless)
     tsf::WindowManager::border.Disable ();
   else
     tsf::WindowManager::border.Enable  ();
 
+#if 0
   if (! tsf::RenderFix::fullscreen) {
     //GetWindowRect      (tsf::RenderFix::hWndDevice, &window_rect)
     //
@@ -562,6 +563,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 
     ShowWindow (tsf::RenderFix::hWndDevice, SW_SHOW);
   }
+#endif
 
   return BMF_SetPresentParamsD3D9_Original (device, &present_params);
 }
@@ -898,6 +900,12 @@ D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
           in.width    == 720 && in.height  == 1280*/) {
         ndc_scissor.left  -= 0.01f;
         ndc_scissor.right += 0.01f;
+      }
+
+      // Synopsis screen
+      if (pRect->left  == 0    && pRect->top    == 125 &&
+          pRect->right == 1280 && pRect->bottom == 645 ) {
+        ndc_scissor.bottom += 0.1f;
       }
 
       newR.right  = (ndc_scissor.right  * out.width  + out.width)  / 2;
@@ -1535,9 +1543,6 @@ tsf::RenderFix::Init (void)
 
   CommandProcessor*     comm_proc    = CommandProcessor::getInstance ();
   eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
-
-  pCommandProc->AddVariable ("Stutter.Fix",         new eTB_VarStub <bool>  (&config.stutter.fix));
-  pCommandProc->AddVariable ("Stutter.FudgeFactor", new eTB_VarStub <float> (&config.stutter.fudge_factor));
 
   pCommandProc->AddVariable ("Render.DuranteScissor",   new eTB_VarStub <bool> (&config.render.durante_scissor));
   pCommandProc->AddVariable ("Render.OutlineTechnique", new eTB_VarStub <int>  (&config.render.outline_technique));

@@ -179,78 +179,13 @@ TSF_InjectMachineCode ( LPVOID   base_addr,
 
 
 QueryPerformanceCounter_pfn QueryPerformanceCounter_Original = nullptr;
-Sleep_pfn                   Sleep_Original                   = nullptr;
-
-int           last_sleep     =   1;
-LARGE_INTEGER last_perfCount = { 0 };
-
-void
-WINAPI
-Sleep_Detour (DWORD dwMilliseconds)
-{
-  if (GetCurrentThreadId () == tsf::RenderFix::dwRenderThreadID) {
-    last_sleep = dwMilliseconds;
-    //return;
-  }
-
-  //if (config.framerate.yield_processor && dwMilliseconds == 0)
-    //YieldProcessor ();
-
-  if ((! config.stutter.fix)                                     ||
-       GetCurrentThreadId () != tsf::RenderFix::dwRenderThreadID ||
-      dwMilliseconds         >= config.stutter.shortest_sleep) {
-    Sleep_Original (dwMilliseconds);
-  } else {
-#if 0
-    LARGE_INTEGER time;
-    LARGE_INTEGER freq;
-    QueryPerformanceCounter_Original (&time);
-    QueryPerformanceFrequency        (&freq);
-
-    LARGE_INTEGER end;
-    end.QuadPart = time.QuadPart + (double)dwMilliseconds * 0.001 * freq.QuadPart;
-
-    while (time.QuadPart < end.QuadPart) {
-      QueryPerformanceCounter_Original (&time);
-    }
-#endif
-  }
-}
 
 BOOL
 WINAPI
 QueryPerformanceCounter_Detour (
   _Out_ LARGE_INTEGER *lpPerformanceCount
 ){
-  DWORD dwThreadId = GetCurrentThreadId               ();
-  BOOL  ret        = QueryPerformanceCounter_Original (lpPerformanceCount);
-
-  if (last_sleep != 0 || (! config.stutter.fix) ||
-     (dwThreadId != tsf::RenderFix::dwRenderThreadID)) {
-
-    if (dwThreadId == tsf::RenderFix::dwRenderThreadID)
-      memcpy (&last_perfCount, lpPerformanceCount, sizeof (LARGE_INTEGER));
-
-    return ret;
-
-  } else if (dwThreadId == tsf::RenderFix::dwRenderThreadID) {
-    const float fudge_factor = config.stutter.fudge_factor;
-
-    last_sleep = -1;
-
-    // Mess with the numbers slightly to prevent hiccups
-    lpPerformanceCount->QuadPart +=
-      (lpPerformanceCount->QuadPart - last_perfCount.QuadPart) * 
-                        fudge_factor/* * freq.QuadPart*/;
-    memcpy (&last_perfCount, lpPerformanceCount, sizeof (LARGE_INTEGER));
-
-    return ret;
-  }
-
-  if (dwThreadId == tsf::RenderFix::dwRenderThreadID)
-    memcpy (&last_perfCount, lpPerformanceCount, sizeof (LARGE_INTEGER));
-
-  return ret;
+  return QueryPerformanceCounter_Original (lpPerformanceCount);
 }
 
 typedef BOOL (WINAPI *CreateTimerQueueTimer_pfn)
@@ -499,31 +434,16 @@ tsf::TimingFix::Init (void)
     QueryPerformanceCounter_Original =
       (QueryPerformanceCounter_pfn)
         GetProcAddress (hModKernel32, "QueryPerformanceCounter");
-
-    Sleep_Original =
-      (Sleep_pfn)
-        GetProcAddress (hModKernel32, "Sleep");
   }
 
   //
   // Install Stutter Fix
   //
   else {
-    // Because Bypass Was Unsuccessful
-    if (config.stutter.bypass) {
-      dll_log.Log ( L"[StutterFix] "
-                    L">> Unable to locate Namco's Framerate Bug (\"Limiter\")"
-                    L"resorting to \"Stutter Fix\"..." );
-      config.stutter.fix = true;
-    }
-
     TSFix_CreateDLLHook ( L"d3d9.dll", "QueryPerformanceCounter_Detour",
                           QueryPerformanceCounter_Detour, 
                (LPVOID *)&QueryPerformanceCounter_Original );
 
-    TSFix_CreateDLLHook ( L"kernel32.dll", "Sleep",
-                          Sleep_Detour, 
-               (LPVOID *)&Sleep_Original );
   }
 
   eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor        ();

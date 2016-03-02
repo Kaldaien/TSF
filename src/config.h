@@ -37,22 +37,24 @@ struct tsf_config_s
 {
   struct {
     bool     allow_background  = true;
-    bool     borderless        = true;
-    float    foreground_fps    = 30.0f; // 0.0 = Unlimited
-    float    background_fps    = 30.0f;
     int      outline_technique = OUTLINE_KALDAIEN;
     float    postproc_ratio    = 0.5f;
     int      msaa_samples      = 0;
     int      msaa_quality      = 0;
-    bool     disable_bg_msaa   = true; // NV compatibility hack
     bool     durante_scissor   = false;
     bool     remove_blur       = true;
   } render;
 
   struct {
-    bool     fix              = true;
+    bool     disable_bg_msaa   = true; // NV compatibility hack
+    bool     borderless        = true;
+    float    foreground_fps    = 30.0f; // 0.0 = Unlimited
+    float    background_fps    = 30.0f;
+    bool     center            = true;
+  } window;
+
+  struct {
     bool     bypass           = true;
-    float    fudge_factor     = 1.666666f; // FUDGE
     float    tolerance        = 0.333333f; // 33%
     int      shortest_sleep   = 1;         // 1 ms
   } stutter;
@@ -82,8 +84,6 @@ struct tsf_config_s
     bool block_left_ctrl = false;
     bool block_windows   = true;
     bool block_all_keys  = false;
-    bool pause_touch     = true;
-    bool disable_touch   = false;
   } input;
 
   struct {

@@ -105,11 +105,6 @@ namespace tsf
     //   * If reverse is true, this will translate the game's coordinates to system
     POINT
     CalcCursorPos (LPPOINT pPoint, bool reverse = false);
-
-    bool ShutdownTouchServices (void);
-    bool RestoreTouchServices  (void);
-
-    extern bool has_touch_services;
   }
 }
 

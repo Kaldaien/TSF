@@ -625,11 +625,6 @@ tsf::InputManager::Init (void)
 {
   FixAltTab ();
 
-#if 0
-  if (config.input.disable_touch || config.input.pause_touch)
-    ShutdownTouchServices ();
-#endif
-
   //
   // For this game, the only reason we hook this is to block the Windows key.
   //
@@ -683,9 +678,6 @@ tsf::InputManager::Init (void)
 void
 tsf::InputManager::Shutdown (void)
 {
-  if (config.input.pause_touch)
-    RestoreTouchServices ();
-
   tsf::InputManager::Hooker* pHook = tsf::InputManager::Hooker::getInstance ();
 
   pHook->End ();
@@ -802,7 +794,7 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
   // Defer initialization of the Window Message redirection stuff until
   //   we have an actual window!
   eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor ();
-  pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
+  pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.window.foreground_fps);
 
 
   dll_log.Log ( L"[   Input  ] # Found window in %03.01f seconds, "
@@ -1091,178 +1083,6 @@ TSFix_DrawCommandConsole (void)
     tsf::InputManager::Hooker* pHook = tsf::InputManager::Hooker::getInstance ();
     pHook->Draw ();
   }
-}
-
-
-bool tsf::InputManager::has_touch_services = false;
-
-bool
-tsf::InputManager::ShutdownTouchServices (void)
-{
-  //
-  // Shutdown the Tablet Input Services
-  //
-  dll_log.LogEx ( true,
-                  L"[   Input  ] Stopping TabletInputService..." );
-
-  SC_HANDLE svc_ctl =
-    OpenSCManagerW ( nullptr,
-                       nullptr,
-                         SC_MANAGER_ALL_ACCESS );
-
-  _com_error err (HRESULT_FROM_WIN32 (GetLastError ()));
-
-  if (err.WCode () != 0) {
-    dll_log.LogEx ( false,
-                      L" failed! (%s [%s:%d])\n",
-                        (wchar_t *)err.ErrorMessage (),
-                          __FILEW__, __LINE__ );
-  }
-
-  if (svc_ctl) {
-    SC_HANDLE tablet_svc =
-      OpenServiceW ( svc_ctl,
-                       L"TabletInputService",
-                         SERVICE_STOP         |
-                         SERVICE_QUERY_STATUS |
-                         SERVICE_CHANGE_CONFIG );
-
-    err = _com_error (HRESULT_FROM_WIN32 (GetLastError ()));
-
-    if (err.WCode () != 0) {
-      dll_log.LogEx ( false,
-                        L" failed! (%s [%s:%d])\n",
-                          (wchar_t *)err.ErrorMessage (),
-                            __FILEW__, __LINE__ );
-    }
-
-    if (tablet_svc) {
-      SERVICE_STATUS status;
-      QueryServiceStatus (tablet_svc, &status);
-
-      if (status.dwCurrentState != SERVICE_STOPPED) {
-        has_touch_services = true;
-
-        ControlService (tablet_svc, SERVICE_CONTROL_STOP, &status);
-
-        err = _com_error (HRESULT_FROM_WIN32 (GetLastError ()));
-
-        if (err.WCode () != 0) {
-          dll_log.LogEx ( false,
-                            L" failed! (%s [%s:%d])\n",
-                              (wchar_t *)err.ErrorMessage (),
-                                __FILEW__, __LINE__ );
-        }
-        else {
-          if (config.input.disable_touch) {
-            ChangeServiceConfig ( tablet_svc,
-                                  SERVICE_NO_CHANGE,
-                                    SERVICE_DISABLED,
-                                      SERVICE_NO_CHANGE,
-                                        nullptr, nullptr,
-                                          nullptr, nullptr,
-                                            nullptr, nullptr, nullptr );
-            dll_log.LogEx ( false,
-                              L" success! (Temporarily: Disabled)\n");
-          } else {
-            dll_log.LogEx ( false,
-                              L" success!\n");
-          }
-        }
-      } else {
-        dll_log.LogEx ( false,
-                          L" service not running.\n" );
-      }
-
-      CloseServiceHandle (tablet_svc);
-    }
-
-    CloseServiceHandle (svc_ctl);
-  }
-
-  return has_touch_services;
-}
-
-bool
-tsf::InputManager::RestoreTouchServices (void)
-{
-  if (! has_touch_services)
-    return false;
-
-  //
-  // Restart the Tablet Input Services
-  //
-  dll_log.LogEx ( true,
-                  L"[   Input  ] Resuming TabletInputService... " );
-
-  SC_HANDLE svc_ctl =
-    OpenSCManagerW ( nullptr,
-                       nullptr,
-                         SC_MANAGER_ALL_ACCESS );
-
-  _com_error err (HRESULT_FROM_WIN32 (GetLastError ()));
-
-  if (err.WCode () != 0) {
-    dll_log.LogEx ( false,
-                      L" failed! (%s [%s:%d])\n",
-                        (wchar_t *)err.ErrorMessage (),
-                          __FILEW__, __LINE__ );
-  }
-
-  if (svc_ctl) {
-    SC_HANDLE tablet_svc =
-      OpenServiceW ( svc_ctl,
-                       L"TabletInputService",
-                         SERVICE_START        |
-                         SERVICE_QUERY_STATUS |
-                         SERVICE_CHANGE_CONFIG );
-
-    err = _com_error (HRESULT_FROM_WIN32 (GetLastError ()));
-
-    if (err.WCode () != 0) {
-      dll_log.LogEx ( false,
-                        L" failed! (%s [%s:%d])\n",
-                          (wchar_t *)err.ErrorMessage (),
-                            __FILEW__, __LINE__ );
-    }
-
-    if (tablet_svc) {
-       if (config.input.disable_touch && config.input.pause_touch)
-          ChangeServiceConfig ( tablet_svc,
-                                  SERVICE_NO_CHANGE,
-                                    SERVICE_AUTO_START,
-                                      SERVICE_NO_CHANGE,
-                                        nullptr, nullptr,
-                                          nullptr, nullptr,
-                                            nullptr, nullptr, nullptr );
-
-      StartServiceW (tablet_svc, 0, nullptr);
-
-      err = _com_error (HRESULT_FROM_WIN32 (GetLastError ()));
-
-      if (err.WCode () != 0) {
-        dll_log.LogEx ( false,
-                          L" failed! (%s [%s:%d])\n",
-                            (wchar_t *)err.ErrorMessage (),
-                              __FILEW__, __LINE__ );
-      }
-      else {
-        if (config.input.disable_touch) {
-          dll_log.LogEx ( false,
-                          L" success! (Restored: Auto-Start)\n" );
-        } else {
-          dll_log.LogEx ( false,
-                          L" success!\n" );
-        }
-      }
-
-      CloseServiceHandle (tablet_svc);
-    }
-
-    CloseServiceHandle (svc_ctl);
-  }
-
-  return true;
 }
 
 

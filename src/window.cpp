@@ -151,7 +151,7 @@ SetWindowPos_Detour(
   else
     return TRUE;
 #else
-  if (config.render.borderless) {
+  if (config.window.borderless) {
     if (! tsf::RenderFix::fullscreen)
       return SetWindowPos_Original (hWnd, hWndInsertAfter, 0, 0, tsf::RenderFix::width, tsf::RenderFix::height, uFlags);
     else
@@ -186,17 +186,8 @@ SetWindowLongA_Detour (
     // For proper return behavior
     DWORD dwOldStyle = GetWindowLong (hWnd, nIndex);
 
-    //
-    // Ignore in Tales of Symphonia, we know the style that is always used
-    //
-    //if (nIndex == GWL_STYLE)
-      //tsf::window.style = dwNewLong;
-
-    //if (nIndex == GWL_EXSTYLE)
-      //tsf::window.style_ex = dwNewLong;
-
     // Allow the game to change its frame
-    if (! config.render.borderless)
+    if (! config.window.borderless)
       return SetWindowLongA_Original (hWnd, nIndex, dwNewLong);
 
     return dwOldStyle;
@@ -278,6 +269,11 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
     window.window_rect.left = mi.rcMonitor.left;
     window.window_rect.top  = mi.rcMonitor.top;
 
+    if (config.window.center) {
+      window.window_rect.left = ((mi.rcMonitor.right  - mi.rcMonitor.left) - tsf::RenderFix::width)  / 2;
+      window.window_rect.top  = ((mi.rcMonitor.bottom - mi.rcMonitor.top)  - tsf::RenderFix::height) / 2;
+    }
+
     window.window_rect.right  = window.window_rect.left + tsf::RenderFix::width;
     window.window_rect.bottom = window.window_rect.top  + tsf::RenderFix::height;
 
@@ -286,7 +282,7 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                                 window.window_rect.left, window.window_rect.top,
                                   window.window_rect.right  - window.window_rect.left,
                                   window.window_rect.bottom - window.window_rect.top,
-                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
+                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS );
   }
 
   ShowWindow (window.hwnd, SW_SHOW);
@@ -371,11 +367,11 @@ DetourWindowProc ( _In_  HWND   hWnd,
 #endif
     // Went from active to inactive (enforce background limit)
     if (! tsf::window.active)
-      pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.background_fps);
+      pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.window.background_fps);
 
     // Went from inactive to active (restore foreground limit)
     else {
-      pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.render.foreground_fps);
+      pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.window.foreground_fps);
     }
 
     // Unrestrict the mouse when the app is deactivated
@@ -433,40 +429,6 @@ DetourWindowProc ( _In_  HWND   hWnd,
   }
 
 #if 0
-  const int32_t  WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS  = 0x02D2;
-  const uint32_t SYSTEM_GESTURE_STATUS_NOHOLD           = 0x0001;
-  const uint32_t SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF = 0x0200;
-
-  if (uMsg == WM_TABLET_QUERY_SYSTEM_GESTURE_STATUS) {
-    dll_log.Log (L"[Window Mgr] Disabling Tablet Gesture Support...");
-    int result = 0x00;
-    result |= (SYSTEM_GESTURE_STATUS_NOHOLD |
-               SYSTEM_GESTURE_STATUS_TOUCHUI_FORCEOFF);
-    return result;
-  }
-
-  // Ignore ALL touch-based windows messages, because some of them crash the game
-  bool tablet_msg = false;
-
-  if (uMsg >= WM_TABLET_FIRST        && uMsg <= WM_TABLET_LAST)    tablet_msg = true;
-  if (uMsg >= WM_PENWINFIRST         && uMsg <= WM_PENWINLAST)     tablet_msg = true;
-  if (uMsg >= WM_POINTERDEVICECHANGE && uMsg <= DM_POINTERHITTEST) tablet_msg = true;
-  if (uMsg == WM_GESTURE             || uMsg == WM_GESTURENOTIFY)  tablet_msg = true;
-
-  if (tablet_msg) {
-    // Close the handle; we never wanted it in the first place.
-    if (uMsg == WM_TOUCH)
-      CloseTouchInputHandle ((HTOUCHINPUT)lParam);
-
-    dll_log.Log ( L"[Window Mgr] >> Filtering Out Tablet Input "
-                  L"(uMsg=0x%04X, wParam=%p, lParam=%p)",
-                    uMsg, wParam, lParam );
-    //return 0;
-    return DefWindowProc (hWnd, uMsg, wParam, lParam);
-  }
-#endif
-
-#if 0
   if (uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST) {
     static POINT last_p = { LONG_MIN, LONG_MIN };
 
@@ -501,7 +463,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
 void
 tsf::WindowManager::Init (void)
 {
-  if (config.render.borderless)
+  if (config.window.borderless)
     window.style = 0x10000000;
   else
     window.style = 0x90CA0000;
@@ -547,8 +509,8 @@ tsf::WindowManager::Shutdown (void)
 tsf::WindowManager::
   CommandProcessor::CommandProcessor (void)
 {
-  foreground_fps_ = new eTB_VarStub <float> (&config.render.foreground_fps, this);
-  background_fps_ = new eTB_VarStub <float> (&config.render.background_fps, this);
+  foreground_fps_ = new eTB_VarStub <float> (&config.window.foreground_fps, this);
+  background_fps_ = new eTB_VarStub <float> (&config.window.background_fps, this);
 
   eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor ();
 
@@ -556,7 +518,7 @@ tsf::WindowManager::
   pCommandProc->AddVariable ("Window.ForegroundFPS", foreground_fps_);
 
   // If the user has an FPS limit preference, set it up now...
-  pCommandProc->ProcessCommandFormatted ("TargetFPS %f",        config.render.foreground_fps);
+  pCommandProc->ProcessCommandFormatted ("TargetFPS %f",        config.window.foreground_fps);
   pCommandProc->ProcessCommandFormatted ("LimiterTolerance %f", config.stutter.tolerance);
   pCommandProc->ProcessCommandFormatted ("MaxDeltaTime %d",     config.stutter.shortest_sleep);
 }
@@ -574,7 +536,7 @@ bool
 
     // Range validation
     if (val != nullptr && *(float *)val >= 0.0f) {
-      config.render.background_fps = *(float *)val;
+      config.window.background_fps = *(float *)val;
 
       // How this was changed while the window was inactive is a bit of a
       //   mystery, but whatever :P
@@ -590,7 +552,7 @@ bool
 
     // Range validation
     if (val != nullptr && *(float *)val >= 0.0f) {
-      config.render.foreground_fps = *(float *)val;
+      config.window.foreground_fps = *(float *)val;
 
       // Immediately apply limiter changes
       if (window.active)
