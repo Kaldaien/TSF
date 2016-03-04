@@ -220,10 +220,14 @@ tsf::WindowManager::BorderManager::Disable (void)
 
   dwNewLong = window.style_ex;
 
+#if 0
   dwNewLong &= ~( WS_EX_DLGMODALFRAME    | WS_EX_CLIENTEDGE    |
                   WS_EX_STATICEDGE       | WS_EX_WINDOWEDGE    |
                   WS_EX_OVERLAPPEDWINDOW | WS_EX_PALETTEWINDOW |
                   WS_EX_MDICHILD );
+#endif
+
+  dwNewLong = WS_EX_APPWINDOW;
 
   SetWindowLongW (window.hwnd, GWL_EXSTYLE, dwNewLong);
 
@@ -236,7 +240,7 @@ tsf::WindowManager::BorderManager::Enable (void)
   window.borderless = false;
 
   SetWindowLongW (window.hwnd, GWL_STYLE,   WS_OVERLAPPEDWINDOW);
-  SetWindowLongW (window.hwnd, GWL_EXSTYLE, window.style_ex);
+  SetWindowLongW (window.hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
 
   AdjustWindow ();
 }
@@ -270,8 +274,8 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
     window.window_rect.top  = mi.rcMonitor.top;
 
     if (config.window.center) {
-      window.window_rect.left = ((mi.rcMonitor.right  - mi.rcMonitor.left) - tsf::RenderFix::width)  / 2;
-      window.window_rect.top  = ((mi.rcMonitor.bottom - mi.rcMonitor.top)  - tsf::RenderFix::height) / 2;
+      window.window_rect.left = max (0, ((mi.rcMonitor.right  - mi.rcMonitor.left) - tsf::RenderFix::width)  / 2);
+      window.window_rect.top  = max (0, ((mi.rcMonitor.bottom - mi.rcMonitor.top)  - tsf::RenderFix::height) / 2);
     }
 
     window.window_rect.right  = window.window_rect.left + tsf::RenderFix::width;
@@ -282,7 +286,7 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                                 window.window_rect.left, window.window_rect.top,
                                   window.window_rect.right  - window.window_rect.left,
                                   window.window_rect.bottom - window.window_rect.top,
-                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS );
+                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
   }
 
   ShowWindow (window.hwnd, SW_SHOW);
@@ -404,7 +408,6 @@ DetourWindowProc ( _In_  HWND   hWnd,
     }
   }
 
-
   // Block keyboard input to the game while the console is visible
   if (console_visible || background_render) {
     // Only prevent the mouse from working while the window is in the bg
@@ -427,33 +430,6 @@ DetourWindowProc ( _In_  HWND   hWnd,
     if (wParam != VK_RETURN && wParam != VK_F4)
       return DefWindowProc (hWnd, uMsg, wParam, lParam);
   }
-
-#if 0
-  if (uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST) {
-    static POINT last_p = { LONG_MIN, LONG_MIN };
-
-    POINT p;
-
-    p.x = MAKEPOINTS (lParam).x;
-    p.y = MAKEPOINTS (lParam).y;
-
-    if (/*game_state.needsFixedMouseCoords () &&*/config.render.aspect_correction) {
-      // Only do this if cursor actually moved!
-      //
-      //   Otherwise, it tricks the game into thinking the input device changed
-      //     from gamepad to mouse (and changes buessagetton icons).
-      if (last_p.x != p.x || last_p.y != p.y) {
-        tsf::InputManager::CalcCursorPos (&p);
-
-        last_p = p;
-      }
-
-      return CallWindowProc (original_wndproc, hWnd, uMsg, wParam, MAKELPARAM (p.x, p.y));
-    }
-
-    last_p = p;
-  }
-#endif
 
   return CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);
 }

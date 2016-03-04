@@ -43,6 +43,12 @@ struct tsf_config_s
     int      msaa_quality      = 0;
     bool     durante_scissor   = false;
     bool     remove_blur       = true;
+
+    bool     conservative_msaa = true;
+
+    // D3D9Ex Stuff, since we can...
+    bool     allow_flipex      = true;
+    int      backbuffers       = 4;
   } render;
 
   struct {

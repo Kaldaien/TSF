@@ -66,6 +66,7 @@ namespace tsf
                    blur_proxy; // If non-null, then bypass the blur
                                //   filter via texture indirection.
 
+      int          draws          = 0; // Number of draw calls
       int          frames         = 0;
     } extern draw_state;
 
@@ -192,6 +193,8 @@ typedef HRESULT (STDMETHODCALLTYPE *DrawIndexedPrimitiveUP_pfn)
   const void       *pVertexStreamZeroData,
   UINT              VertexStreamZeroStride
 );
+
+typedef void (STDMETHODCALLTYPE *BMF_BeginBufferSwap_pfn)(void);
 
 typedef HRESULT (STDMETHODCALLTYPE *BMF_EndBufferSwap_pfn)
 (

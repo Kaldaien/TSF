@@ -494,14 +494,18 @@ GetRawInputData_Detour (_In_      HRAWINPUT hRawInput,
                         _Inout_   PUINT     pcbSize,
                         _In_      UINT      cbSizeHeader)
 {
-  if (config.input.block_all_keys)
+  if (config.input.block_all_keys) {
+    *pcbSize = 0;
     return 0;
+  }
 
   int size = GetRawInputData_Original (hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
 
   // Block keyboard input to the game while the console is active
-  if (tsf::InputManager::Hooker::getInstance ()->isVisible () && uiCommand == RID_INPUT)
+  if (tsf::InputManager::Hooker::getInstance ()->isVisible () && uiCommand == RID_INPUT) {
+    *pcbSize = 0;
     return 0;
+  }
 
   return size;
 }
@@ -589,6 +593,20 @@ SetCursorPos_Detour (_In_ int X, _In_ int Y)
     return TRUE;
 }
 
+// Don't care
+LPVOID SetPhysicalCursorPos_Original = nullptr;
+
+BOOL
+WINAPI
+SetPhysicalCursorPos_Detour
+  (
+    _In_ int X,
+    _In_ int Y
+  )
+{
+  return TRUE;
+}
+
 #if 0
 BOOL
 WINAPI
@@ -603,6 +621,28 @@ GetCursorPos_Detour (LPPOINT lpPoint)
   return ret;
 }
 #endif
+
+typedef HRESULT (STDMETHODCALLTYPE *D3D9SetCursorPosition_pfn)
+(
+       IDirect3DDevice9 *This,
+  _In_ INT               X,
+  _In_ INT               Y,
+  _In_ DWORD             Flags
+);
+
+D3D9SetCursorPosition_pfn D3D9SetCursorPosition_Original = nullptr;
+
+COM_DECLSPEC_NOTHROW
+HRESULT
+STDMETHODCALLTYPE
+D3D9SetCursorPosition_Detour (      IDirect3DDevice9* This,
+                               _In_ INT               X,
+                               _In_ INT               Y,
+                               _In_ DWORD             Flags )
+{
+  // Don't let the game do this.
+  return S_OK;
+}
 
 void
 HookRawInput (void)
@@ -668,6 +708,14 @@ tsf::InputManager::Init (void)
   TSFix_CreateDLLHook ( L"user32.dll", "SetCursorPos",
                         SetCursorPos_Detour,
               (LPVOID*)&SetCursorPos_Original );
+
+  TSFix_CreateDLLHook ( L"user32.dll", "SetPhysicalCursorPos",
+                        SetPhysicalCursorPos_Detour,
+              (LPVOID*)&SetPhysicalCursorPos_Original );
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (), "D3D9SetCursorPosition_Override",
+                        D3D9SetCursorPosition_Detour,
+              (LPVOID*)&D3D9SetCursorPosition_Original );
 
   tsf::InputManager::Hooker* pHook =
     tsf::InputManager::Hooker::getInstance ();
@@ -884,7 +932,7 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
   if (nCode >= 0) {
     BYTE    vkCode   = LOWORD (wParam) & 0xFF;
     BYTE    scanCode = HIWORD (lParam) & 0x7F;
-    bool    repeated = LOWORD (lParam);
+    SHORT   repeated = LOWORD (lParam);
     bool    keyDown  = ! (lParam & 0x80000000);
 
     if (visible && vkCode == VK_BACK) {
@@ -1013,6 +1061,25 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
           if (! config.render.remove_blur)
             tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
+        }
+
+        //else if (vkCode == 'C' && new_press) {
+          //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
+        //}
+
+        else if (vkCode == 'Z') {
+          extern void TSF_Zoom (double incr);
+          TSF_Zoom (-0.01);
+        }
+
+        else if (vkCode == 'X') {
+          extern void TSF_Zoom (double incr);
+          TSF_Zoom (0.01);
+        }
+
+        else if (vkCode == 'C') {
+          extern void TSF_ZoomEx (double incr);
+          TSF_ZoomEx (0.5);
         }
 
         else if (vkCode == VK_OEM_PERIOD && new_press) {

@@ -33,6 +33,9 @@
 #include <d3d9.h>
 #include <d3d9types.h>
 
+#include <dwmapi.h>
+#pragma comment (lib, "Dwmapi.lib")
+
 
 BeginScene_pfn                          D3D9BeginScene_Original                      = nullptr;
 EndScene_pfn                            D3D9EndScene_Original                        = nullptr;
@@ -48,6 +51,7 @@ DrawPrimitiveUP_pfn                     D3D9DrawPrimitiveUP_Original            
 DrawIndexedPrimitiveUP_pfn              D3D9DrawIndexedPrimitiveUP_Original          = nullptr;
 
 BMF_SetPresentParamsD3D9_pfn            BMF_SetPresentParamsD3D9_Original            = nullptr;
+BMF_BeginBufferSwap_pfn                 BMF_BeginBufferSwap                          = nullptr;
 BMF_EndBufferSwap_pfn                   BMF_EndBufferSwap                            = nullptr;
 
 tsf::RenderFix::tracer_s
@@ -159,11 +163,6 @@ D3D9SetPixelShader_Detour (IDirect3DDevice9*      This,
   g_pPS = pShader;
   return D3D9SetPixelShader_Original (This, pShader);
 }
-
-#include <set>
-// Store previously draw calls so we can discard erraneously detected
-//   weapon outlines.
-std::set < std::pair <int, int> > outline_draws;
 
 #if 0
 D3DXCreateFontW_pfn D3DXCreateFontW       = nullptr;
@@ -292,7 +291,31 @@ SK_D3D9_RenderStateToStr (D3DRENDERSTATETYPE rs)
   return wszUnknown;
 }
 
+bool early_resolve = false;
+
 #include "render/textures.h"
+
+COM_DECLSPEC_NOTHROW
+void
+STDMETHODCALLTYPE
+D3D9EndFrame_Pre (void)
+{
+  // Add a constant amount of MSAA work at the end of each frame,
+  //   in practive this is not a valid optimization. Deferring the resolve
+  //     until late in the next frame generally works better...
+  if (early_resolve) {
+    extern void ResolveAllDirty (void);
+    ResolveAllDirty ();
+  }
+
+  tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
+
+  void TSFix_DrawCommandConsole (void);
+  TSFix_DrawCommandConsole ();
+
+  return BMF_BeginBufferSwap ();
+}
+
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -306,11 +329,6 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
     return BMF_EndBufferSwap (hr, device);
   }
 
-  tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
-
-  void TSFix_DrawCommandConsole (void);
-  TSFix_DrawCommandConsole ();
-
   hr = BMF_EndBufferSwap (hr, device);
 
   if (tsf::RenderFix::tracer.log && tsf::RenderFix::tracer.count > 0) {
@@ -321,7 +339,6 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
 
   blur_bypass = 0;
   tsf::RenderFix::draw_state.frames++;
-
 
   // Push any changes to this state at the very end of a frame.
   tsf::RenderFix::draw_state.use_msaa = use_msaa &&
@@ -388,7 +405,7 @@ __stdcall
 BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                                  D3DPRESENT_PARAMETERS* pparams)
 {
-  D3DPRESENT_PARAMETERS present_params;
+  static D3DPRESENT_PARAMETERS present_params;
 
   //
   // TODO: Figure out what the hell is doing this when RTSS is allowed to use
@@ -401,12 +418,27 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     return BMF_SetPresentParamsD3D9_Original (device, pparams);
   }
 
+  memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
+
   // We must let this go, it's not valid anymore.
   tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
   tsf::RenderFix::active_samplers.clear ();
   tsf::RenderFix::tex_mgr.reset         ();
 
   if (pparams != nullptr) {
+    BOOL win7 = (LOBYTE (LOWORD (GetVersion ())) == 6  &&
+                 HIBYTE (LOWORD (GetVersion ())) >= 1) ||
+                 LOBYTE (LOWORD (GetVersion () > 6));
+
+    if (win7 && config.render.allow_flipex) {
+      dll_log.Log ( L"[Render Fix] Opt-In:  D3D9Ex FlipEx Model  (Windows 7+ Detected)");
+      dll_log.Log ( L"[Render Fix]          ^^ %lu Backbuffers ^^", config.render.backbuffers);
+
+      pparams->SwapEffect           = D3DSWAPEFFECT_FLIPEX;
+      pparams->BackBufferCount      = config.render.backbuffers;
+      pparams->PresentationInterval = 0;
+    }
+
     //
     // MSAA Override
     //
@@ -426,22 +458,14 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                           dwQualityLevels, config.render.msaa_samples );
 
           if (dwQualityLevels > 0) {
-#if 0
-            pparams->SwapEffect         = D3DSWAPEFFECT_DISCARD;
-            pparams->MultiSampleType    = (D3DMULTISAMPLE_TYPE)
-                                            config.render.msaa_samples;
-#endif
-            pparams->MultiSampleQuality = min ( dwQualityLevels-1,
-                                                  config.render.msaa_quality );
-
             // After range restriction, write the correct value back to the config
             //   file
-            config.render.msaa_quality =
-              pparams->MultiSampleQuality;
+            config.render.msaa_quality = min ( dwQualityLevels-1,
+                                                  config.render.msaa_quality );
 
             dll_log.Log ( L"[Render Fix]  (*) Selected %dxMSAA Quality Level: %d",
-                            config.render.msaa_samples,//pparams->MultiSampleType,
-                              pparams->MultiSampleQuality );
+                            config.render.msaa_samples,
+                              config.render.msaa_quality );
             tsf::RenderFix::draw_state.has_msaa = true;
           }
         }
@@ -455,8 +479,6 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
         pD3D9->Release ();
       }
     }
-
-    memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
 
     if (device != nullptr) {
       dll_log.Log ( L"[Render Fix] %% Caught D3D9 Swapchain :: Fullscreen=%s "
@@ -499,8 +521,8 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     tsf::RenderFix::pDevice    = device;
     tsf::RenderFix::fullscreen = (! pparams->Windowed);
 
-    tsf::RenderFix::width  = present_params.BackBufferWidth;
-    tsf::RenderFix::height = present_params.BackBufferHeight;
+    tsf::RenderFix::width  = pparams->BackBufferWidth;
+    tsf::RenderFix::height = pparams->BackBufferHeight;
 
     //
     // Fullscreen mode while allow_background is enabled must be implemented as
@@ -510,15 +532,17 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
       config.window.borderless = true;
 
     if (config.window.borderless) {
+      DwmEnableMMCSS (TRUE);
+
       // The game will draw in windowed mode, but it will think it's fullscreen
       pparams->Windowed  = true;
 
+      DEVMODE devmode = { 0 };
+      devmode.dmSize  = sizeof DEVMODE;
+
+      EnumDisplaySettings (nullptr, ENUM_CURRENT_SETTINGS, &devmode);
+
       if (tsf::RenderFix::fullscreen) {
-        DEVMODE devmode = { 0 };
-        devmode.dmSize  = sizeof DEVMODE;
-
-        EnumDisplaySettings (nullptr, ENUM_CURRENT_SETTINGS, &devmode);
-
         if ( devmode.dmPelsHeight       < tsf::RenderFix::height ||
              devmode.dmPelsWidth        < tsf::RenderFix::width  ||
              devmode.dmDisplayFrequency != pparams->FullScreen_RefreshRateInHz ) {
@@ -532,8 +556,35 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
         }
 
         pparams->FullScreen_RefreshRateInHz = 0;
-      } else {
       }
+
+      else {
+        bool shrunk = false;
+
+        if (devmode.dmPelsHeight < tsf::RenderFix::height) {
+          tsf::RenderFix::height    = devmode.dmPelsHeight;
+          //pparams->BackBufferHeight = devmode.dmPelsHeight;
+          shrunk                    = true;
+        }
+        if (devmode.dmPelsWidth < tsf::RenderFix::width) {
+          tsf::RenderFix::width    = devmode.dmPelsWidth;
+          //pparams->BackBufferWidth = devmode.dmPelsWidth;
+          shrunk                   = true;
+        }
+
+        if (shrunk) {
+          dll_log.Log ( L"[Render Fix] Original window dimensions (%lux%lu) were "
+                        L"impossible given desktop -- Shrunk to (%lux%lu)",
+                          present_params.BackBufferWidth,
+                          present_params.BackBufferHeight,
+                            tsf::RenderFix::width,
+                            tsf::RenderFix::height );
+        }
+
+        pparams->FullScreen_RefreshRateInHz = 0;
+      }
+    } else {
+      DwmEnableMMCSS (FALSE);
     }
   }
 
@@ -541,29 +592,6 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     tsf::WindowManager::border.Disable ();
   else
     tsf::WindowManager::border.Enable  ();
-
-#if 0
-  if (! tsf::RenderFix::fullscreen) {
-    //GetWindowRect      (tsf::RenderFix::hWndDevice, &window_rect)
-    //
-
-    tsf::window.window_rect.left = 0;
-    tsf::window.window_rect.top  = 0;
-
-    tsf::window.window_rect.right  = tsf::RenderFix::width;
-    tsf::window.window_rect.bottom = tsf::RenderFix::height;
-
-    //AdjustWindowRectEx (&tsf::window.window_rect, tsf::window.style, FALSE, tsf::window.style_ex);
-
-    SetWindowPos_Original (
-      tsf::RenderFix::hWndDevice, HWND_NOTOPMOST,
-        0, 0,
-          tsf::RenderFix::width, tsf::RenderFix::height,
-            SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
-
-    ShowWindow (tsf::RenderFix::hWndDevice, SW_SHOW);
-  }
-#endif
 
   return BMF_SetPresentParamsD3D9_Original (device, &present_params);
 }
@@ -744,7 +772,7 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
     return D3D9BeginScene_Original (This);
   }
 
-  outline_draws.clear ();
+  tsf::RenderFix::draw_state.draws = 0;
 
   bool msaa = false;
 
@@ -786,7 +814,7 @@ sss                                  L"Arial",
   return result;
 }
 
-#if 0
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -816,13 +844,12 @@ D3D9EndScene_Detour (IDirect3DDevice9* This)
 
   return D3D9EndScene_Original (This);
 }
-#endif
 
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
-D3D9SetScissorRect_Detour (IDirect3DDevice9* This,
-                     const RECT*             pRect)
+D3D9SetScissorRect_Detour ( _In_       IDirect3DDevice9* This,
+                            _In_ const RECT*             pRect )
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
@@ -944,6 +971,8 @@ D3D9DrawPrimitive_Detour (IDirect3DDevice9* This,
                                                  StartVertex, PrimitiveCount );
   }
 
+  tsf::RenderFix::draw_state.draws++;
+
   if (tsf::RenderFix::tracer.log) {
     dll_log.Log ( L"[FrameTrace] DrawPrimitive - %X, StartVertex: %lu, PrimitiveCount: %lu",
                       PrimitiveType, StartVertex, PrimitiveCount );
@@ -989,6 +1018,8 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
                                                    NumVertices, startIndex,
                                                      primCount );
   }
+
+  tsf::RenderFix::draw_state.draws++;
 
   if (config.render.remove_blur && 
     /*Type == D3DPT_TRIANGLELIST && NumVertices == 3 && primCount == 1 &&*/
@@ -1293,6 +1324,8 @@ D3D9DrawPrimitiveUP_Detour ( IDirect3DDevice9* This,
                         NumVertices, startIndex, primCount*/ );
   }
 
+  tsf::RenderFix::draw_state.draws++;
+
   return
     D3D9DrawPrimitiveUP_Original ( This,
                                      PrimitiveType,
@@ -1327,6 +1360,8 @@ D3D9DrawIndexedPrimitiveUP_Detour ( IDirect3DDevice9* This,
                       BaseVertexIndex, MinVertexIndex,
                         NumVertices, startIndex, primCount*/ );
   }
+
+  tsf::RenderFix::draw_state.draws++;
 
   return
     D3D9DrawIndexedPrimitiveUP_Original (
@@ -1527,6 +1562,12 @@ tsf::RenderFix::Init (void)
   SK_SetupD3D9Hooks ();
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "BMF_BeginBufferSwap",
+                         D3D9EndFrame_Pre,
+               (LPVOID*)&BMF_BeginBufferSwap );
+
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "BMF_EndBufferSwap",
                          D3D9EndFrame_Post,
                (LPVOID*)&BMF_EndBufferSwap );
@@ -1560,6 +1601,9 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.MaxAniso",   new eTB_VarStub <int>  (&draw_state.max_aniso));
   pCommandProc->AddVariable ("Render.RemoveBlur", new eTB_VarStub <bool> (&config.render.remove_blur));
 
+  pCommandProc->AddVariable ("Render.ConservativeMSAA", new eTB_VarStub <bool> (&config.render.conservative_msaa));
+  pCommandProc->AddVariable ("Render.EarlyResolve",     new eTB_VarStub <bool> (&early_resolve));
+ 
 #if 0
   D3DXCreateFontW =
     (D3DXCreateFontW_pfn)
@@ -1695,6 +1739,12 @@ SK_SetupD3D9Hooks (void)
                (LPVOID*)&D3D9BeginScene_Original );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9EndScene_Override",
+                         D3D9EndScene_Detour,
+               (LPVOID*)&D3D9EndScene_Original );
+
+
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9SetVertexShader_Override",
                          D3D9SetVertexShader_Detour,
                (LPVOID*)&D3D9SetVertexShader_Original );
@@ -1704,6 +1754,7 @@ SK_SetupD3D9Hooks (void)
                          D3D9SetPixelShader_Detour,
                (LPVOID*)&D3D9SetPixelShader_Original );
 
+#if 0
   TSFix_CreateFuncHook ( L"Namco_DrawHUD",
                  (void *)0x611F10,
                          sub_611F10_Detour,
@@ -1715,6 +1766,7 @@ SK_SetupD3D9Hooks (void)
                          interpolate_Detour,
                (LPVOID*)&interpolate_Original );
   TSFix_EnableHook ((void *)0x628E70);
+#endif
 
   eTB_CommandProcessor* pCommandProc =
     SK_GetCommandProcessor ();
@@ -1750,3 +1802,26 @@ HMODULE  tsf::RenderFix::user32_dll       = 0;
                     SK_D3D9_PoolToStr (Pool) );
   }
 #endif
+
+void
+TSF_Zoom (double incr)
+{
+  double* pZoom = (double *)0x87dbc0;
+
+  DWORD dwOld;
+  VirtualProtect ((void *)pZoom, 8, PAGE_EXECUTE_READWRITE, &dwOld);
+  if (*pZoom + incr > 0.0 && *pZoom + incr < 2.0)
+    *pZoom += incr;
+  VirtualProtect ((void *)pZoom, 8, dwOld, &dwOld);
+}
+
+void
+TSF_ZoomEx (double val)
+{
+  double* pZoom = (double *)0x87dbc0;
+
+  DWORD dwOld;
+  VirtualProtect ((void *)pZoom, 8, PAGE_EXECUTE_READWRITE, &dwOld);
+  *pZoom = val;
+  VirtualProtect ((void *)pZoom, 8, dwOld, &dwOld);
+}

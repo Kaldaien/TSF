@@ -213,10 +213,10 @@ CreateTimerQueueTimer_Override (
   _In_     ULONG               Flags
 )
 {
-  dll_log.Log ( L"[  60 FPS  ][!]CreateTimerQueueTimer (... %lu ms, %lu ms, ...)",
+  dll_log.Log ( L"[  60 FPS  ][!] CreateTimerQueueTimer (... %lu ms, %lu ms, ...)",
                   DueTime, Period );
 
-  return CreateTimerQueueTimer_Original (phNewTimer, TimerQueue, Callback, Parameter, 4, 4, Flags);
+  return CreateTimerQueueTimer_Original (phNewTimer, TimerQueue, Callback, Parameter, DueTime, Period, Flags);
 }
 
 

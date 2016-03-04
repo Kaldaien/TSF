@@ -114,6 +114,7 @@
       <ControlFlowGuard>false</ControlFlowGuard>
       <ExceptionHandling>Async</ExceptionHandling>
       <RemoveUnreferencedCodeData>false</RemoveUnreferencedCodeData>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -135,6 +136,7 @@
     <ClInclude Include="parameter.h" />
     <ClInclude Include="render.h" />
     <ClInclude Include="render\textures.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="timing.h" />
     <ClInclude Include="window.h" />
   </ItemGroup>
@@ -162,6 +164,9 @@
     <ClCompile Include="render\textures.cpp" />
     <ClCompile Include="timing.cpp" />
     <ClCompile Include="window.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="TSFix.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

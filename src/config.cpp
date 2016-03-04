@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.7.0";
+std::wstring TSFIX_VER_STR = L"0.7.1";
 tsf_config_s config;
 
 struct {
@@ -38,6 +38,10 @@ struct {
   tsf::ParameterInt*     msaa_samples;
   tsf::ParameterInt*     msaa_quality;
   tsf::ParameterBool*    remove_blur;
+
+  // D3D9Ex Stuff
+  tsf::ParameterBool*    allow_flipex;
+  tsf::ParameterInt*     backbuffers;
 } render;
 
 struct {
@@ -157,6 +161,28 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Render",
         L"RemoveBlur" );
+
+  render.allow_flipex =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Opt-In FlipEx Model (Windows 7+)")
+      );
+
+  render.allow_flipex->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"AllowFlipEx" );
+
+  render.backbuffers =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"FlipEx Backbuffers")
+      );
+
+  render.backbuffers->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"FlipExBuffers" );
 
 
   window.borderless =
@@ -396,6 +422,12 @@ TSFix_LoadConfig (std::wstring name) {
   if (render.remove_blur->load ())
     config.render.remove_blur = render.remove_blur->get_value ();
 
+  if (render.allow_flipex->load ())
+    config.render.allow_flipex = render.allow_flipex->get_value ();
+
+  if (render.backbuffers->load ())
+    config.render.backbuffers = render.backbuffers->get_value ();
+
 
   if (window.borderless->load ())
     config.window.borderless = window.borderless->get_value ();
@@ -498,6 +530,12 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   render.remove_blur->set_value       (config.render.remove_blur);
   render.remove_blur->store           ();
+
+  render.allow_flipex->set_value      (config.render.allow_flipex);
+  render.allow_flipex->store          ();
+
+  render.backbuffers->set_value       (config.render.backbuffers);
+  render.backbuffers->store           ();
 
 
   window.borderless->set_value        (config.window.borderless);

@@ -97,37 +97,37 @@ typedef struct D3DXIMAGE_INFO {
 } D3DXIMAGE_INFO, *LPD3DXIMAGE_INFO;
 typedef HRESULT (STDMETHODCALLTYPE *D3DXCreateTextureFromFileInMemoryEx_pfn)
 (
-  _In_    LPDIRECT3DDEVICE9  pDevice,
-  _In_    LPCVOID            pSrcData,
-  _In_    UINT               SrcDataSize,
-  _In_    UINT               Width,
-  _In_    UINT               Height,
-  _In_    UINT               MipLevels,
-  _In_    DWORD              Usage,
-  _In_    D3DFORMAT          Format,
-  _In_    D3DPOOL            Pool,
-  _In_    DWORD              Filter,
-  _In_    DWORD              MipFilter,
-  _In_    D3DCOLOR           ColorKey,
-  _Inout_ D3DXIMAGE_INFO     *pSrcInfo,
-  _Out_   PALETTEENTRY       *pPalette,
-  _Out_   LPDIRECT3DTEXTURE9 *ppTexture
+  _In_        LPDIRECT3DDEVICE9  pDevice,
+  _In_        LPCVOID            pSrcData,
+  _In_        UINT               SrcDataSize,
+  _In_        UINT               Width,
+  _In_        UINT               Height,
+  _In_        UINT               MipLevels,
+  _In_        DWORD              Usage,
+  _In_        D3DFORMAT          Format,
+  _In_        D3DPOOL            Pool,
+  _In_        DWORD              Filter,
+  _In_        DWORD              MipFilter,
+  _In_        D3DCOLOR           ColorKey,
+  _Inout_opt_ D3DXIMAGE_INFO     *pSrcInfo,
+  _Out_opt_   PALETTEENTRY       *pPalette,
+  _Out_       LPDIRECT3DTEXTURE9 *ppTexture
 );
 
 typedef HRESULT (STDMETHODCALLTYPE *D3DXSaveTextureToFile_pfn)(
-  _In_       LPCWSTR                pDestFile,
-  _In_       D3DXIMAGE_FILEFORMAT   DestFormat,
-  _In_       LPDIRECT3DBASETEXTURE9 pSrcTexture,
-  _In_ const PALETTEENTRY           *pSrcPalette
+  _In_           LPCWSTR                 pDestFile,
+  _In_           D3DXIMAGE_FILEFORMAT    DestFormat,
+  _In_           LPDIRECT3DBASETEXTURE9  pSrcTexture,
+  _In_opt_ const PALETTEENTRY           *pSrcPalette
 );
 
 typedef HRESULT (WINAPI *D3DXSaveSurfaceToFile_pfn)
 (
-  _In_       LPCWSTR              pDestFile,
-  _In_       D3DXIMAGE_FILEFORMAT DestFormat,
-  _In_       LPDIRECT3DSURFACE9   pSrcSurface,
-  _In_ const PALETTEENTRY         *pSrcPalette,
-  _In_ const RECT                 *pSrcRect
+  _In_           LPCWSTR               pDestFile,
+  _In_           D3DXIMAGE_FILEFORMAT  DestFormat,
+  _In_           LPDIRECT3DSURFACE9    pSrcSurface,
+  _In_opt_ const PALETTEENTRY         *pSrcPalette,
+  _In_opt_ const RECT                 *pSrcRect
 );
 
 typedef HRESULT (STDMETHODCALLTYPE *CreateTexture_pfn)
