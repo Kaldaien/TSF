@@ -43,6 +43,7 @@ struct tsf_config_s
     int      msaa_quality      = 0;
     bool     durante_scissor   = false;
     bool     remove_blur       = true;
+    int      refresh_rate      = 0;
 
     bool     conservative_msaa = true;
 
@@ -57,6 +58,8 @@ struct tsf_config_s
     float    foreground_fps    = 30.0f; // 0.0 = Unlimited
     float    background_fps    = 30.0f;
     bool     center            = true;
+    int      x_offset          = 0;
+    int      y_offset          = 0;
   } window;
 
   struct {

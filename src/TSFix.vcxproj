@@ -112,8 +112,8 @@
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <StringPooling>true</StringPooling>
       <ControlFlowGuard>false</ControlFlowGuard>
-      <ExceptionHandling>Async</ExceptionHandling>
-      <RemoveUnreferencedCodeData>false</RemoveUnreferencedCodeData>
+      <ExceptionHandling>SyncCThrow</ExceptionHandling>
+      <RemoveUnreferencedCodeData>true</RemoveUnreferencedCodeData>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
@@ -123,6 +123,13 @@
       <ModuleDefinitionFile>symbols.def</ModuleDefinitionFile>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <OutputFile>\\zilcho\Tales of Symphonia\tsfix.dll</OutputFile>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateMapFile>true</GenerateMapFile>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention>false</DataExecutionPrevention>
+      <SupportUnloadOfDelayLoadedDLL>true</SupportUnloadOfDelayLoadedDLL>
+      <SupportNobindOfDelayLoadedDLL>true</SupportNobindOfDelayLoadedDLL>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -141,6 +148,7 @@
     <ClInclude Include="window.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="achievements.cpp" />
     <ClCompile Include="command.cpp" />
     <ClCompile Include="compatibility.cpp" />
     <ClCompile Include="config.cpp" />

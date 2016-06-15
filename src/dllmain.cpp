@@ -98,6 +98,9 @@ DllThread (LPVOID user)
     tsf::WindowManager::Init ();
     tsf::InputManager::Init  ();
     tsf::RenderFix::Init     ();
+
+    extern void TSFix_PatchZelosAchievement (void);
+    TSFix_PatchZelosAchievement ();
   }
 
   return 0;

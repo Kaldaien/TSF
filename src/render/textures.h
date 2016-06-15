@@ -86,7 +86,8 @@ typedef enum D3DXIMAGE_FILEFORMAT {
 } D3DXIMAGE_FILEFORMAT, *LPD3DXIMAGE_FILEFORMAT;
 
 #define D3DX_DEFAULT ((UINT) -1)
-typedef struct D3DXIMAGE_INFO {
+typedef 
+struct D3DXIMAGE_INFO {
   UINT                 Width;
   UINT                 Height;
   UINT                 Depth;

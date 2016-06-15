@@ -370,6 +370,9 @@ D3D9Reset_Detour ( IDirect3DDevice9      *This,
   HRESULT hr =
     D3D9Reset_Original (This, pPresentationParameters);
 
+  // We override this for D3D9, but the game's menu will not work
+  //   properly without doing this...
+  pPresentationParameters->Windowed = (! tsf::RenderFix::fullscreen);
 #if 0
   if (tsf::RenderFix::pFont != nullptr)
     tsf::RenderFix::pFont->OnResetDevice ();
@@ -426,17 +429,28 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   tsf::RenderFix::tex_mgr.reset         ();
 
   if (pparams != nullptr) {
+    tsf::RenderFix::fullscreen = (! pparams->Windowed);
+
     BOOL win7 = (LOBYTE (LOWORD (GetVersion ())) == 6  &&
                  HIBYTE (LOWORD (GetVersion ())) >= 1) ||
                  LOBYTE (LOWORD (GetVersion () > 6));
 
-    if (win7 && config.render.allow_flipex) {
+    if (win7 && config.render.allow_flipex && ( (! tsf::RenderFix::fullscreen)  ||
+                                                 config.render.allow_background ||
+                                                 config.window.borderless ) ) {
       dll_log.Log ( L"[Render Fix] Opt-In:  D3D9Ex FlipEx Model  (Windows 7+ Detected)");
       dll_log.Log ( L"[Render Fix]          ^^ %lu Backbuffers ^^", config.render.backbuffers);
 
       pparams->SwapEffect           = D3DSWAPEFFECT_FLIPEX;
       pparams->BackBufferCount      = config.render.backbuffers;
-      pparams->PresentationInterval = 0;
+      pparams->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+    }
+
+    // Do not use Flip EX in fullscreen mode
+    else {
+      pparams->SwapEffect           = D3DSWAPEFFECT_FLIP;
+      pparams->BackBufferCount      = 1;
+      pparams->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
     }
 
     //
@@ -485,7 +499,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                     L" (%lux%lu@%lu Hz) "
                     L" [Device Window: 0x%04X, Pointer: %ph]",
                       pparams->Windowed ? L"False" :
-                   
+
                        L"True",
                         pparams->BackBufferWidth,
                           pparams->BackBufferHeight,
@@ -519,10 +533,16 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     }
 
     tsf::RenderFix::pDevice    = device;
-    tsf::RenderFix::fullscreen = (! pparams->Windowed);
 
     tsf::RenderFix::width  = pparams->BackBufferWidth;
     tsf::RenderFix::height = pparams->BackBufferHeight;
+
+    DEVMODE devmode = { 0 };
+    devmode.dmSize  = sizeof DEVMODE;
+
+    // We have to call this once with a value of 0, or Windows is not going to be happy...
+    EnumDisplaySettings (nullptr, 0,                     &devmode);
+    EnumDisplaySettings (nullptr, ENUM_CURRENT_SETTINGS, &devmode);
 
     //
     // Fullscreen mode while allow_background is enabled must be implemented as
@@ -531,69 +551,82 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     if (config.render.allow_background && tsf::RenderFix::fullscreen)
       config.window.borderless = true;
 
-    if (config.window.borderless) {
+    pparams->FullScreen_RefreshRateInHz = config.render.refresh_rate;
+
+    if ( devmode.dmPelsHeight       < tsf::RenderFix::height ||
+         devmode.dmPelsWidth        < tsf::RenderFix::width  ||
+        (devmode.dmDisplayFrequency != pparams->FullScreen_RefreshRateInHz &&
+         0                          != pparams->FullScreen_RefreshRateInHz) ) {
+      ZeroMemory (&devmode, sizeof DEVMODE);
+           devmode.dmSize = sizeof DEVMODE;
+
+      devmode.dmBitsPerPel       = 32; // Win 8+ cannot use anything else
+      devmode.dmFields           = DM_BITSPERPEL;
+
+      devmode.dmFields |= (devmode.dmPelsWidth  < tsf::RenderFix::width  ? DM_PELSWIDTH        : 0) |
+                          (devmode.dmPelsHeight < tsf::RenderFix::height ? DM_PELSHEIGHT       : 0) |
+                          (pparams->FullScreen_RefreshRateInHz != 0      ? DM_DISPLAYFREQUENCY : 0);
+
+      devmode.dmPelsWidth        = tsf::RenderFix::width;
+      devmode.dmPelsHeight       = tsf::RenderFix::height;
+      devmode.dmDisplayFrequency = pparams->FullScreen_RefreshRateInHz;
+
+      dll_log.LogEx (true, L"[Render Fix] Requested display mode requires display mode change... ");
+
+      if (DISP_CHANGE_SUCCESSFUL != ChangeDisplaySettings (&devmode, CDS_FULLSCREEN)) {
+        dll_log.LogEx (false, L"failed!\n");
+      } else {
+        dll_log.LogEx (false, L"success!\n");
+      }
+
+      EnumDisplaySettings (nullptr, 0,                     &devmode);
+      EnumDisplaySettings (nullptr, ENUM_CURRENT_SETTINGS, &devmode);
+    }
+
+    if (config.window.borderless || (! tsf::RenderFix::fullscreen)) {
       DwmEnableMMCSS (TRUE);
 
       // The game will draw in windowed mode, but it will think it's fullscreen
       pparams->Windowed  = true;
-
-      DEVMODE devmode = { 0 };
-      devmode.dmSize  = sizeof DEVMODE;
-
-      EnumDisplaySettings (nullptr, ENUM_CURRENT_SETTINGS, &devmode);
-
-      if (tsf::RenderFix::fullscreen) {
-        if ( devmode.dmPelsHeight       < tsf::RenderFix::height ||
-             devmode.dmPelsWidth        < tsf::RenderFix::width  ||
-             devmode.dmDisplayFrequency != pparams->FullScreen_RefreshRateInHz ) {
-          devmode.dmPelsWidth        = tsf::RenderFix::width;
-          devmode.dmPelsHeight       = tsf::RenderFix::height;
-          devmode.dmDisplayFrequency = pparams->FullScreen_RefreshRateInHz;
-
-          devmode.dmDisplayFlags |= DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
-
-          ChangeDisplaySettings (&devmode, CDS_FULLSCREEN);
-        }
-
-        pparams->FullScreen_RefreshRateInHz = 0;
-      }
-
-      else {
-        bool shrunk = false;
-
-        if (devmode.dmPelsHeight < tsf::RenderFix::height) {
-          tsf::RenderFix::height    = devmode.dmPelsHeight;
-          //pparams->BackBufferHeight = devmode.dmPelsHeight;
-          shrunk                    = true;
-        }
-        if (devmode.dmPelsWidth < tsf::RenderFix::width) {
-          tsf::RenderFix::width    = devmode.dmPelsWidth;
-          //pparams->BackBufferWidth = devmode.dmPelsWidth;
-          shrunk                   = true;
-        }
-
-        if (shrunk) {
-          dll_log.Log ( L"[Render Fix] Original window dimensions (%lux%lu) were "
-                        L"impossible given desktop -- Shrunk to (%lux%lu)",
-                          present_params.BackBufferWidth,
-                          present_params.BackBufferHeight,
-                            tsf::RenderFix::width,
-                            tsf::RenderFix::height );
-        }
-
-        pparams->FullScreen_RefreshRateInHz = 0;
-      }
     } else {
       DwmEnableMMCSS (FALSE);
     }
+
+    if (! tsf::RenderFix::fullscreen) {
+      bool shrunk = false;
+
+      if (devmode.dmPelsHeight < tsf::RenderFix::height ||
+          devmode.dmPelsWidth  < tsf::RenderFix::width) {
+        tsf::RenderFix::height    = devmode.dmPelsHeight;
+        pparams->BackBufferHeight = devmode.dmPelsHeight;
+
+        tsf::RenderFix::width     = devmode.dmPelsWidth;
+        pparams->BackBufferWidth  = devmode.dmPelsWidth;
+
+        shrunk                    = true;
+      }
+
+      if (shrunk) {
+        dll_log.Log ( L"[Render Fix] Original window dimensions (%lux%lu) were "
+                      L"impossible given desktop -- Shrunk to (%lux%lu)",
+                        present_params.BackBufferWidth,
+                        present_params.BackBufferHeight,
+                          tsf::RenderFix::width,
+                          tsf::RenderFix::height );
+      }
+    }
   }
+
+  // Reset will fail without this
+  if (pparams->Windowed)
+    pparams->FullScreen_RefreshRateInHz = 0;
 
   if (config.window.borderless)
     tsf::WindowManager::border.Disable ();
   else
     tsf::WindowManager::border.Enable  ();
 
-  return BMF_SetPresentParamsD3D9_Original (device, &present_params);
+  return BMF_SetPresentParamsD3D9_Original (device, pparams);
 }
 
 #include "hook.h"

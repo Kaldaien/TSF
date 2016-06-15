@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.7.1";
+std::wstring TSFIX_VER_STR = L"0.8.0";
 tsf_config_s config;
 
 struct {
@@ -38,6 +38,7 @@ struct {
   tsf::ParameterInt*     msaa_samples;
   tsf::ParameterInt*     msaa_quality;
   tsf::ParameterBool*    remove_blur;
+  tsf::ParameterInt*     refresh_rate;
 
   // D3D9Ex Stuff
   tsf::ParameterBool*    allow_flipex;
@@ -50,6 +51,8 @@ struct {
   tsf::ParameterFloat*   background_fps;
   tsf::ParameterBool*    background_msaa;
   tsf::ParameterBool*    center;
+  tsf::ParameterInt*     x_offset;
+  tsf::ParameterInt*     y_offset;
 } window;
 
 struct {
@@ -167,7 +170,6 @@ TSFix_LoadConfig (std::wstring name) {
       (g_ParameterFactory.create_parameter <bool> (
         L"Opt-In FlipEx Model (Windows 7+)")
       );
-
   render.allow_flipex->register_to_ini (
     dll_ini,
       L"TSFix.Render",
@@ -178,11 +180,20 @@ TSFix_LoadConfig (std::wstring name) {
       (g_ParameterFactory.create_parameter <int> (
         L"FlipEx Backbuffers")
       );
-
   render.backbuffers->register_to_ini (
     dll_ini,
       L"TSFix.Render",
         L"FlipExBuffers" );
+
+  render.refresh_rate =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"Refresh Rate Override; 0=Unchanged")
+      );
+  render.refresh_rate->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"RefreshRate" );
 
 
   window.borderless =
@@ -234,6 +245,26 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Window",
         L"Center" );
+
+  window.x_offset =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"X Offset Coordinate")
+      );
+  window.x_offset->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"XOffset" );
+
+  window.y_offset =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"Y Offset Coordinate")
+      );
+  window.y_offset->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"YOffset" );
 
 
   stutter.bypass =
@@ -428,6 +459,8 @@ TSFix_LoadConfig (std::wstring name) {
   if (render.backbuffers->load ())
     config.render.backbuffers = render.backbuffers->get_value ();
 
+  if (render.refresh_rate->load ())
+    config.render.refresh_rate = render.refresh_rate->get_value ();
 
   if (window.borderless->load ())
     config.window.borderless = window.borderless->get_value ();
@@ -443,6 +476,12 @@ TSFix_LoadConfig (std::wstring name) {
 
   if (window.center->load ())
     config.window.center = window.center->get_value ();
+
+  if (window.x_offset->load ())
+    config.window.x_offset = window.x_offset->get_value ();
+
+  if (window.y_offset->load ())
+    config.window.y_offset = window.y_offset->get_value ();
 
   if (stutter.bypass->load ())
     config.stutter.bypass = stutter.bypass->get_value ();
@@ -537,6 +576,9 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   render.backbuffers->set_value       (config.render.backbuffers);
   render.backbuffers->store           ();
 
+  render.refresh_rate->set_value      (config.render.refresh_rate);
+  render.refresh_rate->store          ();
+
 
   window.borderless->set_value        (config.window.borderless);
   window.borderless->store            ();
@@ -549,6 +591,12 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   window.center->set_value            (config.window.center);
   window.center->store                ();
+
+  window.x_offset->set_value          (config.window.x_offset);
+  window.x_offset->store              ();
+
+  window.y_offset->set_value          (config.window.y_offset);
+  window.y_offset->store              ();
 
 
   stutter.bypass->set_value           (config.stutter.bypass);

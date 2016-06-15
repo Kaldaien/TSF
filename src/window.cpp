@@ -203,8 +203,8 @@ tsf::WindowManager::BorderManager::Disable (void)
 
   window.borderless = true;
 
-  BringWindowToTop (window.hwnd);
-  SetActiveWindow  (window.hwnd);
+  //BringWindowToTop (window.hwnd);
+  //SetActiveWindow  (window.hwnd);
 
   DWORD dwNewLong = window.style;
 
@@ -261,35 +261,60 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
     //dll_log.Log (L"BorderManager::AdjustWindow - Fullscreen");
 
     SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
-                              HWND_NOTOPMOST,
+                              HWND_TOP,
                                 mi.rcMonitor.left,
                                 mi.rcMonitor.top,
                                   mi.rcMonitor.right  - mi.rcMonitor.left,
                                   mi.rcMonitor.bottom - mi.rcMonitor.top,
-                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
+                                    SWP_FRAMECHANGED );
   } else {
     //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
 
-    window.window_rect.left = mi.rcMonitor.left;
-    window.window_rect.top  = mi.rcMonitor.top;
+    if (config.window.x_offset >= 0)
+      window.window_rect.left  = mi.rcWork.left  + config.window.x_offset;
+    else
+      window.window_rect.right = mi.rcWork.right + config.window.x_offset + 1;
 
-    if (config.window.center) {
-      window.window_rect.left = max (0, ((mi.rcMonitor.right  - mi.rcMonitor.left) - tsf::RenderFix::width)  / 2);
-      window.window_rect.top  = max (0, ((mi.rcMonitor.bottom - mi.rcMonitor.top)  - tsf::RenderFix::height) / 2);
+
+    if (config.window.y_offset >= 0)
+      window.window_rect.top    = mi.rcWork.top    + config.window.y_offset;
+    else
+      window.window_rect.bottom = mi.rcWork.bottom + config.window.y_offset + 1;
+
+
+    if (config.window.center && config.window.x_offset == 0 && config.window.y_offset == 0) {
+      window.window_rect.left = max (0, ((mi.rcWork.right  - mi.rcWork.left) - tsf::RenderFix::width)  / 2);
+      window.window_rect.top  = max (0, ((mi.rcWork.bottom - mi.rcWork.top)  - tsf::RenderFix::height) / 2);
     }
 
-    window.window_rect.right  = window.window_rect.left + tsf::RenderFix::width;
-    window.window_rect.bottom = window.window_rect.top  + tsf::RenderFix::height;
+
+    if (config.window.x_offset >= 0)
+      window.window_rect.right = window.window_rect.left  + tsf::RenderFix::width;
+    else
+      window.window_rect.left  = window.window_rect.right - tsf::RenderFix::width;
+
+
+    if (config.window.y_offset >= 0)
+      window.window_rect.bottom = window.window_rect.top    + tsf::RenderFix::height;
+    else
+      window.window_rect.top    = window.window_rect.bottom - tsf::RenderFix::height;
+
+
+    AdjustWindowRect (&window.window_rect, GetWindowLong (tsf::RenderFix::hWndDevice, GWL_STYLE), FALSE);
+
 
     SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
-                              HWND_NOTOPMOST,
+                              HWND_TOP,
                                 window.window_rect.left, window.window_rect.top,
                                   window.window_rect.right  - window.window_rect.left,
                                   window.window_rect.bottom - window.window_rect.top,
-                                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER );
+                                    SWP_FRAMECHANGED );
   }
 
   ShowWindow (window.hwnd, SW_SHOW);
+
+  BringWindowToTop (window.hwnd);
+  SetActiveWindow  (window.hwnd);
 }
 
 void
