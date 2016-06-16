@@ -55,6 +55,13 @@ MoveWindow_Detour(
     _In_ int  nHeight,
     _In_ BOOL bRedraw )
 {
+  if (hWnd != tsf::window.hwnd) {
+    return MoveWindow_Original ( hWnd,
+                                   X, Y,
+                                     nWidth, nHeight,
+                                       bRedraw );
+  }
+
   dll_log.Log (L"[Window Mgr][!] MoveWindow (...)");
 
   tsf::window.window_rect.left = X;
@@ -85,14 +92,28 @@ SetWindowPos_Detour(
     _In_     int  cy,
     _In_     UINT uFlags)
 {
+  if (hWnd != tsf::window.hwnd) {
+    return SetWindowPos_Original ( hWnd, hWndInsertAfter,
+                                     X, Y,
+                                       cx, cy,
+                                         uFlags );
+  }
+
 #if 0
   dll_log.Log ( L"[Window Mgr][!] SetWindowPos (...)");
 #endif
 
   // Ignore this, because it's invalid.
-  if (cy == 0 || cx == 0 && (! (uFlags & SWP_NOSIZE))) {
+  if ((cy == 0 || cx == 0) && (! (uFlags & SWP_NOSIZE))) {
     tsf::window.window_rect.right  = tsf::window.window_rect.left + tsf::RenderFix::width;
     tsf::window.window_rect.bottom = tsf::window.window_rect.top  + tsf::RenderFix::height;
+
+    dll_log.Log ( L"[Window Mgr] *** Encountered invalid SetWindowPos (...) - "
+                                    L"{cy:%lu, cx:%lu, uFlags:0x%x} - "
+                                    L"<left:%lu, top:%lu, WxH=(%lux%lu)>",
+                    cy, cx, uFlags,
+                      tsf::window.window_rect.left, tsf::window.window_rect.top,
+                        tsf::RenderFix::width, tsf::RenderFix::height );
 
     return TRUE;
   }
@@ -107,6 +128,11 @@ SetWindowPos_Detour(
                         tsf::window.window_rect.left;
   int original_height = tsf::window.window_rect.bottom -
                         tsf::window.window_rect.top;
+
+  if (original_width <= 0 || original_height <= 0) {
+    original_width  = tsf::RenderFix::width;
+    original_height = tsf::RenderFix::height;
+  }
 
   if (! (uFlags & SWP_NOMOVE)) {
     tsf::window.window_rect.left = X;
@@ -153,11 +179,11 @@ SetWindowPos_Detour(
 #else
   if (config.window.borderless) {
     if (! tsf::RenderFix::fullscreen)
-      return SetWindowPos_Original (hWnd, hWndInsertAfter, 0, 0, tsf::RenderFix::width, tsf::RenderFix::height, uFlags);
+      return SetWindowPos_Original (hWnd, hWndInsertAfter, 0, 0, tsf::RenderFix::width, tsf::RenderFix::height, uFlags | SWP_SHOWWINDOW );
     else
       return TRUE;
   } else {
-    return SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
+    return SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags | SWP_SHOWWINDOW );
   }
 #endif
 }
@@ -173,6 +199,12 @@ SetWindowLongA_Detour (
   _In_ LONG dwNewLong
 )
 {
+  if (hWnd != tsf::window.hwnd) {
+    return SetWindowLongA_Original ( hWnd,
+                                       nIndex,
+                                         dwNewLong );
+  }
+
   if (nIndex == GWL_EXSTYLE || nIndex == GWL_STYLE) {
     dll_log.Log ( L"[Window Mgr] SetWindowLongA (0x%06X, %s, 0x%06X)",
                     hWnd,
@@ -239,8 +271,8 @@ tsf::WindowManager::BorderManager::Enable (void)
 {
   window.borderless = false;
 
-  SetWindowLongW (window.hwnd, GWL_STYLE,   WS_OVERLAPPEDWINDOW);
-  SetWindowLongW (window.hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
+  SetWindowLongW (window.hwnd, GWL_STYLE,   (WS_OVERLAPPEDWINDOW & (~WS_THICKFRAME)) | WS_DLGFRAME);
+  SetWindowLongW (window.hwnd, GWL_EXSTYLE,  WS_EX_APPWINDOW);
 
   AdjustWindow ();
 }
@@ -249,7 +281,7 @@ void
 tsf::WindowManager::BorderManager::AdjustWindow (void)
 {
   HMONITOR hMonitor =
-    MonitorFromWindow ( tsf::RenderFix::hWndDevice,
+    MonitorFromWindow ( tsf::window.hwnd,
                           MONITOR_DEFAULTTONEAREST );
 
   MONITORINFO mi = { 0 };
@@ -260,15 +292,27 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
   if (tsf::RenderFix::fullscreen) {
     //dll_log.Log (L"BorderManager::AdjustWindow - Fullscreen");
 
-    SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
+    SetWindowPos_Original ( tsf::window.hwnd,
                               HWND_TOP,
                                 mi.rcMonitor.left,
                                 mi.rcMonitor.top,
                                   mi.rcMonitor.right  - mi.rcMonitor.left,
                                   mi.rcMonitor.bottom - mi.rcMonitor.top,
-                                    SWP_FRAMECHANGED );
+                                    SWP_FRAMECHANGED | SWP_SHOWWINDOW );
+    dll_log.Log ( L"[Border Mgr] FULLSCREEN => {Left: %li, Top: %li} - (WxH: %lix%li)",
+                    mi.rcMonitor.left, mi.rcMonitor.top,
+                      mi.rcMonitor.right - mi.rcMonitor.left,
+                        mi.rcMonitor.bottom - mi.rcMonitor.top );
   } else {
     //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
+
+    AdjustWindowRect (&mi.rcWork, GetWindowLongW (tsf::window.hwnd, GWL_STYLE), FALSE);
+
+    LONG mon_width  = mi.rcWork.right  - mi.rcWork.left;
+    LONG mon_height = mi.rcWork.bottom - mi.rcWork.top;
+
+    LONG win_width  = min (mon_width,  tsf::RenderFix::width);
+    LONG win_height = min (mon_height, tsf::RenderFix::height);
 
     if (config.window.x_offset >= 0)
       window.window_rect.left  = mi.rcWork.left  + config.window.x_offset;
@@ -283,38 +327,41 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
 
 
     if (config.window.center && config.window.x_offset == 0 && config.window.y_offset == 0) {
-      window.window_rect.left = max (0, ((mi.rcWork.right  - mi.rcWork.left) - tsf::RenderFix::width)  / 2);
-      window.window_rect.top  = max (0, ((mi.rcWork.bottom - mi.rcWork.top)  - tsf::RenderFix::height) / 2);
+      //dll_log.Log ( L"[Window Mgr] Center --> (%li,%li)",
+      //                mi.rcWork.right - mi.rcWork.left,
+      //                  mi.rcWork.bottom - mi.rcWork.top );
+
+      window.window_rect.left = max (0, (mon_width  - win_width)  / 2);
+      window.window_rect.top  = max (0, (mon_height - win_height) / 2);
     }
 
 
     if (config.window.x_offset >= 0)
-      window.window_rect.right = window.window_rect.left  + tsf::RenderFix::width;
+      window.window_rect.right = window.window_rect.left  + win_width;
     else
-      window.window_rect.left  = window.window_rect.right - tsf::RenderFix::width;
+      window.window_rect.left  = window.window_rect.right - win_width;
 
 
     if (config.window.y_offset >= 0)
-      window.window_rect.bottom = window.window_rect.top    + tsf::RenderFix::height;
+      window.window_rect.bottom = window.window_rect.top    + win_height;
     else
-      window.window_rect.top    = window.window_rect.bottom - tsf::RenderFix::height;
+      window.window_rect.top    = window.window_rect.bottom - win_height;
 
 
-    AdjustWindowRect (&window.window_rect, GetWindowLong (tsf::RenderFix::hWndDevice, GWL_STYLE), FALSE);
-
-
-    SetWindowPos_Original ( tsf::RenderFix::hWndDevice,
+    SetWindowPos_Original ( tsf::window.hwnd,
                               HWND_TOP,
                                 window.window_rect.left, window.window_rect.top,
                                   window.window_rect.right  - window.window_rect.left,
                                   window.window_rect.bottom - window.window_rect.top,
-                                    SWP_FRAMECHANGED );
+                                    SWP_FRAMECHANGED  | SWP_SHOWWINDOW );
+
+    dll_log.Log ( L"[Border Mgr] WINDOW => {Left: %li, Top: %li} - (WxH: %lix%li)",
+                    window.window_rect.left, window.window_rect.top,
+                      window.window_rect.right - window.window_rect.left,
+                        window.window_rect.bottom - window.window_rect.top );
   }
 
-  ShowWindow (window.hwnd, SW_SHOW);
-
   BringWindowToTop (window.hwnd);
-  SetActiveWindow  (window.hwnd);
 }
 
 void
@@ -343,7 +390,7 @@ GetForegroundWindow_Detour (void)
   //dll_log.Log (L"[Window Mgr][!] GetForegroundWindow (...)");
 
   if (config.render.allow_background) {
-    return tsf::RenderFix::hWndDevice;
+    return tsf::window.hwnd;
   }
 
   return GetForegroundWindow_Original ();
@@ -356,7 +403,7 @@ GetFocus_Detour (void)
   //dll_log.Log (L"[Window Mgr][!] GetFocus (...)");
 
   if (config.render.allow_background) {
-    return tsf::RenderFix::hWndDevice;
+    return tsf::window.hwnd;
   }
 
   return GetFocus_Original ();
@@ -370,15 +417,13 @@ DetourWindowProc ( _In_  HWND   hWnd,
                    _In_  WPARAM wParam,
                    _In_  LPARAM lParam )
 {
-  bool last_active = tsf::window.active;
-  tsf::window.active = GetForegroundWindow_Original () == tsf::window.hwnd ||
-                       GetForegroundWindow_Original () == nullptr;
+  if (hWnd != tsf::window.hwnd)
+    return CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);
+
+  static bool last_active = tsf::window.active;
 
   bool console_visible   =
     tsf::InputManager::Hooker::getInstance ()->isVisible ();
-
-  bool background_render =
-    config.render.allow_background && (! tsf::window.active);
 
   //
   // The window activation state is changing, among other things we can take
@@ -395,65 +440,92 @@ DetourWindowProc ( _In_  HWND   hWnd,
     eTB_VarStub <float>* pOriginalLimit = (eTB_VarStub <float>*)result.getVariable ();
 #endif
     // Went from active to inactive (enforce background limit)
-    if (! tsf::window.active)
+    if (! tsf::window.active) {
       pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.window.background_fps);
 
+      // Show the cursor when focus is lost
+      if (config.render.allow_background || config.window.borderless || (! tsf::RenderFix::fullscreen)) {
+        if (GetSystemMetrics (SM_MOUSEPRESENT))
+          while (ShowCursor (TRUE) <= 0)
+            ;
+      }
+
     // Went from inactive to active (restore foreground limit)
-    else {
+    } else {
+      if (GetSystemMetrics (SM_MOUSEPRESENT))
+        while (ShowCursor (FALSE) >= 0)
+          ;
+
       pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.window.foreground_fps);
-    }
-
-    // Unrestrict the mouse when the app is deactivated
-    if ((! tsf::window.active) && config.render.allow_background) {
-      ClipCursor_Original (nullptr);
-      SetCursorPos        (tsf::window.cursor_pos.x, tsf::window.cursor_pos.y);
-      ShowCursor          (TRUE);
-    }
-
-    // Restore it when the app is activated
-    else {
-      GetCursorPos        (&tsf::window.cursor_pos);
-      ShowCursor          (FALSE);
-      ClipCursor_Original (&tsf::window.cursor_clip);
     }
   }
 
+  last_active = tsf::window.active;
+
   // Ignore this event
   if (uMsg == WM_MOUSEACTIVATE && config.render.allow_background) {
-    return DefWindowProc (hWnd, uMsg, wParam, lParam);
+    if ((HWND)wParam == tsf::window.hwnd) {
+      dll_log.Log (L"[Window Mgr] WM_MOUSEACTIVATE ==> Activate and Eat");
+      tsf::window.active = true;
+      return MA_ACTIVATEANDEAT;
+    }
+
+    return MA_NOACTIVATE;
   }
 
   // Allow the game to run in the background
   if (uMsg == WM_ACTIVATEAPP || uMsg == WM_ACTIVATE || uMsg == WM_NCACTIVATE /*|| uMsg == WM_MOUSEACTIVATE*/) {
-    if (config.render.allow_background) {
+     {
+      if (uMsg == WM_NCACTIVATE) {
+        if (wParam == TRUE) {
+          //dll_log.Log (L"[Window Mgr] Application Activated");
+
+          tsf::window.active = true;
+        } else {
+          //dll_log.Log (L"[Window Mgr] Application Deactivated");
+
+          tsf::window.active = false;
+        }
+
+        if (config.render.allow_background)
+          return 1;
+      }
+
       // We must fully consume one of these messages or audio will stop playing
       //   when the game loses focus, so do not simply pass this through to the
       //     default window procedure.
-      return 0;//DefWindowProc (hWnd, uMsg, wParam, lParam);
+      if (config.render.allow_background)
+        return 0;
     }
   }
 
+  // Block the menu key from messing with stuff
+  if ( true /*config.input.block_left_alt*/ &&
+       (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP) ) {
+    // Make an exception for Alt+Enter, for fullscreen mode toggle.
+    //   F4 as well for exit
+    if ( wParam != VK_RETURN && wParam != VK_F4 &&
+         wParam != VK_TAB    && wParam != VK_PRINT )
+      return DefWindowProc (hWnd, uMsg, wParam, lParam);
+  }
+
+  bool background_render =
+    config.render.allow_background && (! tsf::window.active);
+
   // Block keyboard input to the game while the console is visible
-  if (console_visible || background_render) {
+  if (console_visible || (background_render && uMsg != WM_SYSKEYDOWN && uMsg != WM_SYSKEYUP)) {
     // Only prevent the mouse from working while the window is in the bg
     //if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
       //return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
-      return DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return 0;
+      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     // Block RAW Input
     if (uMsg == WM_INPUT)
-      return DefWindowProc (hWnd, uMsg, wParam, lParam);
-  }
-
-  // Block the menu key from messing with stuff
-  if (config.input.block_left_alt &&
-      (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP)) {
-    // Make an exception for Alt+Enter, for fullscreen mode toggle.
-    //   F4 as well for exit
-    if (wParam != VK_RETURN && wParam != VK_F4)
-      return DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return 0;
+      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
   }
 
   return CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);

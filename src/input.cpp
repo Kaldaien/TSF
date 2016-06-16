@@ -548,7 +548,7 @@ ClipCursor_Detour (const RECT *lpRect)
     tsf::window.cursor_clip = *lpRect;
 
   if (tsf::window.active) {
-    return ClipCursor_Original (lpRect);
+    return ClipCursor_Original (nullptr);//lpRect);
   } else {
     return ClipCursor_Original (nullptr);
   }
@@ -588,7 +588,7 @@ SetCursorPos_Detour (_In_ int X, _In_ int Y)
   // DO NOT let this stupid game capture the cursor while
   //   it is not active. UGH!
   if (tsf::window.active)
-    return SetCursorPos_Original (X, Y);
+    return TRUE;//SetCursorPos_Original (X, Y);
   else
     return TRUE;
 }
@@ -757,13 +757,13 @@ std::string console_text;
 void
 tsf::InputManager::Hooker::Draw (void)
 {
-  typedef BOOL (__stdcall *BMF_DrawExternalOSD_t)(std::string app_name, std::string text);
+  typedef BOOL (__stdcall *SK_DrawExternalOSD_pfn)(std::string app_name, std::string text);
 
   static HMODULE               hMod =
     GetModuleHandle (config.system.injector.c_str ());
-  static BMF_DrawExternalOSD_t BMF_DrawExternalOSD
+  static SK_DrawExternalOSD_pfn SK_DrawExternalOSD
     =
-    (BMF_DrawExternalOSD_t)GetProcAddress (hMod, "BMF_DrawExternalOSD");
+    (SK_DrawExternalOSD_pfn)GetProcAddress (hMod, "SK_DrawExternalOSD");
 
   std::string output;
 
@@ -792,7 +792,7 @@ tsf::InputManager::Hooker::Draw (void)
 
   console_text = output;
 
-  BMF_DrawExternalOSD ("ToZ Fix", output.c_str ());
+  SK_DrawExternalOSD ("ToZ Fix", output.c_str ());
 }
 
 DWORD
@@ -873,30 +873,6 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
     Sleep (1);
   }
 
-// No need to hook the mousey right now..
-#if 0
-  while (! (pHooks->mouse = SetWindowsHookEx ( WH_MOUSE,
-                                                  MouseProc,
-                                                    hDLLMod,
-                                                      dwThreadId ))) {
-    _com_error err (HRESULT_FROM_WIN32 (GetLastError ()));
-
-    dll_log.Log ( L"  @ SetWindowsHookEx failed: 0x%04X (%s)",
-                  err.WCode (), err.ErrorMessage () );
-
-    ++hits;
-
-    if (hits >= 5) {
-      dll_log.Log ( L"  * Failed to install mouse hook after %lu tries... "
-        L"bailing out!",
-        hits );
-      return 0;
-    }
-
-    Sleep (1);
-  }
-#endif
-
   dll_log.Log ( L"[   Input  ] * Installed keyboard hook for command console... "
                       L"%lu %s (%lu ms!)",
                 hits,
@@ -924,12 +900,7 @@ LRESULT
 CALLBACK
 tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam)
 {
-  static uint32_t freq = 0;
-
-  if (freq == 0)
-    freq = *(uint32_t *)0x00B24A88;
-
-  if (nCode >= 0) {
+  if (nCode == 0) {
     BYTE    vkCode   = LOWORD (wParam) & 0xFF;
     BYTE    scanCode = HIWORD (lParam) & 0x7F;
     SHORT   repeated = LOWORD (lParam);
@@ -938,7 +909,7 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
     if (visible && vkCode == VK_BACK) {
       if (keyDown) {
         size_t len = strlen (text);
-                len--;
+               len--;
 
         if (len < 1)
           len = 1;
@@ -1022,20 +993,20 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
 
       keys_ [vkCode] = 0x81;
 
-      if (keys_ [VK_CONTROL] && keys_ [VK_SHIFT]) {
-        if (keys_ [VK_TAB] && new_press) {
+      if (keys_ [VK_CONTROL] && keys_ [VK_SHIFT] ) {
+        if (vkCode == VK_TAB && keys_ [VK_TAB] && new_press) {
           visible = ! visible;
 
-          // Avoid duplicating a BMF feature
+          // Avoid duplicating a SK feature
           static HMODULE hD3D9 = GetModuleHandle (config.system.injector.c_str ());
 
-          typedef void (__stdcall *BMF_SteamAPI_SetOverlayState_t)(bool);
-          static BMF_SteamAPI_SetOverlayState_t BMF_SteamAPI_SetOverlayState =
-              (BMF_SteamAPI_SetOverlayState_t)
+          typedef void (__stdcall *SK_SteamAPI_SetOverlayState_pfn)(bool);
+          static SK_SteamAPI_SetOverlayState_pfn SK_SteamAPI_SetOverlayState =
+              (SK_SteamAPI_SetOverlayState_pfn)
                 GetProcAddress ( hD3D9,
-                                    "BMF_SteamAPI_SetOverlayState" );
+                                    "SK_SteamAPI_SetOverlayState" );
 
-          BMF_SteamAPI_SetOverlayState (visible);
+          SK_SteamAPI_SetOverlayState (visible);
 
           // Prevent the Steam Overlay from being a real pain
           return -1;
@@ -1119,18 +1090,16 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
                               keys_,
                             (LPWORD)key_str,
                               0,
-                              GetKeyboardLayout (0) )) {
+                              GetKeyboardLayout (0) ) &&
+                 isprint ( *key_str )) {
           strncat (text, key_str, 1);
           command_issued = false;
         }
       }
     }
 
-    else if ((! keyDown)) {
-      bool new_release = keys_ [vkCode] != 0x00;
-
+    else if ((! keyDown))
       keys_ [vkCode] = 0x00;
-    }
 
     if (visible) return -1;
   }
