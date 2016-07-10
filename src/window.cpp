@@ -280,6 +280,9 @@ tsf::WindowManager::BorderManager::Enable (void)
 void
 tsf::WindowManager::BorderManager::AdjustWindow (void)
 {
+  BringWindowToTop (window.hwnd);
+  SetActiveWindow  (window.hwnd);
+
   HMONITOR hMonitor =
     MonitorFromWindow ( tsf::window.hwnd,
                           MONITOR_DEFAULTTONEAREST );
@@ -298,7 +301,7 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                                 mi.rcMonitor.top,
                                   mi.rcMonitor.right  - mi.rcMonitor.left,
                                   mi.rcMonitor.bottom - mi.rcMonitor.top,
-                                    SWP_FRAMECHANGED | SWP_SHOWWINDOW );
+                                    SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOSENDCHANGING );
     dll_log.Log ( L"[Border Mgr] FULLSCREEN => {Left: %li, Top: %li} - (WxH: %lix%li)",
                     mi.rcMonitor.left, mi.rcMonitor.top,
                       mi.rcMonitor.right - mi.rcMonitor.left,
@@ -353,7 +356,7 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                                 window.window_rect.left, window.window_rect.top,
                                   window.window_rect.right  - window.window_rect.left,
                                   window.window_rect.bottom - window.window_rect.top,
-                                    SWP_FRAMECHANGED  | SWP_SHOWWINDOW );
+                                    SWP_FRAMECHANGED  | SWP_SHOWWINDOW | SWP_NOSENDCHANGING );
 
     dll_log.Log ( L"[Border Mgr] WINDOW => {Left: %li, Top: %li} - (WxH: %lix%li)",
                     window.window_rect.left, window.window_rect.top,
@@ -362,6 +365,7 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
   }
 
   BringWindowToTop (window.hwnd);
+  SetActiveWindow  (window.hwnd);
 }
 
 void
@@ -390,7 +394,7 @@ GetForegroundWindow_Detour (void)
   //dll_log.Log (L"[Window Mgr][!] GetForegroundWindow (...)");
 
   if (config.render.allow_background) {
-    return tsf::window.hwnd;
+    return tsf::RenderFix::hWndDevice;
   }
 
   return GetForegroundWindow_Original ();
@@ -403,7 +407,7 @@ GetFocus_Detour (void)
   //dll_log.Log (L"[Window Mgr][!] GetFocus (...)");
 
   if (config.render.allow_background) {
-    return tsf::window.hwnd;
+    return tsf::RenderFix::hWndDevice;
   }
 
   return GetFocus_Original ();
@@ -488,7 +492,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
         }
 
         if (config.render.allow_background)
-          return 1;
+          return 0;
       }
 
       // We must fully consume one of these messages or audio will stop playing

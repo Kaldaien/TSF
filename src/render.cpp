@@ -164,11 +164,6 @@ D3D9SetPixelShader_Detour (IDirect3DDevice9*      This,
   return D3D9SetPixelShader_Original (This, pShader);
 }
 
-#if 0
-D3DXCreateFontW_pfn D3DXCreateFontW       = nullptr;
-ID3DXFont*          tsf::RenderFix::pFont = nullptr;
-#endif
-
 // This is used to set the draw_state at the end of each frame,
 //   instead of mid-frame.
 bool use_msaa = true;
@@ -348,6 +343,9 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   if ((! tsf::window.active) && config.window.disable_bg_msaa)
     tsf::RenderFix::draw_state.use_msaa = false;
 
+  extern void TSFix_LoadQueuedTextures (void);
+  TSFix_LoadQueuedTextures ();
+
   return hr;
 }
 
@@ -373,10 +371,6 @@ D3D9Reset_Detour ( IDirect3DDevice9      *This,
   // We override this for D3D9, but the game's menu will not work
   //   properly without doing this...
   pPresentationParameters->Windowed = (! tsf::RenderFix::fullscreen);
-#if 0
-  if (tsf::RenderFix::pFont != nullptr)
-    tsf::RenderFix::pFont->OnResetDevice ();
-#endif
 
   return hr;
 }
@@ -617,6 +611,9 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     }
   }
 
+  BringWindowToTop (tsf::RenderFix::hWndDevice);
+  SetActiveWindow  (tsf::RenderFix::hWndDevice);
+
   // Reset will fail without this
   if (pparams->Windowed)
     pparams->FullScreen_RefreshRateInHz = 0;
@@ -814,26 +811,6 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
     msaa = true;
   }
 
-#if 0
-  if ( This                 != nullptr  &&
-       tsf::RenderFix::pFont == nullptr ) {
-    D3D9_VIRTUAL_OVERRIDE ( &This, 16,
-                            L"IDirect3DDevice9::Reset",
-                            D3D9Reset_Detour,
-                            D3D9Reset_Original,
-                            Reset_pfn );
-
-    D3DXCreateFontW ( This,
-                        22, 0,
-                          FW_NORMAL,
-                            0, false,
-                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                                DEFAULT_PITCH | FF_DONTCARE,
-sss                                  L"Arial", 
-                                    &tsf::RenderFix::pFont );
-  }
-#endif
-
   HRESULT result = D3D9BeginScene_Original (This);
 
   // Don't do this until resources are allocated.
@@ -862,18 +839,6 @@ D3D9EndScene_Detour (IDirect3DDevice9* This)
   D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
                                   D3DRS_MULTISAMPLEANTIALIAS,
                                     false );
-
-#if 0
-  if (tsf::RenderFix::pFont != nullptr) {
-    extern std::string console_text;
-
-    RECT text_rect;
-
-    SetRect (&text_rect, 0,0, tsf::RenderFix::width, tsf::RenderFix::height);
-
-    tsf::RenderFix::pFont->DrawTextA (nullptr, console_text.c_str (), -1, &text_rect, DT_LEFT|DT_TOP|DT_NOCLIP, 0xFFFFFFFF );
-  }
-#endif
 
   return D3D9EndScene_Original (This);
 }
@@ -1520,7 +1485,7 @@ SK_D3D9_SamplerStateTypeToStr (D3DSAMPLERSTATETYPE sst)
 // TODO: Move Me to textures.cpp
 //
 
-IDirect3DTexture9* pFontTex;
+IDirect3DTexture9* pFontTex = nullptr;
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -1637,24 +1602,12 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.ConservativeMSAA", new eTB_VarStub <bool> (&config.render.conservative_msaa));
   pCommandProc->AddVariable ("Render.EarlyResolve",     new eTB_VarStub <bool> (&early_resolve));
  
-#if 0
-  D3DXCreateFontW =
-    (D3DXCreateFontW_pfn)
-      GetProcAddress ( d3dx9_43_dll,
-                       "D3DXCreateFontW" );
-#endif
-
   tex_mgr.Init ();
 }
 
 void
 tsf::RenderFix::Shutdown (void)
 {
-#if 0
-  if (pFont != nullptr)
-    pFont->Release ();
-#endif
-
   tex_mgr.Shutdown ();
 
   FreeLibrary (d3dx9_43_dll);

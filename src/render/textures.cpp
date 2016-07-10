@@ -28,6 +28,7 @@
 #include "../hook.h"
 #include "../log.h"
 
+#include <atlbase.h>
 #include <cstdint>
 
 #define TSFIX_TEXTURE_DIR L"TSFix_Textures"
@@ -54,7 +55,10 @@ tsf_logger_s tex_log;
 bool dumping = false;
 
 // All of the enumerated textures in TSFix_Textures/custom/...
-std::set <uint32_t> custom_textures;
+std::set           <uint32_t>           custom_textures;
+std::unordered_map <uint32_t, uint32_t> custom_sizes;
+std::set           <uint32_t>           dumped_textures;
+
 
 std::wstring
 SK_D3D9_UsageToStr (DWORD dwUsage)
@@ -76,184 +80,239 @@ SK_D3D9_UsageToStr (DWORD dwUsage)
   return usage;
 }
 
-const wchar_t*
-SK_D3D9_FormatToStr (D3DFORMAT Format)
+std::wstring
+SK_D3D9_FormatToStr (D3DFORMAT Format, bool include_ordinal = true)
 {
   switch (Format)
   {
     case D3DFMT_UNKNOWN:
-      return L"Unknown (0)";
+      return std::wstring (L"Unknown") + (include_ordinal ? L" (0)" :
+                                                            L"");
 
     case D3DFMT_R8G8B8:
-      return L"R8G8B8 (20)";
+      return std::wstring (L"R8G8B8")   +
+                (include_ordinal ? L" (20)" : L"");
     case D3DFMT_A8R8G8B8:
-      return L"A8R8G8B8 (21)";
+      return std::wstring (L"A8R8G8B8") +
+                (include_ordinal ? L" (21)" : L"");
     case D3DFMT_X8R8G8B8:
-      return L"X8R8G8B8 (22)";
+      return std::wstring (L"X8R8G8B8") +
+                (include_ordinal ? L" (22)" : L"");
     case D3DFMT_R5G6B5               :
-      return L"R5G6B5 (23)";
+      return std::wstring (L"R5G6B5")   +
+                (include_ordinal ? L" (23)" : L"");
     case D3DFMT_X1R5G5B5             :
-      return L"X1R5G5B5 (24)";
+      return std::wstring (L"X1R5G5B5") +
+                (include_ordinal ? L" (24)" : L"");
     case D3DFMT_A1R5G5B5             :
-      return L"A1R5G5B5 (25)";
+      return std::wstring (L"A1R5G5B5") +
+                (include_ordinal ? L" (25)" : L"");
     case D3DFMT_A4R4G4B4             :
-      return L"A4R4G4B4 (26)";
+      return std::wstring (L"A4R4G4B4") +
+                (include_ordinal ? L" (26)" : L"");
     case D3DFMT_R3G3B2               :
-      return L"R3G3B2 (27)";
+      return std::wstring (L"R3G3B2")   +
+                (include_ordinal ? L" (27)" : L"");
     case D3DFMT_A8                   :
-      return L"A8 (28)";
+      return std::wstring (L"A8")       +
+                (include_ordinal ? L" (28)" : L"");
     case D3DFMT_A8R3G3B2             :
-      return L"A8R3G3B2 (29)";
+      return std::wstring (L"A8R3G3B2") +
+                (include_ordinal ? L" (29)" : L"");
     case D3DFMT_X4R4G4B4             :
-      return L"X4R4G4B4 (30)";
+      return std::wstring (L"X4R4G4B4") +
+                (include_ordinal ? L" (30)" : L"");
     case D3DFMT_A2B10G10R10          :
-      return L"A2B10G10R10 (31)";
+      return std::wstring (L"A2B10G10R10") +
+                (include_ordinal ? L" (31)" : L"");
     case D3DFMT_A8B8G8R8             :
-      return L"A8B8G8R8 (32)";
+      return std::wstring (L"A8B8G8R8") +
+                (include_ordinal ? L" (32)" : L"");
     case D3DFMT_X8B8G8R8             :
-      return L"X8B8G8R8 (33)";
+      return std::wstring (L"X8B8G8R8") +
+                (include_ordinal ? L" (33)" : L"");
     case D3DFMT_G16R16               :
-      return L"G16R16 (34)";
+      return std::wstring (L"G16R16") +
+                (include_ordinal ? L" (34)" : L"");
     case D3DFMT_A2R10G10B10          :
-      return L"A2R10G10B10 (35)";
+      return std::wstring (L"A2R10G10B10") +
+                (include_ordinal ? L" (35)" : L"");
     case D3DFMT_A16B16G16R16         :
-      return L"A16B16G16R16 (36)";
+      return std::wstring (L"A16B16G16R16") +
+                (include_ordinal ? L" (36)" : L"");
 
     case D3DFMT_A8P8                 :
-      return L"A8P8 (40)";
+      return std::wstring (L"A8P8") +
+                (include_ordinal ? L" (40)" : L"");
     case D3DFMT_P8                   :
-      return L"P8 (41)";
+      return std::wstring (L"P8") +
+                (include_ordinal ? L" (41)" : L"");
 
     case D3DFMT_L8                   :
-      return L"L8 (50)";
+      return std::wstring (L"L8") +
+                (include_ordinal ? L" (50)" : L"");
     case D3DFMT_A8L8                 :
-      return L"A8L8 (51)";
+      return std::wstring (L"A8L8") +
+                (include_ordinal ? L" (51)" : L"");
     case D3DFMT_A4L4                 :
-      return L"A4L4 (52)";
+      return std::wstring (L"A4L4") +
+                (include_ordinal ? L" (52)" : L"");
 
     case D3DFMT_V8U8                 :
-      return L"V8U8 (60)";
+      return std::wstring (L"V8U8") +
+                (include_ordinal ? L" (60)" : L"");
     case D3DFMT_L6V5U5               :
-      return L"L6V5U5 (61)";
+      return std::wstring (L"L6V5U5") +
+                (include_ordinal ? L" (61)" : L"");
     case D3DFMT_X8L8V8U8             :
-      return L"X8L8V8U8 (62)";
+      return std::wstring (L"X8L8V8U8") +
+                (include_ordinal ? L" (62)" : L"");
     case D3DFMT_Q8W8V8U8             :
-      return L"Q8W8V8U8 (63)";
+      return std::wstring (L"Q8W8V8U8") +
+                (include_ordinal ? L" (63)" : L"");
     case D3DFMT_V16U16               :
-      return L"V16U16 (64)";
+      return std::wstring (L"V16U16") +
+                (include_ordinal ? L" (64)" : L"");
     case D3DFMT_A2W10V10U10          :
-      return L"A2W10V10U10 (67)";
+      return std::wstring (L"A2W10V10U10") +
+                (include_ordinal ? L" (67)" : L"");
 
     case D3DFMT_UYVY                 :
-      return L"FourCC 'UYVY'";
+      return std::wstring (L"FourCC 'UYVY'");
     case D3DFMT_R8G8_B8G8            :
-      return L"FourCC 'RGBG'";
+      return std::wstring (L"FourCC 'RGBG'");
     case D3DFMT_YUY2                 :
-      return L"FourCC 'YUY2'";
+      return std::wstring (L"FourCC 'YUY2'");
     case D3DFMT_G8R8_G8B8            :
-      return L"FourCC 'GRGB'";
+      return std::wstring (L"FourCC 'GRGB'");
     case D3DFMT_DXT1                 :
-      return L"FourCC 'DXT1'";
+      return std::wstring (L"DXT1");
     case D3DFMT_DXT2                 :
-      return L"FourCC 'DXT2'";
+      return std::wstring (L"DXT2");
     case D3DFMT_DXT3                 :
-      return L"FourCC 'DXT3'";
+      return std::wstring (L"DXT3");
     case D3DFMT_DXT4                 :
-      return L"FourCC 'DXT4'";
+      return std::wstring (L"DXT4");
     case D3DFMT_DXT5                 :
-      return L"FourCC 'DXT5'";
+      return std::wstring (L"DXT5");
 
     case D3DFMT_D16_LOCKABLE         :
-      return L"D16_LOCKABLE (70)";
+      return std::wstring (L"D16_LOCKABLE") +
+                (include_ordinal ? L" (70)" : L"");
     case D3DFMT_D32                  :
-      return L"D32 (71)";
+      return std::wstring (L"D32") +
+                (include_ordinal ? L" (71)" : L"");
     case D3DFMT_D15S1                :
-      return L"D15S1 (73)";
+      return std::wstring (L"D15S1") +
+                (include_ordinal ? L" (73)" : L"");
     case D3DFMT_D24S8                :
-      return L"D24S8 (75)";
+      return std::wstring (L"D24S8") +
+                (include_ordinal ? L" (75)" : L"");
     case D3DFMT_D24X8                :
-      return L"D24X8 (77)";
+      return std::wstring (L"D24X8") +
+                (include_ordinal ? L" (77)" : L"");
     case D3DFMT_D24X4S4              :
-      return L"D24X4S4 (79)";
+      return std::wstring (L"D24X4S4") +
+                (include_ordinal ? L" (79)" : L"");
     case D3DFMT_D16                  :
-      return L"D16 (80)";
+      return std::wstring (L"D16") +
+                (include_ordinal ? L" (80)" : L"");
 
     case D3DFMT_D32F_LOCKABLE        :
-      return L"D32F_LOCKABLE (82)";
+      return std::wstring (L"D32F_LOCKABLE") +
+                (include_ordinal ? L" (82)" : L"");
     case D3DFMT_D24FS8               :
-      return L"D24FS8 (83)";
+      return std::wstring (L"D24FS8") +
+                (include_ordinal ? L" (83)" : L"");
 
 /* D3D9Ex only -- */
 #if !defined(D3D_DISABLE_9EX)
 
     /* Z-Stencil formats valid for CPU access */
     case D3DFMT_D32_LOCKABLE         :
-      return L"D32_LOCKABLE (84)";
+      return std::wstring (L"D32_LOCKABLE") +
+                (include_ordinal ? L" (84)" : L"");
     case D3DFMT_S8_LOCKABLE          :
-      return L"S8_LOCKABLE (85)";
+      return std::wstring (L"S8_LOCKABLE") +
+                (include_ordinal ? L" (85)" : L"");
 
 #endif // !D3D_DISABLE_9EX
 
 
 
     case D3DFMT_L16                  :
-      return L"L16 (81)";
+      return std::wstring (L"L16") +
+                (include_ordinal ? L" (81)" : L"");
 
     case D3DFMT_VERTEXDATA           :
-      return L"VERTEXDATA (100)";
+      return std::wstring (L"VERTEXDATA") +
+                (include_ordinal ? L" (100)" : L"");
     case D3DFMT_INDEX16              :
-      return L"INDEX16 (101)";
+      return std::wstring (L"INDEX16") +
+                (include_ordinal ? L" (101)" : L"");
     case D3DFMT_INDEX32              :
-      return L"INDEX32 (102)";
+      return std::wstring (L"INDEX32") +
+                (include_ordinal ? L" (102)" : L"");
 
     case D3DFMT_Q16W16V16U16         :
-      return L"Q16W16V16U16 (110)";
+      return std::wstring (L"Q16W16V16U16") +
+                (include_ordinal ? L" (110)" : L"");
 
     case D3DFMT_MULTI2_ARGB8         :
-      return L"FourCC 'MET1'";
+      return std::wstring (L"FourCC 'MET1'");
 
     // Floating point surface formats
 
     // s10e5 formats (16-bits per channel)
     case D3DFMT_R16F                 :
-      return L"R16F (111)";
+      return std::wstring (L"R16F") +
+                (include_ordinal ? L" (111)" : L"");
     case D3DFMT_G16R16F              :
-      return L"G16R16F (112)";
+      return std::wstring (L"G16R16F") +
+                (include_ordinal ? L" (112)" : L"");
     case D3DFMT_A16B16G16R16F        :
-      return L"A16B16G16R16F (113)";
+      return std::wstring (L"A16B16G16R16F") +
+               (include_ordinal ? L" (113)" : L"");
 
     // IEEE s23e8 formats (32-bits per channel)
     case D3DFMT_R32F                 :
-      return L"R32F (114)";
+      return std::wstring (L"R32F") + 
+                (include_ordinal ? L" (114)" : L"");
     case D3DFMT_G32R32F              :
-      return L"G32R32F (115)";
+      return std::wstring (L"G32R32F") +
+                (include_ordinal ? L" (115)" : L"");
     case D3DFMT_A32B32G32R32F        :
-      return L"A32B32G32R32F (116)";
+      return std::wstring (L"A32B32G32R32F") +
+                (include_ordinal ? L" (116)" : L"");
 
     case D3DFMT_CxV8U8               :
-      return L"CxV8U8 (117)";
+      return std::wstring (L"CxV8U8") +
+                (include_ordinal ? L" (117)" : L"");
 
 /* D3D9Ex only -- */
 #if !defined(D3D_DISABLE_9EX)
 
     // Monochrome 1 bit per pixel format
     case D3DFMT_A1                   :
-      return L"A1 (118)";
+      return std::wstring (L"A1") +
+                (include_ordinal ? L" (118)" : L"");
 
     // 2.8 biased fixed point
     case D3DFMT_A2B10G10R10_XR_BIAS  :
-      return L"A2B10G10R10_XR_BIAS (119)";
+      return std::wstring (L"A2B10G10R10_XR_BIAS") +
+                (include_ordinal ? L" (119)" : L"");
 
 
     // Binary format indicating that the data has no inherent type
     case D3DFMT_BINARYBUFFER         :
-      return L"BINARYBUFFER (199)";
+      return std::wstring (L"BINARYBUFFER") +
+                (include_ordinal ? L" (199)" : L"");
 
 #endif // !D3D_DISABLE_9EX
 /* -- D3D9Ex only */
   }
 
-  return L"UNKNOWN?!";
+  return std::wstring (L"UNKNOWN?!");
 }
 
 const wchar_t*
@@ -725,7 +784,7 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
     tex_log.Log ( L"[Load Trace] >> Creating Texture: "
                   L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
                     Width, Height,
-                      SK_D3D9_FormatToStr (Format),
+                      SK_D3D9_FormatToStr (Format).c_str (),
                       SK_D3D9_UsageToStr  (Usage).c_str (),
                       SK_D3D9_PoolToStr   (Pool) );
   }
@@ -823,7 +882,7 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
       tex_log.Log ( L"[ MSAA Mgr ] >> ERROR: Unable to Create MSAA Surface for Render Target: "
                     L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
                         Width, Height,
-                          SK_D3D9_FormatToStr (Format),
+                          SK_D3D9_FormatToStr (Format).c_str (),
                           SK_D3D9_UsageToStr  (Usage).c_str (),
                           SK_D3D9_PoolToStr   (Pool) );
     }
@@ -895,6 +954,17 @@ crc32 (uint32_t crc, const void *buf, size_t size)
   return crc ^ ~0U;
 }
 
+typedef HRESULT (WINAPI *D3DXGetImageInfoFromFileInMemory_pfn)
+(
+  _In_ LPCVOID        pSrcData,
+  _In_ UINT           SrcDataSize,
+  _In_ D3DXIMAGE_INFO *pSrcInfo
+);
+
+D3DXGetImageInfoFromFileInMemory_pfn
+  D3DXGetImageInfoFromFileInMemory = nullptr;
+
+
 typedef HRESULT (WINAPI *D3DXCreateTextureFromFile_pfn)
 (
   _In_  LPDIRECT3DDEVICE9   pDevice,
@@ -904,6 +974,27 @@ typedef HRESULT (WINAPI *D3DXCreateTextureFromFile_pfn)
 
 D3DXCreateTextureFromFile_pfn
   D3DXCreateTextureFromFile = nullptr;
+
+typedef HRESULT (WINAPI *D3DXCreateTextureFromFileEx_pfn)
+(
+  _In_    LPDIRECT3DDEVICE9  pDevice,
+  _In_    LPCWSTR            pSrcFile,
+  _In_    UINT               Width,
+  _In_    UINT               Height,
+  _In_    UINT               MipLevels,
+  _In_    DWORD              Usage,
+  _In_    D3DFORMAT          Format,
+  _In_    D3DPOOL            Pool,
+  _In_    DWORD              Filter,
+  _In_    DWORD              MipFilter,
+  _In_    D3DCOLOR           ColorKey,
+  _Inout_ D3DXIMAGE_INFO     *pSrcInfo,
+  _Out_   PALETTEENTRY       *pPalette,
+  _Out_   LPDIRECT3DTEXTURE9 *ppTexture
+);
+
+D3DXCreateTextureFromFileEx_pfn
+  D3DXCreateTextureFromFileEx = nullptr;
 
 #define FONT_CRC32 0xef2d9b55
 
@@ -927,6 +1018,97 @@ D3DXCreateTextureFromFile_pfn
 #define D3DX_SKIP_DDS_MIP_LEVELS_SHIFT 26
 #define D3DX_SKIP_DDS_MIP_LEVELS(l, f) ((((l) & D3DX_SKIP_DDS_MIP_LEVELS_MASK) \
 << D3DX_SKIP_DDS_MIP_LEVELS_SHIFT) | ((f) == D3DX_DEFAULT ? D3DX_FILTER_BOX : (f)))
+
+bool injecting = false;
+
+typedef struct tsf_tex_load_s {
+  LPDIRECT3DDEVICE9   pDevice;
+  uint32_t            checksum;
+  wchar_t             wszFilename [MAX_PATH];
+  LPDIRECT3DTEXTURE9  pDest = nullptr;
+  LPDIRECT3DTEXTURE9  pSrc  = nullptr;
+};
+
+#include <queue>
+std::queue <tsf_tex_load_s *>    tex_loads;
+CRITICAL_SECTION              cs_tex_inject;
+
+#define D3DX_DEFAULT            ((UINT) -1)
+#define D3DX_DEFAULT_NONPOW2    ((UINT) -2)
+#define D3DX_DEFAULT_FLOAT      FLT_MAX
+#define D3DX_FROM_FILE          ((UINT) -3)
+#define D3DFMT_FROM_FILE        ((D3DFORMAT) -3)
+
+DWORD
+WINAPI
+LoadTextureThread (LPVOID user)
+{
+  tsf_tex_load_s* load_params =
+    (tsf_tex_load_s *)user;
+
+  HRESULT hr =
+    D3DXCreateTextureFromFileEx (
+      load_params->pDevice,
+        load_params->wszFilename,
+          D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT,
+            0, D3DFMT_FROM_FILE,
+              D3DPOOL_SYSTEMMEM,
+                D3DX_DEFAULT, D3DX_DEFAULT,
+                  0,
+                    nullptr, nullptr,
+                      &load_params->pSrc );
+
+  if (SUCCEEDED (hr)) {
+    // Wait for the calling thread to finish
+    while (load_params->pDest == nullptr)
+      ;
+
+    EnterCriticalSection (&cs_tex_inject);
+
+    // Now, queue up a copy from this texture to the original
+    tex_loads.push (load_params);
+
+    LeaveCriticalSection (&cs_tex_inject);
+  }
+
+  return 0;
+}
+
+void
+TSFix_LoadQueuedTextures (void)
+{
+  EnterCriticalSection (&cs_tex_inject);
+
+  if (! tex_loads.empty ()) {
+    tsf_tex_load_s* load =
+      tex_loads.front ();
+
+    LeaveCriticalSection (&cs_tex_inject);
+
+    load->pSrc->AddDirtyRect  (nullptr);
+    load->pDest->AddDirtyRect (nullptr);
+
+    HRESULT hr =
+      load->pDevice->UpdateTexture (load->pSrc, load->pDest);
+
+    if (SUCCEEDED (hr)) {
+      tex_log.Log ( L"[Custom Tex] Finished loading custom texture %x...",
+                      load->checksum );
+    }
+
+    EnterCriticalSection (&cs_tex_inject);
+    tex_loads.pop ();
+
+    load->pSrc->Release  ();
+    load->pDest->Release (); // Artificial reference added so that
+                             //   this texture is not deleted before
+                             //     we load the real one.
+
+    delete load;
+  }
+
+  LeaveCriticalSection (&cs_tex_inject);
+}
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -952,26 +1134,23 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   // Performance statistics for caching system
   LARGE_INTEGER start, end;
 
-  QueryPerformanceCounter_Original (&start);
+  static LARGE_INTEGER freq = { 0LL };
 
-  // Faster CRC32
-#if 0
-  uint32_t checksum =
-    crc32 (0, pSrcData, min (SrcDataSize, 4096));//SrcDataSize);
-  checksum =
-    crc32 (checksum, (uint8_t *)pSrcData + min (1, (SrcDataSize - 4096)), min (4096, 4096 - SrcDataSize - 1));
-#else
+  if (freq.QuadPart == 0LL)
+    QueryPerformanceFrequency (&freq);
+
+  QueryPerformanceCounter_Original (&start);
 
   uint32_t checksum =
     crc32 (0, pSrcData, SrcDataSize);
-#endif
 
   // Don't dump or cache these
   if (Usage == D3DUSAGE_DYNAMIC || Usage == D3DUSAGE_RENDERTARGET)
     checksum = 0x00;
 
   if (config.textures.cache && checksum != 0x00) {
-    tsf::RenderFix::Texture* pTex = tsf::RenderFix::tex_mgr.getTexture (checksum);
+    tsf::RenderFix::Texture* pTex =
+      tsf::RenderFix::tex_mgr.getTexture (checksum);
 
     if (pTex != nullptr) {
       tsf::RenderFix::tex_mgr.refTexture (pTex);
@@ -983,9 +1162,12 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   }
 
   // Necessary to make D3DX texture write functions work
-  if (Pool == D3DPOOL_DEFAULT && config.textures.dump)
+  if ( Pool == D3DPOOL_DEFAULT && config.textures.dump &&
+        (! dumped_textures.count (checksum))           &&
+        (! custom_textures.count (checksum)) )
     Usage = D3DUSAGE_DYNAMIC;
 
+#if 0
   //
   // Generating full mipmaps is MUCH faster if we don't re-compress everything
   //
@@ -999,25 +1181,10 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       //MipLevels = D3DX_DEFAULT;
     //}
   }
+#endif
 
   Filter    = D3DX_FILTER_LINEAR|D3DX_FILTER_DITHER;
   MipFilter =  D3DX_FILTER_BOX;
-
-  if ((Pool == D3DPOOL_DEFAULT && Usage != D3DUSAGE_DYNAMIC) &&
-      config.textures.cleanup && ((Width < 64 && Height < 64) || ((Width == 256 || Width == 128) && (Height == 128 || Height == 256)))) {
-    Width    *= 2;//config.textures.rescale;
-    Height   *= 2;//config.textures.rescale;
-
-    Filter    = D3DX_FILTER_LINEAR|D3DX_FILTER_DITHER;
-    MipLevels = D3DX_DEFAULT;
-
-    if (Format == D3DFMT_DXT1 ||
-        Format == D3DFMT_DXT3 ||
-        Format == D3DFMT_DXT5) {
-      Format = D3DFMT_A8R8G8B8;
-    }
-  } else {
-  }
 
   if ((Pool == D3DPOOL_DEFAULT && Usage != D3DUSAGE_DYNAMIC) &&
       (! config.textures.dump) && config.textures.optimize_ui) {
@@ -1036,7 +1203,8 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     }
   }
 
-  HRESULT hr = E_FAIL;
+  HRESULT         hr      = E_FAIL;
+  tsf_tex_load_s* load_op = nullptr;
 
   //
   // Custom font
@@ -1048,6 +1216,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       hr = D3DXCreateTextureFromFile (pDevice, L"font.dds", ppTexture);
 
       if (SUCCEEDED (hr)) {
+        QueryPerformanceCounter_Original (&end);
         extern IDirect3DTexture9* pFontTex;
         pFontTex = *ppTexture;
         tex_log.LogEx (false, L"done\n");
@@ -1061,32 +1230,74 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   // Generic custom textures
   //
   else if (custom_textures.find (checksum) != custom_textures.end ()) {
-    tex_log.LogEx ( true, L"[Custom Tex] Loading custom texture for checksum (%x)... ",
+    tex_log.LogEx ( true, L"[Custom Tex] Loading custom texture for checksum (%08x)... ",
                       checksum );
 
     wchar_t wszFileName [MAX_PATH] = { L'\0' };
-    _swprintf ( wszFileName, L"%s\\custom\\%x%s",
+    _swprintf ( wszFileName, L"%s\\custom\\%08x%s",
                   TSFIX_TEXTURE_DIR,
                     checksum,
                       TSFIX_TEXTURE_EXT );
 
     // If this texture exists, override the game
-    if (GetFileAttributes (wszFileName) != INVALID_FILE_ATTRIBUTES) {
-      hr = D3DXCreateTextureFromFile (pDevice, wszFileName, ppTexture);
+    //if (GetFileAttributes (wszFileName) != INVALID_FILE_ATTRIBUTES) {
+      injecting = true;
+
+#if 0
+      load_op           = new tsf_tex_load_s;
+      load_op->pDevice  = pDevice;
+      load_op->checksum = checksum;
+
+      wcscpy (load_op->wszFilename, wszFileName);
+#endif
+
+      LARGE_INTEGER start_inject, end_inject;
+
+      QueryPerformanceCounter_Original (&start_inject);
+
+      hr = D3DXCreateTextureFromFileEx (
+        pDevice,
+          wszFileName,
+            0, 0, 0,
+              Usage, D3DFMT_UNKNOWN,
+                Pool,
+                  D3DX_DEFAULT, D3DX_DEFAULT,
+                    ColorKey,
+                      nullptr,
+                        pPalette,
+                          ppTexture );
+
+      QueryPerformanceCounter_Original (&end_inject);
+
+      injecting = false;
 
       if (SUCCEEDED (hr)) {
-        tex_log.LogEx (false, L"done\n");
+        tex_log.LogEx ( false, L"done (%5.2f MiB in %9.4f ms)\n",
+                          (double)custom_sizes [checksum] / (1024.0f * 1024.0f),
+                            1000.0f * (double)(end_inject.QuadPart - start_inject.QuadPart) /
+                                      (double)freq.QuadPart);
         (*ppTexture)->Release ();
       } else {
         tex_log.LogEx (false, L"failed (%s)\n", hr);
       }
-    } else {
-      tex_log.LogEx (false, L"file is missing?!\n");
-    }
+    //} else {
+      //tex_log.LogEx (false, L"file is missing?!\n");
+    //}
   }
+
+  bool injected = true;
 
   // Any previous attempts to load a custom texture failed, so load it the normal way
   if (hr == E_FAIL) {
+    injected = false;
+
+#if 0
+    if (load_op != nullptr) {
+      Pool  = D3DPOOL_DEFAULT;
+      Usage = D3DUSAGE_DYNAMIC;
+    }
+#endif
+
     //tex_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
     hr =
       D3DXCreateTextureFromFileInMemoryEx_Original ( pDevice,
@@ -1096,12 +1307,20 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
                                                              Filter,     MipFilter, ColorKey,
                                                                pSrcInfo, pPalette,
                                                                  ppTexture );
+
+#if 0
+    if (load_op != nullptr && SUCCEEDED (hr)) {
+      load_op->pDest = *ppTexture;
+      load_op->pDest->AddRef (); // Don't delete this texture until we
+                                 //   load the real one!
+      CreateThread (nullptr, 0, LoadTextureThread, load_op, 0, nullptr);
+    } else if (load_op != nullptr) {
+      delete load_op;
+    }
+#endif
   }
 
   QueryPerformanceCounter_Original (&end);
-
-  LARGE_INTEGER freq;
-  QueryPerformanceFrequency (&freq);
 
   if (SUCCEEDED (hr)) {
     if (config.textures.cache && checksum != 0x00) {
@@ -1124,7 +1343,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
                       Width, Height, (*ppTexture)->GetLevelCount (), checksum );
       tex_log.Log ( L"[Load Trace]              Usage: %-20s - Format: %-20s",
                       SK_D3D9_UsageToStr    (Usage).c_str (),
-                        SK_D3D9_FormatToStr (Format) );
+                        SK_D3D9_FormatToStr (Format).c_str () );
       tex_log.Log ( L"[Load Trace]                Pool: %s",
                       SK_D3D9_PoolToStr (Pool) );
       tex_log.Log ( L"[Load Trace]      Load Time: %6.4f ms", 
@@ -1132,16 +1351,30 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     }
   }
 
-  if (config.textures.dump) {
-    wchar_t wszFileName [MAX_PATH] = { L'\0' };
-    _swprintf ( wszFileName, L"%s\\dump\\MemoryTex_%x%s",
-                  TSFIX_TEXTURE_DIR,
-                    checksum,
-                      TSFIX_TEXTURE_EXT );
+  if ( config.textures.dump && (! injected) && (! injecting) &&
+                          (! dumped_textures.count (checksum)) ) {
+    D3DXIMAGE_INFO info;
+    D3DXGetImageInfoFromFileInMemory (pSrcData, SrcDataSize, &info);
 
-    // Do not dump a texture that was already dumped
-    if (GetFileAttributes (wszFileName) == INVALID_FILE_ATTRIBUTES)
-      D3DXSaveTextureToFile (wszFileName, D3DXIFF_DDS, (*ppTexture), NULL);
+    D3DFORMAT fmt_real = info.Format;
+
+    bool compressed = (fmt_real >= D3DFMT_DXT1 && fmt_real <= D3DFMT_DXT5);
+
+    wchar_t wszPath [MAX_PATH];
+    _swprintf ( wszPath, L"%s\\dump\\%s",
+                  TSFIX_TEXTURE_DIR, SK_D3D9_FormatToStr (fmt_real, false).c_str () );
+
+    if (GetFileAttributesW (wszPath) != FILE_ATTRIBUTE_DIRECTORY)
+      CreateDirectoryW (wszPath, nullptr);
+
+    wchar_t wszFileName [MAX_PATH] = { L'\0' };
+    _swprintf ( wszFileName, L"%s\\dump\\%s\\%08x%s",
+                  TSFIX_TEXTURE_DIR,
+                    SK_D3D9_FormatToStr (fmt_real, false).c_str (),
+                      checksum,
+                        L".png" );//TSFIX_TEXTURE_EXT );
+
+    D3DXSaveTextureToFile (wszFileName, D3DXIFF_PNG, (*ppTexture), NULL);
   }
 
   return hr;
@@ -1220,6 +1453,11 @@ tsf::RenderFix::TextureManager::Init (void)
             liSize.QuadPart += fsize.QuadPart;
 
             custom_textures.insert (checksum);
+            custom_sizes.insert    (
+              std::pair <uint32_t, uint32_t> (
+                checksum, (uint32_t)fsize.QuadPart
+              )
+            );
           }
         }
       } while (FindNextFileW (hFind, &fd) != 0);
@@ -1230,6 +1468,59 @@ tsf::RenderFix::TextureManager::Init (void)
     tex_log.LogEx ( false, L" %lu files (%3.1f MiB)\n",
                       files, (double)liSize.QuadPart / (1024.0 * 1024.0) );
   }
+
+  if ( GetFileAttributesW (TSFIX_TEXTURE_DIR L"\\dump") !=
+         INVALID_FILE_ATTRIBUTES ) {
+    WIN32_FIND_DATA fd;
+    WIN32_FIND_DATA fd_sub;
+    HANDLE          hSubFind = INVALID_HANDLE_VALUE;
+    HANDLE          hFind    = INVALID_HANDLE_VALUE;
+    int             files    = 0;
+    LARGE_INTEGER   liSize   = { 0 };
+
+    tex_log.LogEx ( true, L"[Custom Tex] Enumerating dumped textures..." );
+
+    hFind = FindFirstFileW (TSFIX_TEXTURE_DIR L"\\dump\\*", &fd);
+
+    if (hFind != INVALID_HANDLE_VALUE) {
+      do {
+        if (fd.dwFileAttributes != INVALID_FILE_ATTRIBUTES) {
+          wchar_t wszSubDir [MAX_PATH];
+          _swprintf (wszSubDir, L"%s\\dump\\%s\\*", TSFIX_TEXTURE_DIR, fd.cFileName);
+
+          hSubFind = FindFirstFileW (wszSubDir, &fd_sub);
+
+          if (hSubFind != INVALID_HANDLE_VALUE) {
+            do {
+              if (wcsstr (fd_sub.cFileName, L".png")) {
+                uint32_t checksum;
+                swscanf (fd_sub.cFileName, L"%08x.png", &checksum);
+
+                ++files;
+
+                LARGE_INTEGER fsize;
+
+                fsize.HighPart = fd_sub.nFileSizeHigh;
+                fsize.LowPart  = fd_sub.nFileSizeLow;
+
+                liSize.QuadPart += fsize.QuadPart;
+
+                dumped_textures.insert (checksum);
+              }
+            } while (FindNextFileW (hSubFind, &fd_sub) != 0);
+
+            FindClose (hSubFind);
+          }
+        }
+      } while (FindNextFileW (hFind, &fd) != 0);
+
+      FindClose (hFind);
+    }
+
+    tex_log.LogEx ( false, L" %lu files (%3.1f MiB)\n",
+                      files, (double)liSize.QuadPart / (1024.0 * 1024.0) );
+  }
+
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9StretchRect_Override",
@@ -1277,6 +1568,16 @@ tsf::RenderFix::TextureManager::Init (void)
       GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
                          "D3DXCreateTextureFromFileW" );
 
+  D3DXCreateTextureFromFileEx =
+    (D3DXCreateTextureFromFileEx_pfn)
+      GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
+                         "D3DXCreateTextureFromFileExW" );
+
+  D3DXGetImageInfoFromFileInMemory =
+    (D3DXGetImageInfoFromFileInMemory_pfn)
+      GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
+                         "D3DXGetImageInfoFromFileInMemory" );
+
   // We don't hook this, but we still use it...
   if (D3D9CreateRenderTarget_Original == nullptr) {
     static HMODULE hModD3D9 =
@@ -1296,12 +1597,16 @@ tsf::RenderFix::TextureManager::Init (void)
   }
 
   time_saved = 0.0f;
+
+  InitializeCriticalSectionAndSpinCount (&cs_tex_inject, 1024);
 }
 
 
 void
 tsf::RenderFix::TextureManager::Shutdown (void)
 {
+  DeleteCriticalSection (&cs_tex_inject);
+
   // 33.3 ms per-frame (30 FPS)
   const float frame_time = 33.3f;
 
