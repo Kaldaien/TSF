@@ -1524,8 +1524,15 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
       //dll_log.Log (L" %s Filter: %x", Type == D3DSAMP_MIPFILTER ? L"Mip" : Type == D3DSAMP_MINFILTER ? L"Min" : L"Mag", Value);
 
       if (Type == D3DSAMP_MIPFILTER) {
-        if (Value != D3DTEXF_NONE)
-          aniso_override = false;
+        //extern bool __remap_textures;
+
+        //if (__remap_textures)
+          Value = D3DTEXF_LINEAR;
+        //else
+          //Value = D3DTEXF_NONE;
+
+        //if (Value != D3DTEXF_NONE)
+          //aniso_override = false;
       }
 
       if (Type == D3DSAMP_MAGFILTER ||

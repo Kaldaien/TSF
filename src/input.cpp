@@ -753,6 +753,7 @@ tsf::InputManager::Hooker::End (void)
 }
 
 std::string console_text;
+std::string mod_text;
 
 void
 tsf::InputManager::Hooker::Draw (void)
@@ -791,6 +792,8 @@ tsf::InputManager::Hooker::Draw (void)
   }
 
   console_text = output;
+
+  output += mod_text;
 
   SK_DrawExternalOSD ("ToZ Fix", output.c_str ());
 }
@@ -1077,6 +1080,12 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
         else if (vkCode == '3' && new_press) {
           pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 0.0");
           pCommandProc->ProcessCommandLine ("Timing.RouteSixty true");
+        }
+
+        // TODO: Command processor variable for this
+        else if (vkCode == 'U' && new_press) {
+          extern bool __remap_textures;
+          __remap_textures = (! __remap_textures);
         }
       }
 

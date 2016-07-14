@@ -51,6 +51,10 @@ namespace RenderFix {
     void Init     (void);
     void Shutdown (void);
 
+    bool                     contains      (IDirect3DTexture9* pTex);
+    void                     removeTexture (IDirect3DTexture9* pTex);
+    void                     decRef        (IDirect3DTexture9* pTex);
+
     tsf::RenderFix::Texture* getTexture (uint32_t crc32);
     void                     addTexture (uint32_t crc32, tsf::RenderFix::Texture* pTex);
 
@@ -67,6 +71,7 @@ namespace RenderFix {
 
   private:
     std::unordered_map <uint32_t, tsf::RenderFix::Texture*> textures;
+    std::unordered_map <IDirect3DTexture9*, uint32_t>       rev_textures;
     float                                                   time_saved;
   } extern tex_mgr;
 }
@@ -186,5 +191,141 @@ typedef HRESULT (STDMETHODCALLTYPE *SetDepthStencilSurface_pfn)(
   _In_ IDirect3DDevice9      *This,
   _In_ IDirect3DSurface9     *pNewZStencil
 );
+
+const GUID IID_SKTextureD3D9 = { 0xace1f81b, 0x5f3f, 0x45f4, 0xbf, 0x9f, 0x1b, 0xaf, 0xdf, 0xba, 0x11, 0x9b };
+
+interface ISKTextureD3D9 : public IDirect3DTexture9
+{
+public:
+     ISKTextureD3D9 (IDirect3DTexture9 **ppTex, SIZE_T size) {
+         pTexOverride = nullptr;
+         pTex         = *ppTex;
+       *ppTex         =  this;
+         tex_size     = size;
+         refs         =  pTex->AddRef ();
+     };
+
+    /*** IUnknown methods ***/
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void** ppvObj) {
+      if (IsEqualGUID (riid, IID_SKTextureD3D9)) {
+        return S_OK;
+      }
+
+      if ( IsEqualGUID (riid, IID_IUnknown)              ||
+           IsEqualGUID (riid, IID_IDirect3DTexture9)     ||
+           IsEqualGUID (riid, IID_IDirect3DBaseTexture9)    )
+      {
+        AddRef ();
+        *ppvObj = this;
+        return S_OK;
+      }
+
+      return E_FAIL;
+      //return pTex->QueryInterface (riid, ppvObj);
+    }
+    STDMETHOD_(ULONG,AddRef)(THIS) {
+      refs++;
+
+      ULONG ret = pTex->AddRef ();
+
+      if (pTexOverride != nullptr) {
+        if (pTexOverride->AddRef () != ret) {
+          /// Mismatch
+        }
+      }
+
+      if (refs != ret) {
+        /// Mismatch
+      }
+
+      return ret;
+    }
+    STDMETHOD_(ULONG,Release)(THIS) {
+      if (pTexOverride != nullptr) {
+        if (pTexOverride->Release () == 0)
+          pTexOverride = nullptr;
+      }
+
+      refs--;
+
+      ULONG ret = pTex->Release ();
+
+      if (ret != refs) {
+        /// Mismatch
+      }
+
+      return ret;
+    }
+
+    /*** IDirect3DBaseTexture9 methods ***/
+    STDMETHOD(GetDevice)(THIS_ IDirect3DDevice9** ppDevice) {
+      return pTex->GetDevice (ppDevice);
+    }
+    STDMETHOD(SetPrivateData)(THIS_ REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags) {
+      return pTex->SetPrivateData (refguid, pData, SizeOfData, Flags);
+    }
+    STDMETHOD(GetPrivateData)(THIS_ REFGUID refguid,void* pData,DWORD* pSizeOfData) {
+      return pTex->GetPrivateData (refguid, pData, pSizeOfData);
+    }
+    STDMETHOD(FreePrivateData)(THIS_ REFGUID refguid) {
+      return pTex->FreePrivateData (refguid);
+    }
+    STDMETHOD_(DWORD, SetPriority)(THIS_ DWORD PriorityNew) {
+      return pTex->SetPriority (PriorityNew);
+    }
+    STDMETHOD_(DWORD, GetPriority)(THIS) {
+      return pTex->GetPriority ();
+    }
+    STDMETHOD_(void, PreLoad)(THIS) {
+      pTex->PreLoad ();
+    }
+    STDMETHOD_(D3DRESOURCETYPE, GetType)(THIS) {
+      return pTex->GetType ();
+    }
+    STDMETHOD_(DWORD, SetLOD)(THIS_ DWORD LODNew) {
+      return pTex->SetLOD (LODNew);
+    }
+    STDMETHOD_(DWORD, GetLOD)(THIS) {
+      return pTex->GetLOD ();
+    }
+    STDMETHOD_(DWORD, GetLevelCount)(THIS) {
+      return pTex->GetLevelCount ();
+    }
+    STDMETHOD(SetAutoGenFilterType)(THIS_ D3DTEXTUREFILTERTYPE FilterType) {
+      return pTex->SetAutoGenFilterType (FilterType);
+    }
+    STDMETHOD_(D3DTEXTUREFILTERTYPE, GetAutoGenFilterType)(THIS) {
+      return pTex->GetAutoGenFilterType ();
+    }
+    STDMETHOD_(void, GenerateMipSubLevels)(THIS) {
+      pTex->GenerateMipSubLevels ();
+    }
+    STDMETHOD(GetLevelDesc)(THIS_ UINT Level,D3DSURFACE_DESC *pDesc) {
+      return pTex->GetLevelDesc (Level, pDesc);
+    }
+    STDMETHOD(GetSurfaceLevel)(THIS_ UINT Level,IDirect3DSurface9** ppSurfaceLevel) {
+      return pTex->GetSurfaceLevel (Level, ppSurfaceLevel);
+    }
+    STDMETHOD(LockRect)(THIS_ UINT Level,D3DLOCKED_RECT* pLockedRect,CONST RECT* pRect,DWORD Flags) {
+      return pTex->LockRect (Level, pLockedRect, pRect, Flags);
+    }
+    STDMETHOD(UnlockRect)(THIS_ UINT Level) {
+      return pTex->UnlockRect (Level);
+    }
+    STDMETHOD(AddDirtyRect)(THIS_ CONST RECT* pDirtyRect) {
+      return pTex->AddDirtyRect (pDirtyRect);
+    }
+
+    IDirect3DTexture9* pTex;          // The original texture data
+    SIZE_T             tex_size;      //   Original size
+
+    IDirect3DTexture9* pTexOverride;  // The overridden texture data (nullptr if unchanged)
+    SIZE_T             override_size; //   Override data size
+
+    int                refs;
+    LARGE_INTEGER      last_used;     // The last time this texture was used (for rendering)
+                                      //   different from the last time referenced, this is
+                                      //     set when SetTexture (...) is called.
+};
 
 #endif /* __TSFIX__TEXTURES_H__ */
