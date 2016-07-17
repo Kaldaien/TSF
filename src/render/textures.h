@@ -41,6 +41,7 @@ namespace RenderFix {
   class Texture {
   public:
     uint32_t           crc32;
+    size_t             size;
     int                refs;
     float              load_time;
     IDirect3DTexture9* d3d9_tex;
@@ -56,23 +57,44 @@ namespace RenderFix {
     void                     decRef        (IDirect3DTexture9* pTex);
 
     tsf::RenderFix::Texture* getTexture (uint32_t crc32);
-    void                     addTexture (uint32_t crc32, tsf::RenderFix::Texture* pTex);
+    void                     addTexture (uint32_t crc32, tsf::RenderFix::Texture* pTex, size_t size);
 
     // Record a cached reference
     void                     refTexture (tsf::RenderFix::Texture* pTex);
 
     void                     reset (void);
+    void                     purge (void); // WIP
 
     int                      numTextures (void) {
       return textures.size ();
     }
+    int                      numCustomTextures (void);
+
+    size_t                   cacheSizeTotal  (void);
+    size_t                   cacheSizeBasic  (void);
+    size_t                   cacheSizeCustom (void);
 
     int                      numMSAASurfs (void);
+
+    void                     addCustom (size_t size) {
+      custom_count++;
+      custom_size += size;
+    }
+
+    std::string              osdStats  (void) { return osd_stats; }
+    void                     updateOSD (void);
 
   private:
     std::unordered_map <uint32_t, tsf::RenderFix::Texture*> textures;
     std::unordered_map <IDirect3DTexture9*, uint32_t>       rev_textures;
     float                                                   time_saved;
+    int                                                     hits;
+
+    size_t                                                  basic_size;
+    size_t                                                  custom_size;
+    int                                                     custom_count;
+
+    std::string                                             osd_stats;
   } extern tex_mgr;
 }
 }
@@ -198,11 +220,12 @@ interface ISKTextureD3D9 : public IDirect3DTexture9
 {
 public:
      ISKTextureD3D9 (IDirect3DTexture9 **ppTex, SIZE_T size) {
-         pTexOverride = nullptr;
-         pTex         = *ppTex;
-       *ppTex         =  this;
-         tex_size     = size;
-         refs         =  pTex->AddRef ();
+         pTexOverride  = nullptr;
+         override_size = 0;
+         pTex          = *ppTex;
+       *ppTex          =  this;
+         tex_size      = size;
+         refs          =  pTex->AddRef ();
      };
 
     /*** IUnknown methods ***/
@@ -228,11 +251,11 @@ public:
 
       ULONG ret = pTex->AddRef ();
 
-      if (pTexOverride != nullptr) {
-        if (pTexOverride->AddRef () != ret) {
+      //if (pTexOverride != nullptr) {
+        //if (pTexOverride->AddRef () != ret) {
           /// Mismatch
-        }
-      }
+        //}
+      //}
 
       if (refs != ret) {
         /// Mismatch
@@ -241,10 +264,10 @@ public:
       return ret;
     }
     STDMETHOD_(ULONG,Release)(THIS) {
-      if (pTexOverride != nullptr) {
-        if (pTexOverride->Release () == 0)
-          pTexOverride = nullptr;
-      }
+      //if (pTexOverride != nullptr) {
+        //if (pTexOverride->Release () == 0)
+          //pTexOverride = nullptr;
+      //}
 
       refs--;
 
@@ -252,6 +275,13 @@ public:
 
       if (ret != refs) {
         /// Mismatch
+      }
+
+      if (ret == 0) {
+        if (pTexOverride != nullptr) {
+          if (pTexOverride->Release () == 0)
+            pTexOverride = nullptr;
+        }
       }
 
       return ret;

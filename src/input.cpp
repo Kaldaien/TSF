@@ -32,6 +32,7 @@
 #include "config.h"
 #include "window.h"
 #include "render.h"
+#include "render/textures.h"
 #include "hook.h"
 
 #include <mmsystem.h>
@@ -793,6 +794,9 @@ tsf::InputManager::Hooker::Draw (void)
 
   console_text = output;
 
+  if (output.length ())
+    output += "\n\n";
+
   output += mod_text;
 
   SK_DrawExternalOSD ("ToZ Fix", output.c_str ());
@@ -1041,6 +1045,7 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
         //}
 
+#if 0
         else if (vkCode == 'Z') {
           extern void TSF_Zoom (double incr);
           TSF_Zoom (-0.01);
@@ -1055,6 +1060,7 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           extern void TSF_ZoomEx (double incr);
           TSF_ZoomEx (0.5);
         }
+#endif
 
         else if (vkCode == VK_OEM_PERIOD && new_press) {
           pCommandProc->ProcessCommandLine ("Render.OutlineTechnique inc");
@@ -1086,6 +1092,10 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
         else if (vkCode == 'U' && new_press) {
           extern bool __remap_textures;
           __remap_textures = (! __remap_textures);
+        }
+
+        else if (vkCode == 'Z' && new_press) {
+          tsf::RenderFix::tex_mgr.purge ();
         }
       }
 

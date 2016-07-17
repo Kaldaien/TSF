@@ -365,6 +365,8 @@ D3D9Reset_Detour ( IDirect3DDevice9      *This,
   if (This != tsf::RenderFix::pDevice)
     return D3D9Reset_Original (This, pPresentationParameters);
 
+  tsf::RenderFix::tex_mgr.reset         ();
+
   HRESULT hr =
     D3D9Reset_Original (This, pPresentationParameters);
 
@@ -420,7 +422,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   // We must let this go, it's not valid anymore.
   tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
   tsf::RenderFix::active_samplers.clear ();
-  tsf::RenderFix::tex_mgr.reset         ();
+  //tsf::RenderFix::tex_mgr.reset         ();
 
   if (pparams != nullptr) {
     tsf::RenderFix::fullscreen = (! pparams->Windowed);
@@ -1567,18 +1569,23 @@ tsf::RenderFix::Init (void)
   SK_SetupD3D9Hooks ();
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "BMF_BeginBufferSwap",
+                        "SK_BeginBufferSwap",
                          D3D9EndFrame_Pre,
                (LPVOID*)&BMF_BeginBufferSwap );
 
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9Reset_Override",
+                         D3D9Reset_Detour,
+               (LPVOID*)&D3D9Reset_Original );
+
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "BMF_EndBufferSwap",
+                        "SK_EndBufferSwap",
                          D3D9EndFrame_Post,
                (LPVOID*)&BMF_EndBufferSwap );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "BMF_SetPresentParamsD3D9",
+                        "SK_SetPresentParamsD3D9",
                          BMF_SetPresentParamsD3D9_Detour,
               (LPVOID *)&BMF_SetPresentParamsD3D9_Original );
 
