@@ -1301,6 +1301,164 @@ get_next_load (void)
 
 HANDLE decomp_semaphore;
 
+HRESULT
+InjectTexture (tsf_tex_load_s* load)
+{
+  // Not currently used ...
+  D3DXIMAGE_INFO img_info;
+  bool           streamed;
+  HRESULT        hr = E_FAIL;
+
+  streamed =
+    injectable_textures [load->checksum].method == Streaming;
+
+  //
+  // Load:  From Regular Filesystem
+  //
+  if (injectable_textures [load->checksum].archive == -1) {
+    HANDLE hTexFile =
+      CreateFile ( load->wszFilename,
+                     GENERIC_READ,
+                       FILE_SHARE_READ,
+                         nullptr,
+                           OPEN_EXISTING,
+                             FILE_ATTRIBUTE_NORMAL |
+                             FILE_FLAG_SEQUENTIAL_SCAN,
+                               nullptr );
+
+    DWORD size = 0UL;
+    DWORD read = 0UL;
+
+    if (hTexFile != INVALID_HANDLE_VALUE) {
+                size = GetFileSize (hTexFile, nullptr);
+      load->pSrcData = new uint8_t [size];
+
+      if (load->pSrcData != nullptr) {
+        ReadFile (hTexFile, load->pSrcData, size, &read, nullptr);
+
+        load->SrcDataSize = read;
+
+        if (streamed) {
+          SetThreadPriority ( GetCurrentThread (),
+                                THREAD_PRIORITY_BELOW_NORMAL |
+                                THREAD_MODE_BACKGROUND_BEGIN );
+        }
+
+        hr = D3DXCreateTextureFromFileInMemoryEx_Original (
+          load->pDevice,
+            load->pSrcData, load->SrcDataSize,
+              D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT,
+                0, D3DFMT_FROM_FILE,
+                  D3DPOOL_DEFAULT,
+                    D3DX_DEFAULT, D3DX_DEFAULT,
+                      0,
+                        &img_info, nullptr,
+                          &load->pSrc );
+
+        delete [] load->pSrcData;
+        load->pSrcData = nullptr;
+      } else {
+        // OUT OF MEMORY ?!
+      }
+
+      CloseHandle (hTexFile);
+    }
+  }
+
+  //
+  // Load:  From (Compressed) Archive (.7z or .zip)
+  //
+  else {
+    size_t       read = 0UL;
+    size_t       size = injectable_textures [load->checksum].size;
+
+    struct archive       *a;
+    struct archive_entry *entry;
+    int                   r, tex_count = 0;
+
+    if (streamed) {
+      SetThreadPriority ( GetCurrentThread (),
+                            THREAD_PRIORITY_LOWEST |
+                            THREAD_MODE_BACKGROUND_BEGIN );
+    }
+
+    a = archive_read_new ();
+
+    archive_read_support_filter_all (a);
+    archive_read_support_format_all (a);
+
+    r =
+      archive_read_open_filename_w (
+        a,
+          archives [injectable_textures [load->checksum].archive].c_str (),
+            10240 );
+
+    if (r == ARCHIVE_OK) {
+      int fileno = 0;
+
+      while (archive_read_next_header (a, &entry) == ARCHIVE_OK) {
+        if (fileno == injectable_textures [load->checksum].fileno) {
+          if ((load->pSrcData = new uint8_t [size])) {
+            bool wait = true;
+
+            while (wait) {
+              DWORD dwResult = WAIT_OBJECT_0;
+
+              if (streamed) {
+                dwResult =
+                  WaitForSingleObject ( decomp_semaphore, INFINITE );
+              }
+
+              switch (dwResult) 
+              {
+              case WAIT_OBJECT_0:
+                read = archive_read_data (a, load->pSrcData, size);
+
+                ReleaseSemaphore (decomp_semaphore, 1, nullptr);
+                wait = false;
+
+                load->SrcDataSize = read;
+
+                hr = D3DXCreateTextureFromFileInMemoryEx_Original (
+                  load->pDevice,
+                    load->pSrcData, load->SrcDataSize,
+                      D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT,
+                        0, D3DFMT_FROM_FILE,
+                          D3DPOOL_DEFAULT,
+                            D3DX_DEFAULT, D3DX_DEFAULT,
+                              0,
+                                &img_info, nullptr,
+                                  &load->pSrc );
+
+                delete [] load->pSrcData;
+                load->pSrcData = nullptr;
+                break; 
+
+              default://case WAIT_TIMEOUT:
+                Sleep (4UL);
+                break; 
+              }
+            }
+          }
+          break;
+        }
+
+        archive_read_data_skip (a);
+        ++fileno;
+      }
+
+      archive_read_finish (a);
+    }
+  }
+
+  if (streamed) {
+    SetThreadPriority ( GetCurrentThread (),
+                          THREAD_MODE_BACKGROUND_END );
+  }
+
+  return hr;
+}
+
 DWORD
 WINAPI
 TextureStreamThread (LPVOID user)
@@ -1311,134 +1469,10 @@ TextureStreamThread (LPVOID user)
   {
     start_load ();
     {
-      D3DXIMAGE_INFO img_info;
-
-      HRESULT hr = E_FAIL;
-
-      if (injectable_textures [pStream->checksum].archive == -1) {
-      // If No Archivve
-      HANDLE hTexFile =
-        CreateFile ( pStream->wszFilename,
-                       GENERIC_READ,
-                         FILE_SHARE_READ,
-                           nullptr,
-                             OPEN_EXISTING,
-                               FILE_ATTRIBUTE_NORMAL |
-                               FILE_FLAG_SEQUENTIAL_SCAN,
-                                 nullptr );
-
-      DWORD size = 0UL;
-      DWORD read = 0UL;
-
-      if (hTexFile != INVALID_HANDLE_VALUE) {
-                  size = GetFileSize (hTexFile, nullptr);
-        pStream->pSrcData = new uint8_t [size];
-
-        if (pStream->pSrcData != nullptr) {
-          ReadFile (hTexFile, pStream->pSrcData, size, &read, nullptr);
-
-          pStream->SrcDataSize = read;
-
-          hr = D3DXCreateTextureFromFileInMemoryEx_Original (
-            pStream->pDevice,
-              pStream->pSrcData, pStream->SrcDataSize,
-                D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT,
-                  0, D3DFMT_FROM_FILE,
-                    D3DPOOL_DEFAULT,
-                      D3DX_DEFAULT, D3DX_DEFAULT,
-                        0,
-                          &img_info, nullptr,
-                            &pStream->pSrc );
-
-          delete [] pStream->pSrcData;
-          pStream->pSrcData = nullptr;
-        } else {
-          // OUT OF MEMORY ?!
-        }
-
-        CloseHandle (hTexFile);
-      }
-      } else {
-        SetThreadPriority ( GetCurrentThread (),
-                              THREAD_PRIORITY_LOWEST );
-
-        size_t       read = 0UL;
-        size_t       size = injectable_textures [pStream->checksum].size;
-
-        struct archive       *a;
-        struct archive_entry *entry;
-        int                   r, tex_count = 0;
-
-        a = archive_read_new ();
-
-        archive_read_support_filter_all (a);
-        archive_read_support_format_all (a);
-
-        r =
-          archive_read_open_filename_w (
-            a,
-              archives [injectable_textures [pStream->checksum].archive].c_str (),
-                10240 );
-
-        if (r == ARCHIVE_OK) {
-          int fileno = 0;
-
-          while (archive_read_next_header (a, &entry) == ARCHIVE_OK) {
-            if (fileno == injectable_textures [pStream->checksum].fileno) {
-              if ((pStream->pSrcData = new uint8_t [size])) {
-                bool wait = true;
-
-                while (wait) {
-                  DWORD dwResult =
-                    WaitForSingleObject ( decomp_semaphore, 1UL );
-
-                  switch (dwResult) 
-                  {
-                  case WAIT_OBJECT_0: 
-                    read = archive_read_data (a, pStream->pSrcData, size);
-
-                    ReleaseSemaphore (decomp_semaphore, 1, nullptr);
-                    wait = false;
-
-                    pStream->SrcDataSize = read;
-
-                    hr = D3DXCreateTextureFromFileInMemoryEx_Original (
-                      pStream->pDevice,
-                        pStream->pSrcData, pStream->SrcDataSize,
-                          D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT,
-                            0, D3DFMT_FROM_FILE,
-                              D3DPOOL_DEFAULT,
-                                D3DX_DEFAULT, D3DX_DEFAULT,
-                                  0,
-                                    &img_info, nullptr,
-                                      &pStream->pSrc );
-
-                    delete [] pStream->pSrcData;
-                    pStream->pSrcData = nullptr;
-                    break; 
-
-                  default://case WAIT_TIMEOUT:
-                    Sleep (4UL);
-                    break; 
-                  }
-                }
-              }
-              break;
-            }
-
-            archive_read_data_skip (a);
-            ++fileno;
-          }
-
-          archive_read_finish (a);
-        }
-      }
-
-      if (SUCCEEDED (hr)) {
+      if (SUCCEEDED (InjectTexture (pStream)))
         add_finished_load (pStream);
-      } else {
+      else
         cancel_load ();
-      }
     }
   }
   finish_stream (pStream);
@@ -1663,7 +1697,16 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   // Injection would recurse slightly and cause impossible to diagnose reference counting problems
   //   with texture caching if we did not check for this!
   if (inject_thread) {
-    return D3DXCreateTextureFromFileInMemoryEx_Original (pDevice, pSrcData, SrcDataSize, Width, Height, MipLevels, Usage, Format, Pool, Filter, MipFilter, ColorKey, pSrcInfo, pPalette, ppTexture);
+    return D3DXCreateTextureFromFileInMemoryEx_Original (
+      pDevice,
+        pSrcData, SrcDataSize,
+          Width, Height, MipLevels,
+            Usage,
+              Format,
+                Pool,
+                  Filter, MipFilter, ColorKey,
+                    pSrcInfo, pPalette,
+                      ppTexture );
   }
 
   // Performance statistics for caching system
@@ -1751,26 +1794,24 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     tex_log.LogEx ( true, L"[Inject Tex] Injectable texture for checksum (%08x)... ",
                       checksum );
 
-    tsf_tex_record_s record;
-    record.method = DontCare;//Streaming;
+    tsf_tex_record_s record = injectable_textures [checksum];
 
-    if (record.method == DontCare) {
-      _swprintf ( wszInjectFileName, L"%s\\inject\\textures\\streaming\\%08x%s",
-                    TSFIX_TEXTURE_DIR,
-                      checksum,
-                        TSFIX_TEXTURE_EXT );
+    if (record.method == DontCare)
       record.method = Streaming;
+
+    // If -1, load from disk...
+    if (record.archive == -1) {
+      if (record.method == Streaming)
+        _swprintf ( wszInjectFileName, L"%s\\inject\\textures\\streaming\\%08x%s",
+                      TSFIX_TEXTURE_DIR,
+                        checksum,
+                          TSFIX_TEXTURE_EXT );
+      else if (record.method == Blocking)
+        _swprintf ( wszInjectFileName, L"%s\\inject\\textures\\blocking\\%08x%s",
+                      TSFIX_TEXTURE_DIR,
+                        checksum,
+                          TSFIX_TEXTURE_EXT );
     }
-    else if (record.method == Streaming)
-      _swprintf ( wszInjectFileName, L"textures/streaming/%08x%s",
-                    //TSFIX_TEXTURE_DIR,
-                      checksum,
-                        TSFIX_TEXTURE_EXT );
-    else if (record.method == Blocking)
-      _swprintf ( wszInjectFileName, L"textures/blocking/%08x%s",
-                    //TSFIX_TEXTURE_DIR,
-                      checksum,
-                        TSFIX_TEXTURE_EXT );
 
     load_op           = new tsf_tex_load_s;
     load_op->pDevice  = pDevice;
@@ -1788,106 +1829,125 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
         tex_log.LogEx ( false, L"streaming\n" );
       else
         tex_log.LogEx ( false, L"in-flight already\n" );
-    }
-
-    else {
-      LARGE_INTEGER start_inject, end_inject;
-
-      QueryPerformanceCounter_Original (&start_inject);
-
-      // TODO: Critical Section Guard
-      inject_tids.insert (GetCurrentThreadId ());
-
-      hr = D3DXCreateTextureFromFileEx (
-        pDevice,
-          load_op->wszFilename,//wszFileName,
-            0, 0, 0,
-              Usage, D3DFMT_UNKNOWN,
-                Pool,
-                  D3DX_DEFAULT, D3DX_DEFAULT,
-                    ColorKey,
-                      nullptr,
-                        pPalette,
-                          ppTexture );
-
-      inject_tids.erase (GetCurrentThreadId ());
-
-      QueryPerformanceCounter_Original (&end_inject);
-      //tex_log.LogEx (false, L"failed (%s)\n", hr);
-      delete load_op;
-      load_op = nullptr;
+    } else {
+      tex_log.LogEx ( false, L"blocking\n" );
     }
   }
 
-  // Any previous attempts to inject texture failed, so load it the normal way
-  if (hr == E_FAIL) {
-    //tex_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
-    hr =
-      D3DXCreateTextureFromFileInMemoryEx_Original ( pDevice,
-                                                       pSrcData,         SrcDataSize,
-                                                         Width,          Height,    MipLevels,
-                                                           Usage,        Format,    Pool,
-                                                             Filter,     MipFilter, ColorKey,
-                                                               pSrcInfo, pPalette,
-                                                                 ppTexture );
+  //tex_log.Log (L"D3DXCreateTextureFromFileInMemoryEx (... MipLevels=%lu ...)", MipLevels);
+  hr =
+    D3DXCreateTextureFromFileInMemoryEx_Original ( pDevice,
+                                                     pSrcData,         SrcDataSize,
+                                                       Width,          Height,    MipLevels,
+                                                         Usage,        Format,    Pool,
+                                                           Filter,     MipFilter, ColorKey,
+                                                             pSrcInfo, pPalette,
+                                                               ppTexture );
 
-    if (SUCCEEDED (hr)) {
-      new ISKTextureD3D9 (ppTexture, SrcDataSize);
+  if (SUCCEEDED (hr)) {
+    new ISKTextureD3D9 (ppTexture, SrcDataSize);
 
-      if (load_op != nullptr) {
-        load_op->SrcDataSize =
-          injectable_textures [checksum].size;
+    if (load_op != nullptr && load_op->type == tsf_tex_load_s::Stream) {
+      load_op->SrcDataSize =
+        injectable_textures [checksum].size;
 
-        load_op->pDest = *ppTexture;
-        EnterCriticalSection        (&cs_tex_stream);
+      load_op->pDest = *ppTexture;
+      EnterCriticalSection        (&cs_tex_stream);
 
-        if (is_streaming (load_op->checksum)) {
-          // Remap the output of the in-flight texture
-          textures_in_flight [load_op->checksum]->pDest =
-            *ppTexture;
+      if (is_streaming (load_op->checksum)) {
+        // Remap the output of the in-flight texture
+        textures_in_flight [load_op->checksum]->pDest =
+          *ppTexture;
 
-          if (tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)  != nullptr) {
-            for (int i = 0; i < tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)->refs; i++) {
-              (*ppTexture)->AddRef ();
-            }
+        if (tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)  != nullptr) {
+          for (int i = 0; i < tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)->refs; i++) {
+            (*ppTexture)->AddRef ();
           }
-        } else {
-          textures_in_flight.insert ( std::make_pair ( load_op->checksum,
-                                       load_op ) );
-          textures_to_stream.push   (load_op);
-          CreateThread              (nullptr, 0, TextureStreamThread, nullptr, 0, nullptr);
         }
-
-        LeaveCriticalSection        (&cs_tex_stream);
       }
 
-// Temporarily disabled while mipmap-related issues are debugged...
-#if 0
-      else if (resample) {
-        load_op              = new tsf_tex_load_s;
-        load_op->pDevice     = pDevice;
-        load_op->checksum    = checksum;
-        load_op->type        = tsf_tex_load_s::Resample;
-        load_op->pSrcData    = new uint8_t [SrcDataSize];
-        load_op->SrcDataSize = SrcDataSize;
-        memcpy (load_op->pSrcData, pSrcData, SrcDataSize);
-
-        load_op->pDest = *ppTexture;
-        load_op->pDest->AddRef (); // Don't delete this texture until we
-                                   //   load the real one!
-
-        EnterCriticalSection      (&cs_tex_resample);
-        textures_to_resample.push (load_op);
-        CreateThread              (nullptr, 0, TextureResampleThread, nullptr, 0, nullptr);
-        LeaveCriticalSection      (&cs_tex_resample);
+      else {
+        textures_in_flight.insert ( std::make_pair ( load_op->checksum,
+                                     load_op ) );
+        textures_to_stream.push   (load_op);
+        CreateThread              (nullptr, 0, TextureStreamThread, nullptr, 0, nullptr);
       }
-#endif
+
+      LeaveCriticalSection        (&cs_tex_stream);
     }
 
-    else if (load_op != nullptr) {
+    //
+    // TODO:  Actually stream these, but block if the game tries to call SetTexture (...)
+    //          while the texture is in-flight.
+    //
+    else if (load_op != nullptr && load_op->type == tsf_tex_load_s::Immediate) {
+      QueryPerformanceFrequency        (&load_op->freq);
+      QueryPerformanceCounter_Original (&load_op->start);
+
+      EnterCriticalSection (&cs_tex_inject);
+      inject_tids.insert   (GetCurrentThreadId ());
+      LeaveCriticalSection (&cs_tex_inject);
+
+      load_op->pDest = *ppTexture;
+
+      hr = InjectTexture (load_op);
+
+      EnterCriticalSection (&cs_tex_inject);
+      inject_tids.erase    (GetCurrentThreadId ());
+      LeaveCriticalSection (&cs_tex_inject);
+
+      QueryPerformanceCounter_Original (&load_op->end);
+
+      if (SUCCEEDED (hr)) {
+        tex_log.Log ( L"[Inject Tex] Finished synchronous texture %08x (%5.2f MiB in %9.4f ms)",
+                        load_op->checksum,
+                          (double)load_op->SrcDataSize / (1024.0f * 1024.0f),
+                            1000.0f * (double)(load_op->end.QuadPart - load_op->start.QuadPart) /
+                                      (double) load_op->freq.QuadPart );
+        ISKTextureD3D9* pSKTex =
+          (ISKTextureD3D9 *)*ppTexture;
+
+        pSKTex->pTexOverride  = load_op->pSrc;
+        pSKTex->override_size = load_op->SrcDataSize;
+
+        pSKTex->last_used     = load_op->end;
+
+        tsf::RenderFix::tex_mgr.addInjected (load_op->SrcDataSize);
+      } else {
+        tex_log.Log ( L"[Inject Tex] *** FAILED synchronous texture %08x",
+                        load_op->checksum );
+      }
+
       delete load_op;
       load_op = nullptr;
     }
+
+// Temporarily disabled while mipmap-related issues are debugged...
+#if 0
+    else if (resample) {
+      load_op              = new tsf_tex_load_s;
+      load_op->pDevice     = pDevice;
+      load_op->checksum    = checksum;
+      load_op->type        = tsf_tex_load_s::Resample;
+      load_op->pSrcData    = new uint8_t [SrcDataSize];
+      load_op->SrcDataSize = SrcDataSize;
+      memcpy (load_op->pSrcData, pSrcData, SrcDataSize);
+
+      load_op->pDest = *ppTexture;
+      load_op->pDest->AddRef (); // Don't delete this texture until we
+                                 //   load the real one!
+
+      EnterCriticalSection      (&cs_tex_resample);
+      textures_to_resample.push (load_op);
+      CreateThread              (nullptr, 0, TextureResampleThread, nullptr, 0, nullptr);
+      LeaveCriticalSection      (&cs_tex_resample);
+    }
+#endif
+  }
+
+  else if (load_op != nullptr) {
+    delete load_op;
+    load_op = nullptr;
   }
 
   QueryPerformanceCounter_Original (&end);
@@ -2160,35 +2220,37 @@ tsf::RenderFix::TextureManager::Init (void)
               int fileno = 0;
 
               while (archive_read_next_header (a, &entry) == ARCHIVE_OK) {
-                wchar_t* wszName =
+                wchar_t* wszFullName =
                   _wcslwr (_wcsdup (archive_entry_pathname_w (entry)));
 
-                if ( wcsstr ( wszName, TSFIX_TEXTURE_EXT) ) {
+                if ( wcsstr ( wszFullName, TSFIX_TEXTURE_EXT) ) {
                   tsf_load_method_t method = DontCare;
 
                   uint32_t checksum;
                   wchar_t* wszUnqualifiedEntry =
-                    wszName + wcslen (wszName);
+                    wszFullName + wcslen (wszFullName);
 
                   // Strip the path
-                  while (wszUnqualifiedEntry >= wszName && *wszUnqualifiedEntry != L'/')
+                  while (  wszUnqualifiedEntry >= wszFullName &&
+                          *wszUnqualifiedEntry != L'/')
                     wszUnqualifiedEntry--;
 
-                  if (*wszUnqualifiedEntry == L'/') ++wszUnqualifiedEntry;
+                  if (*wszUnqualifiedEntry == L'/')
+                    ++wszUnqualifiedEntry;
 
                   swscanf (wszUnqualifiedEntry, L"%x" TSFIX_TEXTURE_EXT, &checksum);
 
                   // Already got this texture...
                   if (injectable_textures.count (checksum)) {
-                    free (wszName);
-                    archive_entry_free     (entry);
+                    free (wszFullName);
                     archive_read_data_skip (a);
+                    ++fileno;
                     continue;
                   }
 
-                  if (wcsstr (wszName, L"streaming"))
+                  if (wcsstr (wszFullName, L"streaming"))
                     method = Streaming;
-                  else if (wcsstr (wszName, L"blocking"))
+                  else if (wcsstr (wszFullName, L"blocking"))
                     method = Blocking;
 
                   tsf_tex_record_s rec;
@@ -2205,7 +2267,7 @@ tsf::RenderFix::TextureManager::Init (void)
                   liSize.QuadPart += rec.size;
                 }
 
-                free (wszName);
+                free (wszFullName);
 
                 archive_read_data_skip (a);
                 ++fileno;
