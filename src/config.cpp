@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.8.1";
+std::wstring TSFIX_VER_STR = L"0.9.0t3";
 tsf_config_s config;
 
 struct {
@@ -68,14 +68,10 @@ struct {
 #if 0
   tsf::ParameterStringW* dump_ext;
 #endif
-  tsf::ParameterBool*    optimize_ui;
   tsf::ParameterBool*    log;
-  tsf::ParameterBool*    uncompressed;
   tsf::ParameterBool*    full_mipmaps;
-#if 0
-  tsf::ParameterInt*     mipmap_count;
-#endif
-//  tsf::ParameterBool*    cleanup;
+  tsf::ParameterInt*     max_cache_size;
+  tsf::ParameterInt*     max_decomp_jobs;
 } textures;
 
 struct {
@@ -318,15 +314,25 @@ TSFix_LoadConfig (std::wstring name) {
       L"TSFix.Textures",
         L"Dump" );
 
-  textures.optimize_ui =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"Optimize UI textures")
+  textures.max_cache_size =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"Maximum Size of Texture Cache")
       );
-  textures.optimize_ui->register_to_ini (
+  textures.max_cache_size->register_to_ini (
     dll_ini,
       L"TSFix.Textures",
-        L"OptimizeUI" );
+        L"MaxCacheInMiB" );
+
+  textures.max_decomp_jobs =
+    static_cast <tsf::ParameterInt *>
+      (g_ParameterFactory.create_parameter <int> (
+        L"Maximum Number of Textures to Decompress Simultaneously")
+      );
+  textures.max_decomp_jobs->register_to_ini (
+    dll_ini,
+      L"TSFix.Textures",
+        L"MaxDecompressionJobs" );
 
   textures.log =
     static_cast <tsf::ParameterBool *>
@@ -337,16 +343,6 @@ TSFix_LoadConfig (std::wstring name) {
     dll_ini,
       L"TSFix.Textures",
         L"Log" );
-
-  textures.uncompressed =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"Do not compress texture data")
-      );
-  textures.uncompressed->register_to_ini (
-    dll_ini,
-      L"TSFix.Textures",
-        L"Uncompressed" );
 
   textures.full_mipmaps =
     static_cast <tsf::ParameterBool *>
@@ -508,16 +504,11 @@ TSFix_LoadConfig (std::wstring name) {
   if (textures.log->load ())
     config.textures.log = textures.log->get_value ();
 
-  if (textures.optimize_ui->load ())
-    config.textures.optimize_ui = textures.optimize_ui->get_value ();
+  if (textures.max_cache_size->load ())
+    config.textures.max_cache_in_mib = textures.max_cache_size->get_value ();
 
-  if (textures.uncompressed->load ())
-    config.textures.uncompressed = textures.uncompressed->get_value ();
-
-#if 0
-  if (textures.cleanup->load ())
-    config.textures.cleanup = textures.cleanup->get_value ();
-#endif
+  if (textures.max_decomp_jobs->load ())
+    config.textures.max_decomp_jobs = textures.max_decomp_jobs->get_value ();
 
   // When this option is set, it is essential to force 16x AF on
   if (config.textures.full_mipmaps) {
@@ -617,28 +608,23 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   //textures.max_anisotropy->set_value (config.textures.max_anisotropy);
   //textures.max_anisotropy->store     ();
 
-  textures.cache->set_value          (config.textures.cache);
-  textures.cache->store              ();
+  textures.cache->set_value           (config.textures.cache);
+  textures.cache->store               ();
 
-  textures.dump->set_value           (config.textures.dump);
-  textures.dump->store               ();
+  textures.dump->set_value            (config.textures.dump);
+  textures.dump->store                ();
 
-  textures.log->set_value            (config.textures.log);
-  textures.log->store                ();
+  textures.log->set_value             (config.textures.log);
+  textures.log->store                 ();
 
-  textures.optimize_ui->set_value    (config.textures.optimize_ui);
-  textures.optimize_ui->store        ();
+  textures.max_cache_size->set_value  (config.textures.max_cache_in_mib);
+  textures.max_cache_size->store      ();
 
-  textures.uncompressed->set_value   (config.textures.uncompressed);
-  textures.uncompressed->store       ();
+  textures.full_mipmaps->set_value    (config.textures.full_mipmaps);
+  textures.full_mipmaps->store        ();
 
-  textures.full_mipmaps->set_value   (config.textures.full_mipmaps);
-  textures.full_mipmaps->store       ();
-
-#if 0
-  textures.cleanup->set_value        (config.textures.cleanup);
-  textures.cleanup->store            ();
-#endif
+  textures.max_decomp_jobs->set_value (config.textures.max_decomp_jobs);
+  textures.max_decomp_jobs->store     ();
 
   input.block_left_alt->set_value  (config.input.block_left_alt);
   input.block_left_alt->store      ();

@@ -40,130 +40,6 @@
 
 #include "input.h"
 
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// General Utility Functions
-//
-///////////////////////////////////////////////////////////////////////////////
-void
-tsf::InputManager::FixAltTab (void)
-{
-  static bool init = false;
-  //
-  // Make sure the game does not think that Alt or Tab are stuck
-  //
-  static INPUT kbd [6];
-
-  if (! init) {
-    kbd [0].type       = INPUT_KEYBOARD;
-    kbd [0].ki.wVk     = VK_MENU;
-    kbd [0].ki.dwFlags = 0;
-    kbd [0].ki.time    = 0;
-    kbd [1].type       = INPUT_KEYBOARD;
-    kbd [1].ki.wVk     = VK_MENU;
-    kbd [1].ki.dwFlags = KEYEVENTF_KEYUP;
-    kbd [1].ki.time    = 0;
-
-    kbd [2].type       = INPUT_KEYBOARD;
-    kbd [2].ki.wVk     = VK_TAB;
-    kbd [2].ki.dwFlags = 0;
-    kbd [2].ki.time    = 0;
-    kbd [3].type       = INPUT_KEYBOARD;
-    kbd [3].ki.wVk     = VK_TAB;
-    kbd [3].ki.dwFlags = KEYEVENTF_KEYUP;
-    kbd [3].ki.time    = 0;
-
-    init = true;
-  }
-
-  SendInput (4, kbd, sizeof INPUT);
-}
-
-#if 0
-void
-TSF_ComputeAspectCoeffsEx (float& x, float& y, float& xoff, float& yoff, bool force=false)
-{
-  yoff = 0.0f;
-  xoff = 0.0f;
-
-  x = 1.0f;
-  y = 1.0f;
-
-  if (! (config.render.aspect_correction || force))
-    return;
-
-  config.render.aspect_ratio = tsf::RenderFix::width / tsf::RenderFix::height;
-  float rescale              = ((16.0f / 9.0f) / config.render.aspect_ratio);
-
-  // Wider
-  if (config.render.aspect_ratio > (16.0f / 9.0f)) {
-    int width = (16.0f / 9.0f) * tsf::RenderFix::height;
-    int x_off = (tsf::RenderFix::width - width) / 2;
-
-    x    = (float)tsf::RenderFix::width / (float)width;
-    xoff = x_off;
-
-#if 0
-    // Calculated height will be greater than we started with, so work
-    //  in the wrong direction here...
-    int height = (9.0f / 16.0f) * tsf::RenderFix::width;
-    y          = (float)tsf::RenderFix::height / (float)height;
-#endif
-
-    yoff = config.scaling.mouse_y_offset;
-  } else {
-// No fix is needed in this direction
-#if 0
-    int height = (9.0f / 16.0f) * tsf::RenderFix::width;
-    int y_off  = (tsf::RenderFix::height - height) / 2;
-
-    y    = (float)tsf::RenderFix::height / (float)height;
-    yoff = y_off;
-#endif
-  }
-}
-#endif
-
-#if 0
-// Returns the original cursor position and stores the new one in pPoint
-POINT
-tsf::InputManager::CalcCursorPos (LPPOINT pPoint, bool reverse)
-{
-  // Bail-out early if aspect ratio correction is disabled, or if the
-  //   aspect ratio is less than or equal to 16:9.
-  if  (! ( config.render.aspect_correction &&
-           config.render.aspect_ratio > (16.0f / 9.0f) ) )
-    return *pPoint;
-
-  float xscale, yscale;
-  float xoff,   yoff;
-
-  TSF_ComputeAspectCoeffsEx (xscale, yscale, xoff, yoff);
-
-  yscale = xscale;
-
-  if (! config.render.center_ui) {
-    xscale = 1.0f;
-    xoff   = 0.0f;
-  }
-
-  // Adjust system coordinates to game's (broken aspect ratio) coordinates
-  if (! reverse) {
-    pPoint->x = ((float)pPoint->x - xoff) * xscale;
-    pPoint->y = ((float)pPoint->y - yoff) * yscale;
-  }
-
-  // Adjust game's (broken aspect ratio) coordinates to system coordinates
-  else {
-    pPoint->x = ((float)pPoint->x / xscale) + xoff;
-    pPoint->y = ((float)pPoint->y / yscale) + yoff;
-  }
-
-  return *pPoint;
-}
-#endif
-
 ///////////////////////////////////////////////////////////////////////////////
 //
 // DirectInput 8
@@ -174,14 +50,6 @@ typedef HRESULT (WINAPI *IDirectInput8_CreateDevice_pfn)(
   REFGUID              rguid,
   LPDIRECTINPUTDEVICE *lplpDirectInputDevice,
   LPUNKNOWN            pUnkOuter
-);
-
-typedef HRESULT (WINAPI *DirectInput8Create_pfn)(
-  HINSTANCE  hinst,
-  DWORD      dwVersion,
-  REFIID     riidltf,
-  LPVOID    *ppvOut,
-  LPUNKNOWN  punkOuter
 );
 
 typedef HRESULT (WINAPI *IDirectInputDevice8_GetDeviceState_pfn)(
@@ -196,8 +64,6 @@ typedef HRESULT (WINAPI *IDirectInputDevice8_SetCooperativeLevel_pfn)(
   DWORD                dwFlags
 );
 
-DirectInput8Create_pfn
-        DirectInput8Create_Original                      = nullptr;
 LPVOID
         DirectInput8Create_Hook                          = nullptr;
 IDirectInput8_CreateDevice_pfn
@@ -248,11 +114,6 @@ struct di8_keyboard_s {
   uint8_t             state [512]; // Handle overrun just in case
 } _dik;
 
-struct di8_mouse_s {
-  LPDIRECTINPUTDEVICE pDev = nullptr;
-  DIMOUSESTATE2       state;
-} _dim;
-
 // I don't care about joysticks, let them continue working while
 //   the window does not have focus...
 
@@ -269,45 +130,31 @@ IDirectInputDevice8_GetDeviceState_Detour ( LPDIRECTINPUTDEVICE        This,
                     cbData,
                       lpvData );
 
-  // For input faking (keyboard)
-  if ((! tsf::window.active) && config.render.allow_background && This == _dik.pDev) {
-    memcpy (lpvData, _dik.state, cbData);
-    return S_OK;
-  }
-
-  // For input faking (mouse)
-  if ((! tsf::window.active) && config.render.allow_background && This == _dim.pDev) {
-    memcpy (lpvData, &_dim.state, cbData);
-    return S_OK;
-  }
-
   HRESULT hr;
   hr = IDirectInputDevice8_GetDeviceState_Original ( This,
                                                        cbData,
                                                          lpvData );
 
   if (SUCCEEDED (hr)) {
-    if (tsf::window.active && This == _dim.pDev) {
-//
-// This is only for mouselook, etc. That stuff works fine without aspect ratio correction.
-//
-//#define FIX_DINPUT8_MOUSE
-#ifdef FIX_DINPUT8_MOUSE
-      if (cbData == sizeof (DIMOUSESTATE) || cbData == sizeof (DIMOUSESTATE2)) {
-        POINT mouse_pos { ((DIMOUSESTATE *)lpvData)->lX,
-                          ((DIMOUSESTATE *)lpvData)->lY };
+    // For input faking (keyboard)
+    if (config.render.allow_background && This == _dik.pDev) {
+      if (tsf::window.active) {
+        memcpy (_dik.state, lpvData, cbData);
+      } else {
+        ((uint8_t *)lpvData) [DIK_LALT]   = 0x0;
+        ((uint8_t *)lpvData) [DIK_RALT]   = 0x0;
+        ((uint8_t *)lpvData) [DIK_TAB]    = 0x0;
+        ((uint8_t *)lpvData) [DIK_ESCAPE] = 0x0;
+        ((uint8_t *)lpvData) [DIK_UP]     = 0x0;
+        ((uint8_t *)lpvData) [DIK_DOWN]   = 0x0;
+        ((uint8_t *)lpvData) [DIK_LEFT]   = 0x0;
+        ((uint8_t *)lpvData) [DIK_RIGHT]  = 0x0;
+        ((uint8_t *)lpvData) [DIK_RETURN] = 0x0;
+        ((uint8_t *)lpvData) [DIK_LMENU]  = 0x0;
+        ((uint8_t *)lpvData) [DIK_RMENU]  = 0x0;
 
-        tsf::InputManager::CalcCursorPos (&mouse_pos);
-
-        ((DIMOUSESTATE *)lpvData)->lX = mouse_pos.x;
-        ((DIMOUSESTATE *)lpvData)->lY = mouse_pos.y;
+        memcpy (lpvData, _dik.state, cbData);
       }
-#endif
-      memcpy (&_dim.state, lpvData, cbData);
-    }
-
-    else if (tsf::window.active && This == _dik.pDev) {
-      memcpy (&_dik.state, lpvData, cbData);
     }
   }
 
@@ -361,98 +208,85 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
                                                            pUnkOuter ) );
 
   if (SUCCEEDED (hr)) {
-#if 1
-      void** vftable = *(void***)*lplpDirectInputDevice;
+    void** vftable = *(void***)*lplpDirectInputDevice;
 
-// We do not need to hook this for ToS
-#if 0
-      TSFix_CreateFuncHook ( L"IDirectInputDevice8::GetDeviceState",
-                             vftable [9],
-                             IDirectInputDevice8_GetDeviceState_Detour,
-                   (LPVOID*)&IDirectInputDevice8_GetDeviceState_Original );
+    TSFix_CreateFuncHook ( L"IDirectInputDevice8::GetDeviceState",
+                           vftable [9],
+                           IDirectInputDevice8_GetDeviceState_Detour,
+                 (LPVOID*)&IDirectInputDevice8_GetDeviceState_Original );
 
-      TSFix_EnableHook (vftable [9]);
-#endif
+    TSFix_EnableHook (vftable [9]);
 
-      TSFix_CreateFuncHook ( L"IDirectInputDevice8::SetCooperativeLevel",
-                             vftable [13],
-                             IDirectInputDevice8_SetCooperativeLevel_Detour,
-                   (LPVOID*)&IDirectInputDevice8_SetCooperativeLevel_Original );
+    TSFix_CreateFuncHook ( L"IDirectInputDevice8::SetCooperativeLevel",
+                           vftable [13],
+                           IDirectInputDevice8_SetCooperativeLevel_Detour,
+                 (LPVOID*)&IDirectInputDevice8_SetCooperativeLevel_Original );
 
-      TSFix_EnableHook (vftable [13]);
-#else
-     DI8_VIRTUAL_OVERRIDE ( lplpDirectInputDevice, 9,
-                            L"IDirectInputDevice8::GetDeviceState",
-                            IDirectInputDevice8_GetDeviceState_Detour,
-                            IDirectInputDevice8_GetDeviceState_Original,
-                            IDirectInputDevice8_GetDeviceState_pfn );
+    TSFix_EnableHook (vftable [13]);
 
-     DI8_VIRTUAL_OVERRIDE ( lplpDirectInputDevice, 13,
-                            L"IDirectInputDevice8::SetCooperativeLevel",
-                            IDirectInputDevice8_SetCooperativeLevel_Detour,
-                            IDirectInputDevice8_SetCooperativeLevel_Original,
-                            IDirectInputDevice8_SetCooperativeLevel_pfn );
-#endif
-
-    if (rguid == GUID_SysMouse)
-      _dim.pDev = *lplpDirectInputDevice;
-    else if (rguid == GUID_SysKeyboard)
+    if (rguid == GUID_SysKeyboard)
       _dik.pDev = *lplpDirectInputDevice;
   }
 
   return hr;
 }
 
-HRESULT
-WINAPI
-DirectInput8Create_Detour ( HINSTANCE  hinst,
-                            DWORD      dwVersion,
-                            REFIID     riidltf,
-                            LPVOID    *ppvOut,
-                            LPUNKNOWN  punkOuter )
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// General Utility Functions
+//
+///////////////////////////////////////////////////////////////////////////////
+void
+tsf::InputManager::FixAltTab (void)
 {
-  dll_log.Log ( L"[   Input  ][!] DirectInput8Create (0x%X, %lu, ..., %08Xh, %08Xh)",
-                  hinst, dwVersion, /*riidltf,*/ ppvOut, punkOuter );
+  static bool init = false;
+  //
+  // Make sure the game does not think that Alt or Tab are stuck
+  //
+  static INPUT kbd [6];
 
-  HRESULT hr;
-  DINPUT8_CALL (hr,
-    DirectInput8Create_Original ( hinst,
-                                    dwVersion,
-                                      riidltf,
-                                        ppvOut,
-                                          punkOuter ));
+  if (! init) {
+    kbd [0].type       = INPUT_KEYBOARD;
+    kbd [0].ki.wVk     = VK_MENU;
+    kbd [0].ki.dwFlags = 0;
+    kbd [0].ki.time    = 0;
+    kbd [1].type       = INPUT_KEYBOARD;
+    kbd [1].ki.wVk     = VK_MENU;
+    kbd [1].ki.dwFlags = KEYEVENTF_KEYUP;
+    kbd [1].ki.time    = 0;
 
-  if (hinst != GetModuleHandle (nullptr)) {
-    dll_log.Log (L"[   Input  ] >> A third-party DLL is manipulating DirectInput 8; will not hook.");
-    return hr;
+    kbd [2].type       = INPUT_KEYBOARD;
+    kbd [2].ki.wVk     = VK_TAB;
+    kbd [2].ki.dwFlags = 0;
+    kbd [2].ki.time    = 0;
+    kbd [3].type       = INPUT_KEYBOARD;
+    kbd [3].ki.wVk     = VK_TAB;
+    kbd [3].ki.dwFlags = KEYEVENTF_KEYUP;
+    kbd [3].ki.time    = 0;
+
+    init = true;
   }
 
-  // Avoid multiple hooks for third-party compatibility
-  static bool hooked = false;
+  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
+  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
+  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
+  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
+  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
 
-  if (SUCCEEDED (hr) && (! hooked)) {
-#if 1
-    void** vftable = *(void***)*ppvOut;
 
-    TSFix_CreateFuncHook ( L"IDirectInput8::CreateDevice",
-                           vftable [3],
-                           IDirectInput8_CreateDevice_Detour,
-                 (LPVOID*)&IDirectInput8_CreateDevice_Original );
-
-    TSFix_EnableHook (vftable [3]);
-#else
-     DI8_VIRTUAL_OVERRIDE ( ppvOut, 3,
-                            L"IDirectInput8::CreateDevice",
-                            IDirectInput8_CreateDevice_Detour,
-                            IDirectInput8_CreateDevice_Original,
-                            IDirectInput8_CreateDevice_pfn );
-#endif
-    hooked = true;
-  }
-
-  return hr;
+  ((uint8_t *)_dik.state) [DIK_LALT]   = 0x0;
+  ((uint8_t *)_dik.state) [DIK_RALT]   = 0x0;
+  ((uint8_t *)_dik.state) [DIK_TAB]    = 0x0;
+  ((uint8_t *)_dik.state) [DIK_ESCAPE] = 0x0;
+  ((uint8_t *)_dik.state) [DIK_UP]     = 0x0;
+  ((uint8_t *)_dik.state) [DIK_DOWN]   = 0x0;
+  ((uint8_t *)_dik.state) [DIK_LEFT]   = 0x0;
+  ((uint8_t *)_dik.state) [DIK_RIGHT]  = 0x0;
+  ((uint8_t *)_dik.state) [DIK_RETURN] = 0x0;
+  ((uint8_t *)_dik.state) [DIK_LMENU]  = 0x0;
+  ((uint8_t *)_dik.state) [DIK_RMENU]  = 0x0;
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -471,20 +305,10 @@ typedef SHORT (WINAPI *GetAsyncKeyState_pfn)(
   _In_ int vKey
 );
 
-typedef BOOL (WINAPI *GetCursorInfo_pfn)(
-  _Inout_ PCURSORINFO pci
-);
-
-typedef BOOL (WINAPI *GetCursorPos_pfn)(
-  _Out_ LPPOINT lpPoint
-);
 GetAsyncKeyState_pfn GetAsyncKeyState_Original = nullptr;
 GetRawInputData_pfn  GetRawInputData_Original  = nullptr;
 
-GetCursorInfo_pfn    GetCursorInfo_Original    = nullptr;
-GetCursorPos_pfn     GetCursorPos_Original     = nullptr;
 SetCursorPos_pfn     SetCursorPos_Original     = nullptr;
-
 ClipCursor_pfn       ClipCursor_Original       = nullptr;
 
 UINT
@@ -508,6 +332,11 @@ GetRawInputData_Detour (_In_      HRAWINPUT hRawInput,
     return 0;
   }
 
+  // Fixing Alt-Tab by Hooking This Is Not Possible
+  //  -- Search through the binary to find the boolean that is set when
+  //       a key is pressed (it will be somewhere after GetRawInputData (...) is
+  //          called. Reset this boolean whenever Alt+Tab happens.
+
   return size;
 }
 
@@ -517,11 +346,9 @@ GetAsyncKeyState_Detour (_In_ int vKey)
 {
 #define TSFix_ConsumeVKey(vKey) { GetAsyncKeyState_Original(vKey); return 0; }
 
-#if 0
   // Window is not active, but we are faking it...
   if ((! tsf::window.active) && config.render.allow_background)
     TSFix_ConsumeVKey (vKey);
-#endif
 
   // Block keyboard input to the game while the console is active
   if (tsf::InputManager::Hooker::getInstance ()->isVisible ()) {
@@ -555,43 +382,14 @@ ClipCursor_Detour (const RECT *lpRect)
   }
 }
 
-#if 0
-BOOL
-WINAPI
-GetCursorInfo_Detour (PCURSORINFO pci)
-{
-  BOOL ret = GetCursorInfo_Original (pci);
-
-  // Correct the cursor position for Aspect Ratio
-  if (config.render.aspect_correction && config.render.aspect_ratio > (16.0f / 9.0f)) {
-    POINT pt;
-
-    pt.x = pci->ptScreenPos.x;
-    pt.y = pci->ptScreenPos.y;
-
-    tsf::InputManager::CalcCursorPos (&pt);
-
-    pci->ptScreenPos.x = pt.x;
-    pci->ptScreenPos.y = pt.y;
-  }
-
-  return ret;
-}
-#endif
 
 BOOL
 WINAPI
 SetCursorPos_Detour (_In_ int X, _In_ int Y)
 {
-  //POINT pt { X, Y };
-  //tsf::InputManager::CalcCursorPos (&pt);
-
   // DO NOT let this stupid game capture the cursor while
   //   it is not active. UGH!
-  if (tsf::window.active)
-    return TRUE;//SetCursorPos_Original (X, Y);
-  else
-    return TRUE;
+  return TRUE;
 }
 
 // Don't care
@@ -607,21 +405,6 @@ SetPhysicalCursorPos_Detour
 {
   return TRUE;
 }
-
-#if 0
-BOOL
-WINAPI
-GetCursorPos_Detour (LPPOINT lpPoint)
-{
-  BOOL ret = GetCursorPos_Original (lpPoint);
-
-  // Correct the cursor position for Aspect Ratio
-  if (config.render.aspect_correction && config.render.aspect_ratio > (16.0f / 9.0f))
-    tsf::InputManager::CalcCursorPos (lpPoint);
-
-  return ret;
-}
-#endif
 
 typedef HRESULT (STDMETHODCALLTYPE *D3D9SetCursorPosition_pfn)
 (
@@ -664,29 +447,35 @@ HookRawInput (void)
 void
 tsf::InputManager::Init (void)
 {
-  FixAltTab ();
-
   //
   // For this game, the only reason we hook this is to block the Windows key.
   //
-  if (config.input.block_windows) {
-    //
-    // We only hook one DLL export from DInput8, all other DInput stuff is
-    //   handled through virtual function table overrides
-    //
-    TSFix_CreateDLLHook ( L"dinput8.dll", "DirectInput8Create",
-                          DirectInput8Create_Detour,
-                (LPVOID*)&DirectInput8Create_Original,
-                (LPVOID*)&DirectInput8Create_Hook );
-    TSFix_EnableHook    (DirectInput8Create_Hook);
+  CoInitializeEx (nullptr, COINIT_MULTITHREADED);
+
+  IDirectInput8A* pDInput8 = nullptr;
+  HRESULT hr =
+    CoCreateInstance ( CLSID_DirectInput8,
+                         nullptr,
+                           CLSCTX_INPROC_SERVER,
+                             IID_IDirectInput8A,
+                               (LPVOID *)&pDInput8 );
+
+  if (SUCCEEDED (hr)) {
+    void** vftable = *(void***)*&pDInput8;
+
+    TSFix_CreateFuncHook ( L"IDirectInput8::CreateDevice",
+                           vftable [3],
+                           IDirectInput8_CreateDevice_Detour,
+                 (LPVOID*)&IDirectInput8_CreateDevice_Original );
+
+    TSFix_EnableHook (vftable [3]);
+
+    pDInput8->Release ();
   }
 
   //
   // Win32 API Input Hooks
   //
-
-  // If DirectInput isn't going to hook this, we'll do it ourself
-  HookRawInput ();
 
   TSFix_CreateDLLHook ( L"user32.dll", "GetAsyncKeyState",
                         GetAsyncKeyState_Detour,
@@ -695,16 +484,6 @@ tsf::InputManager::Init (void)
   TSFix_CreateDLLHook ( L"user32.dll", "ClipCursor",
                         ClipCursor_Detour,
               (LPVOID*)&ClipCursor_Original );
-
-#if 0
-  TSFix_CreateDLLHook ( L"user32.dll", "GetCursorInfo",
-                        GetCursorInfo_Detour,
-              (LPVOID*)&GetCursorInfo_Original );
-
-  TSFix_CreateDLLHook ( L"user32.dll", "GetCursorPos",
-                        GetCursorPos_Detour,
-              (LPVOID*)&GetCursorPos_Original );
-#endif
 
   TSFix_CreateDLLHook ( L"user32.dll", "SetCursorPos",
                         SetCursorPos_Detour,
@@ -844,7 +623,6 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
   }
 
   //tsf::WindowManager::Init ();
-  ////tsf::RenderFix::hWndDevice = GetForegroundWindow ();
 
   // Defer initialization of the Window Message redirection stuff until
   //   we have an actual window!
@@ -908,6 +686,9 @@ CALLBACK
 tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam)
 {
   if (nCode == 0) {
+    // If DirectInput isn't going to hook this, we'll do it ourself
+    HookRawInput ();
+
     BYTE    vkCode   = LOWORD (wParam) & 0xFF;
     BYTE    scanCode = HIWORD (lParam) & 0x7F;
     SHORT   repeated = LOWORD (lParam);
@@ -1095,7 +876,8 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
         }
 
         else if (vkCode == 'Z' && new_press) {
-          tsf::RenderFix::tex_mgr.purge ();
+          extern bool __need_purge;
+          __need_purge = true;
         }
       }
 

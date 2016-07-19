@@ -504,7 +504,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
   }
 
   // Block the menu key from messing with stuff
-  if ( true /*config.input.block_left_alt*/ &&
+  if ( config.input.block_left_alt &&
        (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP) ) {
     // Make an exception for Alt+Enter, for fullscreen mode toggle.
     //   F4 as well for exit
@@ -517,19 +517,20 @@ DetourWindowProc ( _In_  HWND   hWnd,
     config.render.allow_background && (! tsf::window.active);
 
   // Block keyboard input to the game while the console is visible
-  if (console_visible || (background_render && uMsg != WM_SYSKEYDOWN && uMsg != WM_SYSKEYUP)) {
+  if (console_visible || (background_render && uMsg != WM_SYSKEYDOWN)) {
     // Only prevent the mouse from working while the window is in the bg
     //if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
       //return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
     if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
-      return 0;
-      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+      return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
+#if 0
     // Block RAW Input
     if (uMsg == WM_INPUT)
       return 0;
       //return DefWindowProc (hWnd, uMsg, wParam, lParam);
+#endif
   }
 
   return CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);

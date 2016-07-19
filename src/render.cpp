@@ -1615,6 +1615,8 @@ tsf::RenderFix::Init (void)
 
   pCommandProc->AddVariable ("Render.ConservativeMSAA", new eTB_VarStub <bool> (&config.render.conservative_msaa));
   pCommandProc->AddVariable ("Render.EarlyResolve",     new eTB_VarStub <bool> (&early_resolve));
+
+  pCommandProc->AddVariable ("Textures.MaxCacheSize", new eTB_VarStub <int> (&config.textures.max_cache_in_mib));
  
   tex_mgr.Init ();
 }

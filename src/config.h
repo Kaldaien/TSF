@@ -71,12 +71,11 @@ struct tsf_config_s
   struct {
     int      max_anisotropy   = 4;
     bool     cache            = true;
-    bool     uncompressed     = true;
-    bool     optimize_ui      = true;
     bool     dump             = false;
     bool     log              = false;
     bool     full_mipmaps     = false;
-    bool     cleanup          = false;
+    int      max_cache_in_mib = 1024;
+    int      max_decomp_jobs  = 16;
   } textures;
 
   struct {
@@ -93,6 +92,7 @@ struct tsf_config_s
     bool block_left_ctrl = false;
     bool block_windows   = true;
     bool block_all_keys  = false;
+    bool fix_alt_tab     = true;
   } input;
 
   struct {
