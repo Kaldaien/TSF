@@ -236,6 +236,7 @@ public:
          pTex          = *ppTex;
        *ppTex          =  this;
          tex_size      = size;
+         must_block    = false;
          refs          =  1;
      };
 
@@ -353,9 +354,11 @@ public:
     }
 
     bool               can_free;      // Whether or not we can free this texture
+    bool               must_block;    // Whether or not to draw using this texture before its
+                                      //  override finishes streaming
 
     IDirect3DTexture9* pTex;          // The original texture data
-    SIZE_T             tex_size;      //   Original size
+    SIZE_T             tex_size;      //   Original data size
 
     IDirect3DTexture9* pTexOverride;  // The overridden texture data (nullptr if unchanged)
     SIZE_T             override_size; //   Override data size

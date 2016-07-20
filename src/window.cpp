@@ -437,6 +437,8 @@ DetourWindowProc ( _In_  HWND   hWnd,
     eTB_CommandProcessor* pCommandProc =
       SK_GetCommandProcessor           ();
 
+    tsf::InputManager::FixAltTab ();
+
 #if 0
     eTB_CommandResult     result       =
       pCommandProc->ProcessCommandLine ("TargetFPS");
@@ -478,29 +480,29 @@ DetourWindowProc ( _In_  HWND   hWnd,
   }
 
   // Allow the game to run in the background
-  if (uMsg == WM_ACTIVATEAPP || uMsg == WM_ACTIVATE || uMsg == WM_NCACTIVATE /*|| uMsg == WM_MOUSEACTIVATE*/) {
-     {
-      if (uMsg == WM_NCACTIVATE) {
-        if (wParam == TRUE) {
-          //dll_log.Log (L"[Window Mgr] Application Activated");
+  if (uMsg == WM_ACTIVATEAPP || uMsg == WM_ACTIVATE || uMsg == WM_NCACTIVATE /*|| uMsg == WM_MOUSEACTIVATE*/)
+  {
+    if (uMsg == WM_NCACTIVATE) {
+      if (wParam == TRUE) {
+        //dll_log.Log (L"[Window Mgr] Application Activated");
 
-          tsf::window.active = true;
-        } else {
-          //dll_log.Log (L"[Window Mgr] Application Deactivated");
+        tsf::window.active = true;
+      } else {
+        //dll_log.Log (L"[Window Mgr] Application Deactivated");
 
-          tsf::window.active = false;
-        }
-
-        if (config.render.allow_background)
-          return 0;
+        tsf::window.active = false;
       }
 
-      // We must fully consume one of these messages or audio will stop playing
-      //   when the game loses focus, so do not simply pass this through to the
-      //     default window procedure.
       if (config.render.allow_background)
         return 0;
     }
+
+    // We must fully consume one of these messages or audio will stop playing
+    //   when the game loses focus, so do not simply pass this through to the
+    //     default window procedure.
+    if (config.render.allow_background)
+      return 0;
+    
   }
 
   // Block the menu key from messing with stuff
@@ -517,20 +519,15 @@ DetourWindowProc ( _In_  HWND   hWnd,
     config.render.allow_background && (! tsf::window.active);
 
   // Block keyboard input to the game while the console is visible
-  if (console_visible || (background_render && uMsg != WM_SYSKEYDOWN)) {
-    // Only prevent the mouse from working while the window is in the bg
-    //if (background_render && uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
-      //return DefWindowProc (hWnd, uMsg, wParam, lParam);
-
+  if (console_visible || background_render)
+  {
     if (uMsg >= WM_KEYFIRST && uMsg <= WM_KEYLAST)
       return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
-#if 0
     // Block RAW Input
     if (uMsg == WM_INPUT)
       return 0;
       //return DefWindowProc (hWnd, uMsg, wParam, lParam);
-#endif
   }
 
   return CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);
@@ -567,13 +564,6 @@ tsf::WindowManager::Init (void)
   TSFix_CreateDLLHook ( L"user32.dll", "GetFocus",
                         GetFocus_Detour,
               (LPVOID*)&GetFocus_Original );
-
-// Not used by ToS
-#if 0
-  TSFix_CreateDLLHook ( L"user32.dll", "IsIconic",
-                        IsIconic_Detour,
-              (LPVOID*)&IsIconic_Original );
-#endif
 
   CommandProcessor* comm_proc = CommandProcessor::getInstance ();
 }

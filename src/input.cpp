@@ -237,44 +237,36 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
 // General Utility Functions
 //
 ///////////////////////////////////////////////////////////////////////////////
+
+//
+// Make sure the game does not think that Alt or Tab are stuck
+//
 void
 tsf::InputManager::FixAltTab (void)
 {
-  static bool init = false;
-  //
-  // Make sure the game does not think that Alt or Tab are stuck
-  //
-  static INPUT kbd [6];
+  // Make sure no reference counters used to determine keyboard state
+  //   are mismatched when alt-tabbing.
+  for (int i = 0; i < 255; i++) {
 
-  if (! init) {
-    kbd [0].type       = INPUT_KEYBOARD;
-    kbd [0].ki.wVk     = VK_MENU;
-    kbd [0].ki.dwFlags = 0;
-    kbd [0].ki.time    = 0;
-    kbd [1].type       = INPUT_KEYBOARD;
-    kbd [1].ki.wVk     = VK_MENU;
-    kbd [1].ki.dwFlags = KEYEVENTF_KEYUP;
-    kbd [1].ki.time    = 0;
+    // Queuing this many window messages seems like a terrible idea, but
+    //   it gets the job done.
 
-    kbd [2].type       = INPUT_KEYBOARD;
-    kbd [2].ki.wVk     = VK_TAB;
-    kbd [2].ki.dwFlags = 0;
-    kbd [2].ki.time    = 0;
-    kbd [3].type       = INPUT_KEYBOARD;
-    kbd [3].ki.wVk     = VK_TAB;
-    kbd [3].ki.dwFlags = KEYEVENTF_KEYUP;
-    kbd [3].ki.time    = 0;
-
-    init = true;
+    CallWindowProc (
+      tsf::window.WndProc_Original,
+        tsf::window.hwnd,
+          WM_KEYUP,
+            LOWORD (i),
+              0 );
+    CallWindowProc (
+      tsf::window.WndProc_Original,
+        tsf::window.hwnd,
+          WM_SYSKEYUP,
+            LOWORD (i),
+              0 );
   }
 
-  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
-  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
-  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
-  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
-  SendMessage (tsf::window.hwnd, WM_KEYDOWN, LOWORD (VK_ESCAPE), 0);
-
-
+  // The game uses DirectInput keyboard state in addition to
+   //  Win32 API messages, so set this stuff for consistency.
   ((uint8_t *)_dik.state) [DIK_LALT]   = 0x0;
   ((uint8_t *)_dik.state) [DIK_RALT]   = 0x0;
   ((uint8_t *)_dik.state) [DIK_TAB]    = 0x0;
@@ -372,6 +364,8 @@ BOOL
 WINAPI
 ClipCursor_Detour (const RECT *lpRect)
 {
+  tsf::InputManager::FixAltTab ();
+
   if (lpRect != nullptr)
     tsf::window.cursor_clip = *lpRect;
 
@@ -447,6 +441,8 @@ HookRawInput (void)
 void
 tsf::InputManager::Init (void)
 {
+  FixAltTab ();
+
   //
   // For this game, the only reason we hook this is to block the Windows key.
   //

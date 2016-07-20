@@ -90,6 +90,9 @@ struct tsf_tex_record_s {
          size_t            size    = 0UL;
 };
 
+bool pending_loads            (void);
+void TSFix_LoadQueuedTextures (void);
+
 #include <vector>
 std::vector         <std::wstring> archives;
 
@@ -618,9 +621,22 @@ D3D9SetTexture_Detour (
        pTexture->QueryInterface (IID_SKTextureD3D9, &dontcare) == S_OK ) {
     QueryPerformanceCounter_Original (&((ISKTextureD3D9 *)pTexture)->last_used);
 
-    if (__remap_textures && ((ISKTextureD3D9 *)pTexture)->pTexOverride != nullptr)
+    //
+    // This is how blocking is implemented -- only do it when a texture that needs
+    //                                          this feature is being applied.
+    //
+    while ( __remap_textures && ((ISKTextureD3D9 *)pTexture)->must_block &&
+                                ((ISKTextureD3D9 *)pTexture)->pTexOverride == nullptr ) {
+      if (pending_loads ())
+        TSFix_LoadQueuedTextures ();
+      else {
+        YieldProcessor ();
+      }
+    }
+
+    if (__remap_textures && ((ISKTextureD3D9 *)pTexture)->pTexOverride != nullptr) {
       pTexture = ((ISKTextureD3D9 *)pTexture)->pTexOverride;
-    else
+    } else
       pTexture = ((ISKTextureD3D9 *)pTexture)->pTex;
   }
 
@@ -1235,7 +1251,6 @@ is_streaming (uint32_t checksum)
   LeaveCriticalSection (&cs_tex_stream);
 
   return ret;
-
 }
 
 void
@@ -1620,9 +1635,11 @@ TSFix_LoadQueuedTextures (void)
     if (true) {
       tex_log.Log ( L"[%s] Finished %s texture %08x (%5.2f MiB in %9.4f ms)",
                       (load->type == tsf_tex_load_s::Stream) ? L"Inject Tex" :
-                                                               L" Resample ",
+                        (load->type == tsf_tex_load_s::Immediate) ? L"Inject Tex" :
+                                                                    L" Resample ",
                       (load->type == tsf_tex_load_s::Stream) ? L"streaming" :
-                                                               L"filtering",
+                        (load->type == tsf_tex_load_s::Immediate) ? L"loading" :
+                                                                    L"filtering",
                         load->checksum,
                           (double)load->SrcDataSize / (1024.0f * 1024.0f),
                             1000.0f * (double)(load->end.QuadPart - load->start.QuadPart) /
@@ -1830,7 +1847,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       else
         tex_log.LogEx ( false, L"in-flight already\n" );
     } else {
-      tex_log.LogEx ( false, L"blocking\n" );
+      tex_log.LogEx ( false, L"blocking (deferred)\n" );
     }
   }
 
@@ -1847,12 +1864,16 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   if (SUCCEEDED (hr)) {
     new ISKTextureD3D9 (ppTexture, SrcDataSize);
 
-    if (load_op != nullptr && load_op->type == tsf_tex_load_s::Stream) {
+    if ( load_op != nullptr && ( load_op->type == tsf_tex_load_s::Stream ||
+                                 load_op->type == tsf_tex_load_s::Immediate ) ) {
       load_op->SrcDataSize =
         injectable_textures [checksum].size;
 
       load_op->pDest = *ppTexture;
       EnterCriticalSection        (&cs_tex_stream);
+
+      if (load_op->type == tsf_tex_load_s::Immediate)
+        ((ISKTextureD3D9 *)*ppTexture)->must_block = true;
 
       if (is_streaming (load_op->checksum)) {
         // Remap the output of the in-flight texture
@@ -1876,6 +1897,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       LeaveCriticalSection        (&cs_tex_stream);
     }
 
+#if 0
     //
     // TODO:  Actually stream these, but block if the game tries to call SetTexture (...)
     //          while the texture is in-flight.
@@ -1921,6 +1943,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       delete load_op;
       load_op = nullptr;
     }
+#endif
 
 // Temporarily disabled while mipmap-related issues are debugged...
 #if 0
