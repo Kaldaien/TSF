@@ -50,9 +50,9 @@ DrawIndexedPrimitive_pfn                D3D9DrawIndexedPrimitive_Original       
 DrawPrimitiveUP_pfn                     D3D9DrawPrimitiveUP_Original                 = nullptr;
 DrawIndexedPrimitiveUP_pfn              D3D9DrawIndexedPrimitiveUP_Original          = nullptr;
 
-BMF_SetPresentParamsD3D9_pfn            BMF_SetPresentParamsD3D9_Original            = nullptr;
-BMF_BeginBufferSwap_pfn                 BMF_BeginBufferSwap                          = nullptr;
-BMF_EndBufferSwap_pfn                   BMF_EndBufferSwap                            = nullptr;
+SK_SetPresentParamsD3D9_pfn             SK_SetPresentParamsD3D9_Original             = nullptr;
+SK_BeginBufferSwap_pfn                  SK_BeginBufferSwap                           = nullptr;
+SK_EndBufferSwap_pfn                    SK_EndBufferSwap                             = nullptr;
 
 tsf::RenderFix::tracer_s
   tsf::RenderFix::tracer;
@@ -77,6 +77,83 @@ uint32_t ps_checksum = 0;
 
 extern uint32_t
 crc32 (uint32_t crc, const void *buf, size_t size);
+
+typedef interface ID3DXBuffer ID3DXBuffer;
+typedef interface ID3DXBuffer *LPD3DXBUFFER;
+
+// {8BA5FB08-5195-40e2-AC58-0D989C3A0102}
+DEFINE_GUID(IID_ID3DXBuffer, 
+0x8ba5fb08, 0x5195, 0x40e2, 0xac, 0x58, 0xd, 0x98, 0x9c, 0x3a, 0x1, 0x2);
+
+#undef INTERFACE
+#define INTERFACE ID3DXBuffer
+
+DECLARE_INTERFACE_(ID3DXBuffer, IUnknown)
+{
+    // IUnknown
+    STDMETHOD  (        QueryInterface)   (THIS_ REFIID iid, LPVOID *ppv) PURE;
+    STDMETHOD_ (ULONG,  AddRef)           (THIS) PURE;
+    STDMETHOD_ (ULONG,  Release)          (THIS) PURE;
+
+    // ID3DXBuffer
+    STDMETHOD_ (LPVOID, GetBufferPointer) (THIS) PURE;
+    STDMETHOD_ (DWORD,  GetBufferSize)    (THIS) PURE;
+};
+
+typedef HRESULT (WINAPI *D3DXDisassembleShader_pfn)(
+  _In_  const DWORD         *pShader,
+  _In_        BOOL            EnableColorCode,
+  _In_        LPCSTR         pComments,
+  _Out_       LPD3DXBUFFER *ppDisassembly
+);
+
+D3DXDisassembleShader_pfn D3DXDisassembleShader = nullptr;
+
+void
+SK_D3D9_DumpShader ( const wchar_t* wszPrefix,
+                           uint32_t crc32,
+                           LPVOID   pbFunc )
+{
+  static bool dump =
+    GetFileAttributes (L"TSFix_Res\\dump\\shaders") ==
+         FILE_ATTRIBUTE_DIRECTORY;
+
+  if (dump) {
+    wchar_t wszDumpName [MAX_PATH];
+    _swprintf ( wszDumpName,
+                  L"TSFix_Res\\dump\\shaders\\%s_%08x.html",
+                    wszPrefix, crc32 );
+
+    if (D3DXDisassembleShader == nullptr)
+      D3DXDisassembleShader =
+        (D3DXDisassembleShader_pfn)
+          GetProcAddress ( tsf::RenderFix::d3dx9_43_dll,
+                             "D3DXDisassembleShader" );
+
+    if ( D3DXDisassembleShader           != nullptr &&
+         GetFileAttributes (wszDumpName) == INVALID_FILE_ATTRIBUTES ) {
+      LPD3DXBUFFER pDisasm;
+
+      HRESULT hr =
+        D3DXDisassembleShader ((DWORD *)pbFunc, TRUE, "", &pDisasm);
+
+      if (SUCCEEDED (hr)) {
+        FILE* fDump =
+          _wfopen (wszDumpName, L"wb");
+
+        if (fDump != NULL) {
+          fwrite ( pDisasm->GetBufferPointer (),
+                     pDisasm->GetBufferSize  (),
+                       1,
+                         fDump );
+          fclose (fDump);
+        }
+
+        pDisasm->Release ();
+      }
+    }
+  }
+}
 
 typedef HRESULT (STDMETHODCALLTYPE *SetVertexShader_t)
   (IDirect3DDevice9*       This,
@@ -106,6 +183,8 @@ D3D9SetVertexShader_Detour (IDirect3DDevice9*       This,
 
           vs_checksums [pShader] = crc32 (0, pbFunc, len);
 
+          SK_D3D9_DumpShader (L"vs", vs_checksums [pShader], pbFunc);
+
           free (pbFunc);
         }
       }
@@ -121,12 +200,11 @@ D3D9SetVertexShader_Detour (IDirect3DDevice9*       This,
   return D3D9SetVertexShader_Original (This, pShader);
 }
 
-
-typedef HRESULT (STDMETHODCALLTYPE *SetPixelShader_t)
+typedef HRESULT (STDMETHODCALLTYPE *SetPixelShader_pfn)
   (IDirect3DDevice9*      This,
    IDirect3DPixelShader9* pShader);
 
-SetPixelShader_t D3D9SetPixelShader_Original = nullptr;
+SetPixelShader_pfn D3D9SetPixelShader_Original = nullptr;
 
 HRESULT
 STDMETHODCALLTYPE
@@ -149,6 +227,8 @@ D3D9SetPixelShader_Detour (IDirect3DDevice9*      This,
           pShader->GetFunction (pbFunc, &len);
 
           ps_checksums [pShader] = crc32 (0, pbFunc, len);
+
+          SK_D3D9_DumpShader (L"ps", ps_checksums [pShader], pbFunc);
 
           free (pbFunc);
         }
@@ -305,10 +385,13 @@ D3D9EndFrame_Pre (void)
 
   tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
 
+  void TSFix_LogUsedTextures (void);
+  TSFix_LogUsedTextures ();
+
   void TSFix_DrawCommandConsole (void);
   TSFix_DrawCommandConsole ();
 
-  return BMF_BeginBufferSwap ();
+  return SK_BeginBufferSwap ();
 }
 
 
@@ -321,10 +404,10 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   if (device != tsf::RenderFix::pDevice) {
     dll_log.Log (L"[Render Fix] >> WARNING: D3D9 frame ended on unknown IDirect3DDevice9! << ");
 
-    return BMF_EndBufferSwap (hr, device);
+    return SK_EndBufferSwap (hr, device);
   }
 
-  hr = BMF_EndBufferSwap (hr, device);
+  hr = SK_EndBufferSwap (hr, device);
 
   if (tsf::RenderFix::tracer.log && tsf::RenderFix::tracer.count > 0) {
     dll_log.Log (L"[FrameTrace] --- SwapChain Present ---");
@@ -343,8 +426,11 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   if ((! tsf::window.active) && config.window.disable_bg_msaa)
     tsf::RenderFix::draw_state.use_msaa = false;
 
-  extern void TSFix_LoadQueuedTextures (void);
-  TSFix_LoadQueuedTextures ();
+  extern bool pending_loads (void);
+  if (pending_loads ()) {
+    extern void TSFix_LoadQueuedTextures (void);
+    TSFix_LoadQueuedTextures ();
+  }
 
   return hr;
 }
@@ -401,7 +487,7 @@ D3D9Reset_Detour ( IDirect3DDevice9      *This,
 __declspec (noinline)
 D3DPRESENT_PARAMETERS*
 __stdcall
-BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
+SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                                  D3DPRESENT_PARAMETERS* pparams)
 {
   static D3DPRESENT_PARAMETERS present_params;
@@ -414,7 +500,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
        pparams->BackBufferHeight           == 1 &&
        pparams->FullScreen_RefreshRateInHz == 0 ) {
     dll_log.Log (L"[Render Fix] * Fake D3D9Ex Device Detected... Ignoring!");
-    return BMF_SetPresentParamsD3D9_Original (device, pparams);
+    return SK_SetPresentParamsD3D9_Original (device, pparams);
   }
 
   memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
@@ -625,7 +711,7 @@ BMF_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   else
     tsf::WindowManager::border.Enable  ();
 
-  return BMF_SetPresentParamsD3D9_Original (device, pparams);
+  return SK_SetPresentParamsD3D9_Original (device, pparams);
 }
 
 #include "hook.h"
@@ -842,7 +928,12 @@ D3D9EndScene_Detour (IDirect3DDevice9* This)
                                   D3DRS_MULTISAMPLEANTIALIAS,
                                     false );
 
-  return D3D9EndScene_Original (This);
+  HRESULT hr = D3D9EndScene_Original (This);
+
+  extern void TSFix_LoadQueuedTextures (void);
+  TSFix_LoadQueuedTextures ();
+
+  return hr;
 }
 
 COM_DECLSPEC_NOTHROW
@@ -997,6 +1088,9 @@ SK_D3D9_PrimitiveTypeToStr (D3DPRIMITIVETYPE pt)
 
   return L"Invalid Primitive";
 }
+
+int test_prims;
+int test_vtx;
 
 COM_DECLSPEC_NOTHROW
 HRESULT
@@ -1230,6 +1324,17 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
         (NumVertices == 320 && primCount == 763) ||
         (NumVertices == 204 && primCount == 482)) {
       disable_outlines = true;
+    }
+
+    // Luna's Staff
+    if (NumVertices == 31 && primCount == 54)
+      disable_outlines = true;
+
+    // Material Blade Handles
+    if ( (NumVertices == 153      && primCount == 278) ||
+         (NumVertices == 114      && primCount == 265) ||
+         (NumVertices == test_vtx && primCount == test_prims) ) {
+        disable_outlines = true;
     }
 
     // Feathers on Cockatrice (Bestiary #123) -- Find a better solution, this kills the entire
@@ -1504,6 +1609,11 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
     return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
   }
 
+  D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+
+  if (Type == D3DSAMP_MIPFILTER)
+    return S_OK;
+
   if (tsf::RenderFix::tracer.log) {
     dll_log.Log ( L"[FrameTrace] SetSamplerState - %02lu Type: %22s, Value: %lu",
                     Sampler,
@@ -1571,7 +1681,7 @@ tsf::RenderFix::Init (void)
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "SK_BeginBufferSwap",
                          D3D9EndFrame_Pre,
-               (LPVOID*)&BMF_BeginBufferSwap );
+               (LPVOID*)&SK_BeginBufferSwap );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9Reset_Override",
@@ -1582,12 +1692,12 @@ tsf::RenderFix::Init (void)
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "SK_EndBufferSwap",
                          D3D9EndFrame_Post,
-               (LPVOID*)&BMF_EndBufferSwap );
+               (LPVOID*)&SK_EndBufferSwap );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "SK_SetPresentParamsD3D9",
-                         BMF_SetPresentParamsD3D9_Detour,
-              (LPVOID *)&BMF_SetPresentParamsD3D9_Original );
+                         SK_SetPresentParamsD3D9_Detour,
+              (LPVOID *)&SK_SetPresentParamsD3D9_Original );
 
   TSFix_CreateDLLHook ( config.system.injector.c_str (),
                         "D3D9SetSamplerState_Override",
@@ -1616,8 +1726,11 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.ConservativeMSAA", new eTB_VarStub <bool> (&config.render.conservative_msaa));
   pCommandProc->AddVariable ("Render.EarlyResolve",     new eTB_VarStub <bool> (&early_resolve));
 
+  pCommandProc->AddVariable ("Debug.OutlineVtx",   new eTB_VarStub <int>(&test_vtx));
+  pCommandProc->AddVariable ("Debug.OutlinePrims", new eTB_VarStub <int>(&test_prims));
+
   pCommandProc->AddVariable ("Textures.MaxCacheSize", new eTB_VarStub <int> (&config.textures.max_cache_in_mib));
- 
+
   tex_mgr.Init ();
 }
 

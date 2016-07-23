@@ -31,6 +31,8 @@
 #include <atlbase.h>
 #include <cstdint>
 
+#include <mmsystem.h> // timeGetTime (...)
+
 extern "C" {
 #  define LZMA_API_STATIC
 #  include "../../include/lzma.h"
@@ -66,22 +68,13 @@ tsf_logger_s tex_log;
 bool dumping          = false;
 bool __remap_textures = true;
 bool __need_purge     = false;
+bool __log_used       = false;
 
 enum tsf_load_method_t {
   Streaming,
   Blocking,
   DontCare
 };
-
-#if 0
-struct tsf_data_store_s {
-         float    priority        = 0.0f;
-         wchar_t  path [MAX_PATH] = { L'\0' };
-  struct archive* archive         = nullptr;
-         uint64_t size            = 0ULL;
-         int      files           = 0;
-};
-#endif
 
 struct tsf_tex_record_s {
          int               archive = -1;
@@ -93,14 +86,20 @@ struct tsf_tex_record_s {
 bool pending_loads            (void);
 void TSFix_LoadQueuedTextures (void);
 
+#include <map>
+#include <set>
+#include <queue>
 #include <vector>
-std::vector         <std::wstring> archives;
-
+#include <unordered_map>
 
 // All of the enumerated textures in TSFix_Textures/inject/...
 std::unordered_map <uint32_t, tsf_tex_record_s> injectable_textures;
+std::vector        <std::wstring>               archives;
 std::set           <uint32_t>                   dumped_textures;
 
+// The set of textures used during the last frame
+std::vector        <uint32_t>                   textures_last_frame;
+std::set           <uint32_t>                   textures_used;
 
 std::wstring
 SK_D3D9_UsageToStr (DWORD dwUsage)
@@ -619,14 +618,19 @@ D3D9SetTexture_Detour (
   void* dontcare;
   if ( pTexture != nullptr &&
        pTexture->QueryInterface (IID_SKTextureD3D9, &dontcare) == S_OK ) {
-    QueryPerformanceCounter_Original (&((ISKTextureD3D9 *)pTexture)->last_used);
+    ISKTextureD3D9* pSKTex =
+      (ISKTextureD3D9 *)pTexture;
+
+    textures_used.insert (pSKTex->tex_crc32);
+
+    QueryPerformanceCounter_Original (&pSKTex->last_used);
 
     //
     // This is how blocking is implemented -- only do it when a texture that needs
     //                                          this feature is being applied.
     //
-    while ( __remap_textures && ((ISKTextureD3D9 *)pTexture)->must_block &&
-                                ((ISKTextureD3D9 *)pTexture)->pTexOverride == nullptr ) {
+    while ( __remap_textures && pSKTex->must_block &&
+                                pSKTex->pTexOverride == nullptr ) {
       if (pending_loads ())
         TSFix_LoadQueuedTextures ();
       else {
@@ -634,10 +638,10 @@ D3D9SetTexture_Detour (
       }
     }
 
-    if (__remap_textures && ((ISKTextureD3D9 *)pTexture)->pTexOverride != nullptr) {
-      pTexture = ((ISKTextureD3D9 *)pTexture)->pTexOverride;
-    } else
-      pTexture = ((ISKTextureD3D9 *)pTexture)->pTex;
+    if (__remap_textures && pSKTex->pTexOverride != nullptr)
+      pTexture = pSKTex->pTexOverride;
+    else
+      pTexture = pSKTex->pTex;
   }
 
   DWORD address_mode = D3DTADDRESS_WRAP;
@@ -650,21 +654,6 @@ D3D9SetTexture_Detour (
     This->SetSamplerState (Sampler, D3DSAMP_ADDRESSV, address_mode);
     This->SetSamplerState (Sampler, D3DSAMP_ADDRESSW, address_mode);
   }
-
-#if 0
-  if (pTexture != nullptr) {
-    D3DSURFACE_DESC desc;
-    ((IDirect3DTexture9 *)pTexture)->GetLevelDesc (0, &desc);
-
-    // Fix issues with some UI textures
-    if (desc.Width < 64 || desc.Height < 64)
-      address_mode = D3DTADDRESS_CLAMP;
-
-    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSU, address_mode);
-    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSV, address_mode);
-    This->SetSamplerState (Sampler, D3DSAMP_ADDRESSW, address_mode);
-  }
-#endif
 
 #if 0
   if (pTexture != nullptr) tsf::RenderFix::active_samplers.insert (Sampler);
@@ -1149,7 +1138,6 @@ typedef struct tsf_tex_load_s {
   LARGE_INTEGER       freq  = { 0LL };
 };
 
-#include <queue>
 std::queue <tsf_tex_load_s *> textures_to_stream;
 std::queue <tsf_tex_load_s *> textures_to_resample;
 
@@ -1168,7 +1156,6 @@ CRITICAL_SECTION              cs_tex_inject;
 #define D3DX_FROM_FILE          ((UINT) -3)
 #define D3DFMT_FROM_FILE        ((D3DFORMAT) -3)
 
-#include <set>
 std::set <DWORD> inject_tids;
 
 int      streaming       = 0;
@@ -1319,9 +1306,10 @@ HANDLE decomp_semaphore;
 HRESULT
 InjectTexture (tsf_tex_load_s* load)
 {
-  // Not currently used ...
   D3DXIMAGE_INFO img_info;
+
   bool           streamed;
+  size_t         size = 0;
   HRESULT        hr = E_FAIL;
 
   streamed =
@@ -1341,7 +1329,6 @@ InjectTexture (tsf_tex_load_s* load)
                              FILE_FLAG_SEQUENTIAL_SCAN,
                                nullptr );
 
-    DWORD size = 0UL;
     DWORD read = 0UL;
 
     if (hTexFile != INVALID_HANDLE_VALUE) {
@@ -1353,16 +1340,21 @@ InjectTexture (tsf_tex_load_s* load)
 
         load->SrcDataSize = read;
 
-        if (streamed) {
+        if (streamed && size > (16 * 1024)) {
           SetThreadPriority ( GetCurrentThread (),
                                 THREAD_PRIORITY_BELOW_NORMAL |
                                 THREAD_MODE_BACKGROUND_BEGIN );
         }
 
+        D3DXGetImageInfoFromFileInMemory (
+          load->pSrcData,
+            load->SrcDataSize,
+              &img_info );
+
         hr = D3DXCreateTextureFromFileInMemoryEx_Original (
           load->pDevice,
             load->pSrcData, load->SrcDataSize,
-              D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT,
+              D3DX_DEFAULT, D3DX_DEFAULT, img_info.MipLevels,
                 0, D3DFMT_FROM_FILE,
                   D3DPOOL_DEFAULT,
                     D3DX_DEFAULT, D3DX_DEFAULT,
@@ -1385,13 +1377,13 @@ InjectTexture (tsf_tex_load_s* load)
   //
   else {
     size_t       read = 0UL;
-    size_t       size = injectable_textures [load->checksum].size;
+                 size = injectable_textures [load->checksum].size;
 
     struct archive       *a;
     struct archive_entry *entry;
     int                   r, tex_count = 0;
 
-    if (streamed) {
+    if (streamed && size > (16 * 1024)) {
       SetThreadPriority ( GetCurrentThread (),
                             THREAD_PRIORITY_LOWEST |
                             THREAD_MODE_BACKGROUND_BEGIN );
@@ -1419,7 +1411,7 @@ InjectTexture (tsf_tex_load_s* load)
             while (wait) {
               DWORD dwResult = WAIT_OBJECT_0;
 
-              if (streamed) {
+              if (streamed && size > (16 * 1024)) {
                 dwResult =
                   WaitForSingleObject ( decomp_semaphore, INFINITE );
               }
@@ -1429,15 +1421,22 @@ InjectTexture (tsf_tex_load_s* load)
               case WAIT_OBJECT_0:
                 read = archive_read_data (a, load->pSrcData, size);
 
-                ReleaseSemaphore (decomp_semaphore, 1, nullptr);
+                if (streamed && size > (16 * 1024))
+                  ReleaseSemaphore (decomp_semaphore, 1, nullptr);
+
                 wait = false;
 
                 load->SrcDataSize = read;
 
+                D3DXGetImageInfoFromFileInMemory (
+                  load->pSrcData,
+                    load->SrcDataSize,
+                      &img_info );
+
                 hr = D3DXCreateTextureFromFileInMemoryEx_Original (
                   load->pDevice,
                     load->pSrcData, load->SrcDataSize,
-                      D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT,
+                      D3DX_DEFAULT, D3DX_DEFAULT, img_info.MipLevels,
                         0, D3DFMT_FROM_FILE,
                           D3DPOOL_DEFAULT,
                             D3DX_DEFAULT, D3DX_DEFAULT,
@@ -1466,7 +1465,7 @@ InjectTexture (tsf_tex_load_s* load)
     }
   }
 
-  if (streamed) {
+  if (streamed && size > (16 * 1024)) {
     SetThreadPriority ( GetCurrentThread (),
                           THREAD_MODE_BACKGROUND_END );
   }
@@ -1540,8 +1539,6 @@ TextureResampleThread (LPVOID user)
 
   return 0;
 }
-
-#include <mmsystem.h>
 
 void
 TSFix_LoadQueuedTextures (void)
@@ -1862,7 +1859,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
                                                                ppTexture );
 
   if (SUCCEEDED (hr)) {
-    new ISKTextureD3D9 (ppTexture, SrcDataSize);
+    new ISKTextureD3D9 (ppTexture, SrcDataSize, checksum);
 
     if ( load_op != nullptr && ( load_op->type == tsf_tex_load_s::Stream ||
                                  load_op->type == tsf_tex_load_s::Immediate ) ) {
@@ -2070,15 +2067,6 @@ tsf::RenderFix::TextureManager::refTexture (tsf::RenderFix::Texture* pTex)
   time_saved += pTex->load_time;
 
   updateOSD ();
-}
-
-LPVOID dontcare_DebugSetMute;
-
-void
-WINAPI
-DebugSetMute_Override (void)
-{
-  return;
 }
 
 void
@@ -2401,11 +2389,6 @@ tsf::RenderFix::TextureManager::Init (void)
                          D3D9SetDepthStencilSurface_Detour,
                (LPVOID*)&D3D9SetDepthStencilSurface_Original );
 
-  TSFix_CreateDLLHook ( L"d3d9.dll",
-                        "DebugSetMute",
-                         DebugSetMute_Override,
-               (LPVOID*)&dontcare_DebugSetMute );
-
   TSFix_CreateDLLHook ( L"D3DX9_43.DLL",
                          "D3DXCreateTextureFromFileInMemoryEx",
                           D3DXCreateTextureFromFileInMemoryEx_Detour,
@@ -2495,8 +2478,6 @@ tsf::RenderFix::TextureManager::Shutdown (void)
   tex_log.close ();
 }
 
-#include <vector>
-
 void
 tsf::RenderFix::TextureManager::purge (void)
 {
@@ -2556,6 +2537,16 @@ tsf::RenderFix::TextureManager::purge (void)
     // Skip loads that are in-flight so that we do not hitch
     //
     if (is_streaming ((*free_it)->crc32)) {
+      ++free_it;
+      continue;
+    }
+
+    //
+    // Do not evict blocking loads, they are generally small and
+    //   will cause performance problems if we have to reload them
+    //     again later.
+    //
+    if (((ISKTextureD3D9 *)(*free_it)->d3d9_tex)->must_block) {
       ++free_it;
       continue;
     }
@@ -2628,7 +2619,8 @@ tsf::RenderFix::TextureManager::reset (void)
 
   tex_log.Log (L"[ Tex. Mgr ] -- TextureManager::reset (...) -- ");
 
-#if 0
+//#define WAIT_FOR_LOADS_TO_FINISH
+#ifdef WAIT_FOR_LOADS_TO_FINISH
   while (pending_streams ())
     Sleep (0);
 
@@ -2803,4 +2795,37 @@ tsf::RenderFix::TextureManager::updateOSD (void)
 
   osd_stats += szFormatted;
 
+}
+
+void
+TSFix_LogUsedTextures (void)
+{
+  if (__log_used)
+  {
+    tex_log.Log (L"[ Tex. Log ] ---------- FrameTrace ----------- ");
+
+    for ( auto it  = textures_used.begin ();
+               it != textures_used.end   ();
+             ++it ) {
+      ISKTextureD3D9* pSKTex =
+        (ISKTextureD3D9 *)tsf::RenderFix::tex_mgr.getTexture (*it)->d3d9_tex;
+
+      tex_log.Log ( L"[ Tex. Log ] %08x.dds  { Base: %6.2f MiB,  Inject: %6.2f MiB,  Load Time: %8.3f ms }",
+                      *it,
+                        (double)pSKTex->tex_size /
+                          (1024.0 * 1024.0),
+
+                  pSKTex->override_size != 0 ? 
+                    (double)pSKTex->override_size / 
+                          (1024.0 * 1024.0) : 0.0,
+
+                        tsf::RenderFix::tex_mgr.getTexture (*it)->load_time );
+    }
+
+    tex_log.Log (L"[ Tex. Log ] ---------- FrameTrace ----------- ");
+
+    __log_used = false;
+  }
+
+  textures_used.clear ();
 }

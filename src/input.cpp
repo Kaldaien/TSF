@@ -123,17 +123,10 @@ IDirectInputDevice8_GetDeviceState_Detour ( LPDIRECTINPUTDEVICE        This,
                                             DWORD                      cbData,
                                             LPVOID                     lpvData )
 {
-  // This seems to be the source of some instability in the game.
-  if (/*tsf::RenderFix::tracer.log ||*/ This == _dik.pDev && cbData > 256 || lpvData == nullptr)
-    dll_log.Log ( L"[   Input  ] Suspicious GetDeviceState - cbData: "
-                  L"%lu, lpvData: %p",
-                    cbData,
-                      lpvData );
-
   HRESULT hr;
-  hr = IDirectInputDevice8_GetDeviceState_Original ( This,
-                                                       cbData,
-                                                         lpvData );
+    = IDirectInputDevice8_GetDeviceState_Original ( This,
+                                                      cbData,
+                                                        lpvData );
 
   if (SUCCEEDED (hr)) {
     // For input faking (keyboard)
@@ -255,14 +248,15 @@ tsf::InputManager::FixAltTab (void)
       tsf::window.WndProc_Original,
         tsf::window.hwnd,
           WM_KEYUP,
-            LOWORD (i),
-              0 );
+            MAKEWPARAM (i, 0),
+              0xFFFFFFFF );
+
     CallWindowProc (
       tsf::window.WndProc_Original,
         tsf::window.hwnd,
           WM_SYSKEYUP,
-            LOWORD (i),
-              0 );
+            MAKEWPARAM (i, 0),
+              0xFFFFFFFF );
   }
 
   // The game uses DirectInput keyboard state in addition to
@@ -324,7 +318,8 @@ GetRawInputData_Detour (_In_      HRAWINPUT hRawInput,
     return 0;
   }
 
-  // Fixing Alt-Tab by Hooking This Is Not Possible
+  // Fixing Alt-Tab by Hooking This is Not Possible
+  //
   //  -- Search through the binary to find the boolean that is set when
   //       a key is pressed (it will be somewhere after GetRawInputData (...) is
   //          called. Reset this boolean whenever Alt+Tab happens.
@@ -627,7 +622,7 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
 
 
   dll_log.Log ( L"[   Input  ] # Found window in %03.01f seconds, "
-                    L"installing keyboard hook...",
+                    L"installing deferred keyboard hook...",
                   (float)(timeGetTime () - dwTime) / 1000.0f );
 
   dwTime = timeGetTime ();
@@ -660,10 +655,9 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
                   hits > 1 ? L"tries" : L"try",
                     timeGetTime () - dwTime );
 
-  while (true) {
-    Sleep (10);
-  }
-  //193 - 199
+  // Keep the thread alive indefinitely, we need a thread (even if it does nothing)
+  //   alive in order for the keyboard hook to work.
+  Sleep (INFINITE);
 
   return 0;
 }
@@ -875,6 +869,11 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           extern bool __need_purge;
           __need_purge = true;
         }
+
+        else if (vkCode == 'X' && new_press) {
+          extern bool __log_used;
+          __log_used = true;
+        }
       }
 
       // Don't print the tab character, it's pretty useless.
@@ -901,6 +900,9 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
     if (visible) return -1;
   }
 
+  if (keys_ [VK_CONTROL] != 0x00)
+    return -1;
+
   return CallNextHookEx (Hooker::getInstance ()->hooks.keyboard, nCode, wParam, lParam);
 };
 
@@ -912,7 +914,7 @@ TSFix_DrawCommandConsole (void)
 
   // Skip the first several frames, so that the console appears below the
   //  other OSD.
-  if (draws++ > 20) {
+  if (draws++ > 200) {
     tsf::InputManager::Hooker* pHook = tsf::InputManager::Hooker::getInstance ();
     pHook->Draw ();
   }

@@ -194,15 +194,15 @@ typedef HRESULT (STDMETHODCALLTYPE *DrawIndexedPrimitiveUP_pfn)
   UINT              VertexStreamZeroStride
 );
 
-typedef void (STDMETHODCALLTYPE *BMF_BeginBufferSwap_pfn)(void);
+typedef void (STDMETHODCALLTYPE *SK_BeginBufferSwap_pfn)(void);
 
-typedef HRESULT (STDMETHODCALLTYPE *BMF_EndBufferSwap_pfn)
+typedef HRESULT (STDMETHODCALLTYPE *SK_EndBufferSwap_pfn)
 (
   HRESULT   hr,
   IUnknown *device
 );
 
-typedef D3DPRESENT_PARAMETERS* (__stdcall *BMF_SetPresentParamsD3D9_pfn)
+typedef D3DPRESENT_PARAMETERS* (__stdcall *SK_SetPresentParamsD3D9_pfn)
 (
   IDirect3DDevice9      *pDevice,
   D3DPRESENT_PARAMETERS *pParams

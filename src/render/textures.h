@@ -227,7 +227,7 @@ const GUID IID_SKTextureD3D9 = { 0xace1f81b, 0x5f3f, 0x45f4, 0xbf, 0x9f, 0x1b, 0
 interface ISKTextureD3D9 : public IDirect3DTexture9
 {
 public:
-     ISKTextureD3D9 (IDirect3DTexture9 **ppTex, SIZE_T size) {
+     ISKTextureD3D9 (IDirect3DTexture9 **ppTex, SIZE_T size, uint32_t crc32) {
          pTexOverride  = nullptr;
          can_free      = true;
          override_size = 0;
@@ -236,6 +236,7 @@ public:
          pTex          = *ppTex;
        *ppTex          =  this;
          tex_size      = size;
+         tex_crc32     = crc32;
          must_block    = false;
          refs          =  1;
      };
@@ -359,6 +360,7 @@ public:
 
     IDirect3DTexture9* pTex;          // The original texture data
     SIZE_T             tex_size;      //   Original data size
+    uint32_t           tex_crc32;     //   Original data checksum
 
     IDirect3DTexture9* pTexOverride;  // The overridden texture data (nullptr if unchanged)
     SIZE_T             override_size; //   Override data size
