@@ -75,6 +75,9 @@ IDirect3DPixelShader9*  g_pPS;
 uint32_t vs_checksum = 0;
 uint32_t ps_checksum = 0;
 
+extern int      debug_tex_id;
+extern uint32_t current_tex;
+
 extern uint32_t
 crc32 (uint32_t crc, const void *buf, size_t size);
 
@@ -852,6 +855,20 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
                        pConstantData [i*4+2],pConstantData [i*4+3] );
     }
   }
+
+#if 0
+  if (StartRegister == 16 && Vector4fCount == 1 && vs_checksum == 0x4aa24635) {
+    float vals [4] = { pConstantData [0] * 100.0f, pConstantData [1] * 100.0f, pConstantData [2] * 100.0f, pConstantData [3] };
+
+    return
+      D3D9SetVertexShaderConstantF_Original (
+        This,
+          StartRegister,
+            vals,
+              Vector4fCount
+        );
+  }
+#endif
 
   if (StartRegister == 240 && Vector4fCount == 1) {
     D3DVIEWPORT9 vp;
@@ -1730,6 +1747,7 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Debug.OutlinePrims", new eTB_VarStub <int>(&test_prims));
 
   pCommandProc->AddVariable ("Textures.MaxCacheSize", new eTB_VarStub <int> (&config.textures.max_cache_in_mib));
+  pCommandProc->AddVariable ("Textures.DebugTexID",   new eTB_VarStub <int> (&debug_tex_id));
 
   tex_mgr.Init ();
 }
@@ -1744,17 +1762,36 @@ tsf::RenderFix::Shutdown (void)
 
 float ar;
 
+float         fAnimSpeed = 65535.0;
+eTB_Variable* anim_speed;
+
 tsf::RenderFix::CommandProcessor::CommandProcessor (void)
 {
   eTB_CommandProcessor* pCommandProc =
     SK_GetCommandProcessor ();
 
   pCommandProc->AddVariable ("Render.AllowBG",   new eTB_VarStub <bool>  (&config.render.allow_background));
+
+  anim_speed = new eTB_VarStub <float> (&fAnimSpeed, this);
+  pCommandProc->AddVariable ("Render.AnimSpeed", anim_speed);
 }
 
 bool
 tsf::RenderFix::CommandProcessor::OnVarChange (eTB_Variable* var, void* val)
 {
+  if (var == anim_speed) {
+    if (val != nullptr) {
+      double* dAnimSpeed = (double *)((uintptr_t)GetModuleHandle (nullptr) + 0x47d538);
+
+      DWORD dwProtect;
+      VirtualProtect (dAnimSpeed, 8, PAGE_READWRITE, &dwProtect);
+      *dAnimSpeed = *(float *)val;
+      VirtualProtect (dAnimSpeed, 8, dwProtect, &dwProtect);
+
+      fAnimSpeed = *dAnimSpeed;
+    }
+  }
+
   return true;
 }
 

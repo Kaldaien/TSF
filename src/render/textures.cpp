@@ -596,6 +596,9 @@ FlushOrphanedRTs (void)
 }
 #endif
 
+int debug_tex_id;
+uint32_t current_tex;
+
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -621,6 +624,8 @@ D3D9SetTexture_Detour (
     ISKTextureD3D9* pSKTex =
       (ISKTextureD3D9 *)pTexture;
 
+    current_tex = pSKTex->tex_crc32;
+
     textures_used.insert (pSKTex->tex_crc32);
 
     QueryPerformanceCounter_Original (&pSKTex->last_used);
@@ -642,6 +647,9 @@ D3D9SetTexture_Detour (
       pTexture = pSKTex->pTexOverride;
     else
       pTexture = pSKTex->pTex;
+
+    if (pSKTex->tex_crc32 == (uint32_t)debug_tex_id)
+      pTexture = nullptr;
   }
 
   DWORD address_mode = D3DTADDRESS_WRAP;
@@ -1108,8 +1116,6 @@ D3DXCreateTextureFromFileEx_pfn
 #define D3DX_SKIP_DDS_MIP_LEVELS_SHIFT 26
 #define D3DX_SKIP_DDS_MIP_LEVELS(l, f) ((((l) & D3DX_SKIP_DDS_MIP_LEVELS_MASK) \
 << D3DX_SKIP_DDS_MIP_LEVELS_SHIFT) | ((f) == D3DX_DEFAULT ? D3DX_FILTER_BOX : (f)))
-
-__declspec (thread) bool injecting = false;
 
 typedef struct tsf_tex_load_s {
   enum {
@@ -2001,7 +2007,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
     }
   }
 
-  if ( config.textures.dump && (! injecting) && (! inject_thread) && (! injectable_textures.count (checksum)) &&
+  if ( config.textures.dump && (! inject_thread) && (! injectable_textures.count (checksum)) &&
                           (! dumped_textures.count (checksum)) ) {
     D3DXIMAGE_INFO info;
     D3DXGetImageInfoFromFileInMemory (pSrcData, SrcDataSize, &info);
@@ -2772,9 +2778,11 @@ tsf::RenderFix::TextureManager::updateOSD (void)
   osd_stats = "";
 
   char szFormatted [64];
-  sprintf ( szFormatted, "%6lu Total Textures : %8.2f MiB\n",
+  sprintf ( szFormatted, "%6lu Total Textures : %8.2f MiB   (%4lu MiB Available)\n",
               numTextures () + numInjectedTextures (),
-                cache_total );
+                cache_total,
+                  tsf::RenderFix::pDevice != nullptr ? tsf::RenderFix::pDevice->GetAvailableTextureMem () / 1024UL / 1024UL:
+                                                                                            0 );
   osd_stats += szFormatted;
 
   sprintf ( szFormatted, "%6lu  Base Textures : %8.2f MiB\n",
@@ -2795,13 +2803,27 @@ tsf::RenderFix::TextureManager::updateOSD (void)
 
   osd_stats += szFormatted;
 
+  if (debug_tex_id != 0x00) {
+    osd_stats += "\n\n";
+
+    sprintf ( szFormatted, " Debug Texture : %08x",
+                debug_tex_id );
+
+    osd_stats += szFormatted;
+  }
 }
+
+std::vector <uint32_t> textures_used_last_dump;
+int tex_dbg_idx = 0;
 
 void
 TSFix_LogUsedTextures (void)
 {
   if (__log_used)
   {
+    textures_used_last_dump.clear ();
+    tex_dbg_idx = 0;
+
     tex_log.Log (L"[ Tex. Log ] ---------- FrameTrace ----------- ");
 
     for ( auto it  = textures_used.begin ();
@@ -2810,7 +2832,9 @@ TSFix_LogUsedTextures (void)
       ISKTextureD3D9* pSKTex =
         (ISKTextureD3D9 *)tsf::RenderFix::tex_mgr.getTexture (*it)->d3d9_tex;
 
-      tex_log.Log ( L"[ Tex. Log ] %08x.dds  { Base: %6.2f MiB,  Inject: %6.2f MiB,  Load Time: %8.3f ms }",
+      textures_used_last_dump.push_back (*it);
+
+      tex_log.Log ( L"[ Tex. Log ] %08x.dds  { Base: %6.2f MiB,  Inject: %6.2f MiB,  Load Time: %8.3f ms }  [%i]",
                       *it,
                         (double)pSKTex->tex_size /
                           (1024.0 * 1024.0),
@@ -2819,7 +2843,8 @@ TSFix_LogUsedTextures (void)
                     (double)pSKTex->override_size / 
                           (1024.0 * 1024.0) : 0.0,
 
-                        tsf::RenderFix::tex_mgr.getTexture (*it)->load_time );
+                        tsf::RenderFix::tex_mgr.getTexture (*it)->load_time,
+                          *it );
     }
 
     tex_log.Log (L"[ Tex. Log ] ---------- FrameTrace ----------- ");

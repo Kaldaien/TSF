@@ -123,7 +123,7 @@ IDirectInputDevice8_GetDeviceState_Detour ( LPDIRECTINPUTDEVICE        This,
                                             DWORD                      cbData,
                                             LPVOID                     lpvData )
 {
-  HRESULT hr;
+  HRESULT hr
     = IDirectInputDevice8_GetDeviceState_Original ( This,
                                                       cbData,
                                                         lpvData );
@@ -873,6 +873,64 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
         else if (vkCode == 'X' && new_press) {
           extern bool __log_used;
           __log_used = true;
+        }
+
+        else if (vkCode == VK_OEM_6 && new_press) {
+          extern std::vector <uint32_t> textures_used_last_dump;
+          extern int                    tex_dbg_idx;
+          ++tex_dbg_idx;
+
+          if (tex_dbg_idx > textures_used_last_dump.size ())
+            tex_dbg_idx = textures_used_last_dump.size ();
+
+          extern int debug_tex_id;
+          debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
+
+          tsf::RenderFix::tex_mgr.updateOSD ();
+        }
+
+        else if (vkCode == VK_OEM_4 && new_press) {
+          extern std::vector <uint32_t> textures_used_last_dump;
+          extern int                    tex_dbg_idx;
+          extern int                    debug_tex_id;
+
+          --tex_dbg_idx;
+
+          if (tex_dbg_idx < 0) {
+            tex_dbg_idx = -1;
+            debug_tex_id = 0;
+          } else {
+            if (tex_dbg_idx > textures_used_last_dump.size ())
+              tex_dbg_idx = textures_used_last_dump.size ();
+
+            debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
+          }
+
+          tsf::RenderFix::tex_mgr.updateOSD ();
+        }
+
+        else if (vkCode == 'N') {
+          eTB_CommandResult result =
+            pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
+
+          float val =
+            ((eTB_VarStub <float> *)result.getVariable ())->getValue ();
+
+          val -= 1000.0f;
+
+          pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
+        }
+
+        else if (vkCode == 'M') {
+          eTB_CommandResult result =
+            pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
+
+          float val =
+            ((eTB_VarStub <float> *)result.getVariable ())->getValue ();
+
+          val += 1000.0f;
+
+          pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
         }
       }
 
