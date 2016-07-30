@@ -28,7 +28,7 @@
 static
   tsf::INI::File* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.9.0";
+std::wstring TSFIX_VER_STR = L"1.0.x";
 tsf_config_s config;
 
 struct {

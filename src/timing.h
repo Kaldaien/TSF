@@ -34,3 +34,9 @@ typedef BOOL (WINAPI *QueryPerformanceCounter_pfn)(
 );
 
 extern QueryPerformanceCounter_pfn QueryPerformanceCounter_Original;
+
+typedef BOOL (WINAPI *QueryPerformanceFrequency_pfn)(
+  _Out_ LARGE_INTEGER *lpPerformanceCount
+);
+
+extern QueryPerformanceFrequency_pfn QueryPerformanceFrequency_Original;

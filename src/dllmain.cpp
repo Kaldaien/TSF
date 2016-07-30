@@ -110,6 +110,13 @@ DllThread (LPVOID user)
     TSFix_PatchZelosAchievement ();
   }
 
+
+  BOOL WINAPI QueryPerformanceFrequency_Detour (LARGE_INTEGER *pLI);
+
+  TSFix_CreateDLLHook ( L"Kernel32.dll", "QueryPerformanceFrequency",
+                          QueryPerformanceFrequency_Detour, 
+               (LPVOID *)&QueryPerformanceFrequency_Original );
+
   return 0;
 }
 

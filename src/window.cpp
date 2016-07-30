@@ -358,6 +358,15 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                                   window.window_rect.bottom - window.window_rect.top,
                                     SWP_FRAMECHANGED  | SWP_SHOWWINDOW | SWP_NOSENDCHANGING );
 
+    float* fAspect = (float *)((uintptr_t)GetModuleHandle (nullptr) + 0x47e080);
+
+    DWORD dwProtect;
+    VirtualProtect (fAspect, sizeof (float), PAGE_READWRITE, &dwProtect);
+    *fAspect = (float)(window.window_rect.right  - window.window_rect.left) /
+               (float)(window.window_rect.bottom - window.window_rect.top);
+    VirtualProtect (fAspect, sizeof (float), dwProtect, &dwProtect);
+
+
     dll_log.Log ( L"[Border Mgr] WINDOW => {Left: %li, Top: %li} - (WxH: %lix%li)",
                     window.window_rect.left, window.window_rect.top,
                       window.window_rect.right - window.window_rect.left,

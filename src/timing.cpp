@@ -188,6 +188,41 @@ QueryPerformanceCounter_Detour (
   return QueryPerformanceCounter_Original (lpPerformanceCount);
 }
 
+QueryPerformanceFrequency_pfn QueryPerformanceFrequency_Original = nullptr;
+
+#pragma intrinsic(_ReturnAddress)
+
+BOOL
+WINAPI
+QueryPerformanceFrequency_Detour (
+  _Out_ LARGE_INTEGER *lpPerformanceCount
+){
+  BOOL bRet = QueryPerformanceFrequency_Original (lpPerformanceCount);
+
+  HMODULE hMod = NULL;
+
+  GetModuleHandleExW (
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+      (LPCWSTR)_ReturnAddress (),
+        &hMod );
+
+  wchar_t wszName [MAX_PATH];
+  GetModuleFileNameW (hMod, wszName, MAX_PATH);
+
+  if ( (uintptr_t)hMod == (uintptr_t)GetModuleHandle (L"TOS.exe") )
+  {
+    dll_log.Log ( L"[  60 FPS  ] Performance Frequency Query (called from [%s+%ph])",
+                    wszName,
+                      (uintptr_t)_ReturnAddress () -
+                      (uintptr_t)hMod );
+    lpPerformanceCount->QuadPart *= 2;
+  }
+
+  return bRet;
+}
+
+
 typedef BOOL (WINAPI *CreateTimerQueueTimer_pfn)
 (
   _Out_    PHANDLE             phNewTimer,
@@ -213,6 +248,15 @@ CreateTimerQueueTimer_Override (
   _In_     ULONG               Flags
 )
 {
+  if (Flags & 0x8) {
+    //Period = 0;
+
+    Flags  &= ~0x8;
+
+    //if (DueTime == 16)
+      //DueTime = 8;
+  }
+
   dll_log.Log ( L"[  60 FPS  ][!] CreateTimerQueueTimer (... %lu ms, %lu ms, ...)",
                   DueTime, Period );
 
@@ -293,6 +337,175 @@ NamcoLimiter_Detour (DWORD dwUnknown0, DWORD dwUnknown1, DWORD dwUnknwnown2)
 
   return;
 }
+
+typedef int (__cdecl *NamcoLoadPAC_pfn)(const char* szName);
+NamcoLoadPAC_pfn NamcoLoadPAC_Original = nullptr;
+
+#define NAMCO_PUSH __asm { pushad } __asm { pushfd }
+#define NAMCO_POP  __asm { popfd  } __asm { popad  }
+
+LPVOID NamcoLoad_Original = nullptr;
+LPVOID NamcoLoad_Skip     = (LPVOID)0x005792A1;
+
+#include <map>
+#include <string>
+std::map <std::string, std::string> remaps;
+
+char __remap__ [MAX_PATH];
+
+int remap_count (const char* szTest)
+{
+  return remaps.count (szTest);
+}
+
+void
+establish_remap (const char* szTest)
+{
+  strcpy (__remap__, remaps [szTest].c_str ());
+}
+
+void
+__declspec (naked)
+NamcoLoad_ (void)
+{
+  __asm {
+    pushfd
+    pushad
+  }
+
+  char* szName;
+
+  __asm {
+    mov eax, [ebp+8]
+    mov szName, eax
+  };
+
+  if (szName != nullptr) {
+    dll_log.Log (L"[Namco Func] LoadPAC (%hs)", szName);
+
+    // Lloyd
+    if (remap_count (szName)) {
+      establish_remap (szName);
+
+      __asm {
+        popad
+        lea eax, [__remap__]
+        popfd
+        jmp NamcoLoad_Skip
+      }
+    }
+  }
+
+  __asm {
+    popad
+    popfd
+    jmp NamcoLoad_Original
+  }
+}
+
+int
+__cdecl
+NamcoLoadPAC_Detour (const char* szName)
+{
+  NAMCO_PUSH
+
+  if (szName != nullptr) {
+    dll_log.Log (L"[Namco Func] LoadPAC (%hs)", szName);
+  }
+
+  NAMCO_POP
+
+  return NamcoLoadPAC_Original (szName);
+}
+
+typedef int (__cdecl *sub_5CA6B0_pfn)(int);
+sub_5CA6B0_pfn sub_5CA6B0_Original = nullptr;
+
+uint8_t __TICK_RATE = 2;
+
+int
+__cdecl
+sub_5CA6B0_Detour (int x)
+{
+  uint8_t* pXXX = (uint8_t *)(LPVOID)0x1C37362;
+  //dll_log.Log (L"%lu", *pXXX);
+//  *pXXX = 0;
+  //*pXXX = 1;
+
+  uint32_t* pYYY = (uint32_t *)0x8A3228;
+  //*pYYY = 1;
+
+  uint32_t* pZZZ = (uint32_t *)0x8A322C;
+  //*pZZZ = 1;
+
+  //return x;
+  //int orig = x;
+  return sub_5CA6B0_Original (__TICK_RATE);//x);
+  //dll_log.Log ("Sub5CA6B0 (%lu) ==> %lu", orig, ret);
+  //return 1;//ret;
+}
+
+typedef int (__cdecl *sub_5CB5B0_pfn)(void);
+sub_5CB5B0_pfn sub_5CB5B0_Original = nullptr;
+
+int
+__cdecl
+sub_5CB5B0_Detour (void)
+{
+  int ret = sub_5CB5B0_Original ();
+
+//  dll_log.Log (L"Sub5CB5B0 () ==> %lu", ret);
+
+  uint32_t* XXX = (uint32_t *)0x8A3224;
+  *XXX = __TICK_RATE;
+
+  uint32_t* YYY = (uint32_t *)0x8A3220;
+  *YYY = __TICK_RATE;
+
+  return ((ret / 2) * __TICK_RATE);
+}
+
+typedef int (__cdecl *sub_5CAE30_pfn)(void);
+sub_5CAE30_pfn sub_5CAE30_Original = nullptr;
+
+int
+__cdecl
+sub_5CAE30_Detour (void)
+{
+  static int iter = 0;
+
+  uint32_t* XXX = (uint32_t *)(0x1C37370);
+
+  if (++iter % 2)
+    *XXX--;
+
+  int ret = 
+    sub_5CAE30_Original ();
+
+  return ret;
+}
+
+struct unknown_s {
+  float* fUnk0;
+  float* fUnk1;
+};
+
+typedef int (__cdecl *sub_49F610_pfn)(unknown_s*);
+sub_49F610_pfn sub_49F610_Original = nullptr;
+
+int
+__cdecl sub_49F610_Detour (unknown_s* pUnk)
+{
+  dll_log.Log (L"Sub_49F610 (%p -> { %f, %f }) ==> ", pUnk, *pUnk->fUnk0, *pUnk->fUnk1);
+
+  int ret = sub_49F610_Original (pUnk);
+
+  dll_log.Log (L"\t%lu", ret);
+
+  return ret;
+}
+
+int __stdcall sub_60CE10(int,int);
 
 typedef LONG NTSTATUS;
 
@@ -412,6 +625,67 @@ tsf::TimingFix::Init (void)
                            NamcoLimiter_Detour,
                            &lpvDontCare );
     TSFix_EnableHook     (pLimiterFunc);
+
+#if 1
+
+    TSFix_CreateFuncHook ( L"NamcoLimiterTest",
+                           (LPVOID)0x5CA6B0,
+                           sub_5CA6B0_Detour,
+                (LPVOID *)&sub_5CA6B0_Original );
+    TSFix_EnableHook     ((LPVOID)0x5CA6B0);
+
+    TSFix_CreateFuncHook ( L"NamcoStuff",
+                           (LPVOID)0x5CB5B0,
+                           sub_5CB5B0_Detour,
+                (LPVOID *)&sub_5CB5B0_Original );
+    TSFix_EnableHook     ((LPVOID)0x5CB5B0);
+
+#endif
+
+#if 1
+    TSFix_CreateFuncHook ( L"NamcoStuff2",
+                           (LPVOID)0x5CAE30,
+                           sub_5CAE30_Detour,
+                (LPVOID *)&sub_5CAE30_Original );
+    TSFix_EnableHook ((LPVOID)0x5CAE30);
+#endif
+
+#if 0
+#if 0
+    TSFix_CreateFuncHook ( L"NamcoLoadPAC",
+                           (LPVOID)0x579270,
+                           NamcoLoadPAC_Detour,
+                (LPVOID *)&NamcoLoadPAC_Original );
+    TSFix_EnableHook     ((LPVOID)0x579270);
+
+#else
+    TSFix_CreateFuncHook ( L"NamcoLoad",
+                           (LPVOID)0x00579295,
+                           NamcoLoad_,
+                (LPVOID *)&NamcoLoad_Original );
+    TSFix_EnableHook     ((LPVOID)0x00579295);
+
+    remaps ["lloyd.pac"]     = "Shihna.pac";
+    remaps ["genius.pac"]    = "Refill.pac";
+    remaps ["collet.pac"]    = "Presea.pac";
+    remaps ["BTLGENIUS0.PAC"] = "BTLREFILL0.PAC";
+    remaps ["BTLLLOYD0.PAC"] = "BTLCOLLET3.PAC";
+    remaps ["BTLPRESEA0.PAC"] = "BTLCOLLET3.PAC";
+    remaps ["BTLREFILL0.PAC"] = "BTLCOLLET3.PAC";
+    //remaps ["BTLLLOYD0.PAC"] = "BTLLLOYD9.PAC";
+#endif
+#endif
+
+// TOS.exe+C3131 - C6 45 FC 02           - mov byte ptr [ebp-04],02 { 00000002 }
+
+
+#if 0
+    DWORD dwProtect;
+
+    VirtualProtect ((LPVOID)0x87E26C, 4, PAGE_READWRITE, &dwProtect);
+    *((float *)0x87E26C) = 1000.0f;
+    VirtualProtect ((LPVOID)0x87E26C, 4, dwProtect, &dwProtect);
+#endif
 
 #if 0
     TSFix_CreateFuncHook ( L"NamcoUnknown",
