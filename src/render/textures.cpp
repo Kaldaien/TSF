@@ -1144,13 +1144,249 @@ typedef struct tsf_tex_load_s {
   LARGE_INTEGER       freq  = { 0LL };
 };
 
-std::queue <tsf_tex_load_s *> textures_to_stream;
-std::queue <tsf_tex_load_s *> textures_to_resample;
+
+class TexLoadRef {
+public:
+   TexLoadRef (tsf_tex_load_s* ref) { ref_ = ref;}
+  ~TexLoadRef (void) { }
+
+  operator tsf_tex_load_s* (void) {
+    return ref_;
+  }
+
+protected:
+  tsf_tex_load_s* ref_;
+};
+
+class SK_TextureThreadPool;
+
+class SK_TextureWorkerThread {
+public:
+  SK_TextureWorkerThread (SK_TextureThreadPool* pool)
+  {
+    pool_ = pool;
+    job_  = nullptr;
+
+    control_.start =
+      CreateEvent (nullptr, FALSE, FALSE, nullptr);
+    control_.shutdown =
+      CreateEvent (nullptr, FALSE, FALSE, nullptr);
+
+    InitializeCriticalSectionAndSpinCount (&cs_job_ctl, 100000UL);
+
+    thread_ =
+      CreateThread (nullptr, 0, ThreadProc, this, 0, &thread_id_);
+  }
+
+  ~SK_TextureWorkerThread (void)
+  {
+    TerminateThread (thread_, 0);
+
+    DeleteCriticalSection (&cs_job_ctl);
+
+    CloseHandle (control_.shutdown);
+    CloseHandle (control_.start);
+  }
+
+  void startJob  (tsf_tex_load_s* job) {
+    EnterCriticalSection (&cs_job_ctl);
+    job_ = job;
+    LeaveCriticalSection (&cs_job_ctl);
+    SetEvent (control_.start);
+  }
+
+  void finishJob (void);
+
+  bool isBusy   (void) {
+    bool busy = false;
+
+    EnterCriticalSection (&cs_job_ctl);
+    busy = (job_ != nullptr);
+    LeaveCriticalSection (&cs_job_ctl);
+
+    return busy;
+  }
+
+  void shutdown (void) {
+    SetEvent (control_.shutdown);
+  }
+
+protected:
+  static DWORD WINAPI ThreadProc (LPVOID user);
+
+  SK_TextureThreadPool* pool_;
+
+  DWORD                 thread_id_;
+  HANDLE                thread_;
+
+  tsf_tex_load_s*       job_;
+
+  struct {
+    union {
+      struct {
+        HANDLE start;
+        HANDLE shutdown;
+      };
+      HANDLE   ops [2];
+    };
+  } control_;
+
+  CRITICAL_SECTION cs_job_ctl;
+
+};
+
+class SK_TextureThreadPool {
+friend class SK_TextureWorkerThread;
+public:
+  SK_TextureThreadPool (void) {
+    events_.jobs_added =
+      CreateEvent (nullptr, FALSE, FALSE, nullptr);
+
+    events_.results_waiting =
+      CreateEvent (nullptr, FALSE, FALSE, nullptr);
+
+    InitializeCriticalSectionAndSpinCount (&cs_jobs,      100UL);
+    InitializeCriticalSectionAndSpinCount (&cs_results, 10000UL);
+
+    const int MAX_THREADS = config.textures.max_decomp_jobs;
+
+    for (int i = 0; i < MAX_THREADS; i++) {
+      SK_TextureWorkerThread* pWorker =
+        new SK_TextureWorkerThread (this);
+      workers_.push_back (pWorker);
+    }
+
+    // This will be deferred until it is first needed...
+    spool_thread_ = nullptr;
+  }
+
+  ~SK_TextureThreadPool (void) {
+    WaitForSingleObject (events_.jobs_added, 100UL);
+
+    // TODO: More graceful signal.
+    TerminateThread (spool_thread_, 0);
+
+    DeleteCriticalSection (&cs_results);
+    DeleteCriticalSection (&cs_jobs);
+
+    CloseHandle (events_.results_waiting);
+    CloseHandle (events_.jobs_added);
+  }
+
+  void postJob (tsf_tex_load_s* job)
+  {
+    EnterCriticalSection (&cs_jobs);
+    {
+      jobs_.push (job);
+      SetEvent   (events_.jobs_added);
+
+      if (! spool_thread_) {
+        spool_thread_ =
+          CreateThread (nullptr, 0, Spooler, (LPVOID)this, 0, nullptr);
+      }
+    }
+    LeaveCriticalSection (&cs_jobs);
+  }
+
+  std::vector <tsf_tex_load_s *> getFinished (void)
+  {
+    std::vector <tsf_tex_load_s *> results;
+
+    DWORD dwResults =
+      WaitForSingleObject (events_.results_waiting, 0);
+
+    // Nothing waiting
+    if (dwResults == WAIT_FAILED)
+      return results;
+
+    EnterCriticalSection (&cs_results);
+    {
+      while (! results_.empty ()) {
+        results.push_back (results_.front ());
+        results_.pop ();
+      }
+    }
+    LeaveCriticalSection (&cs_results);
+
+    return results;
+  }
+
+  bool working (void) {
+    return (! results_.empty ());
+  }
+
+  int queueLength (void) {
+    int num = 0;
+
+    EnterCriticalSection (&cs_jobs);
+    {
+      num = jobs_.size ();
+    }
+    LeaveCriticalSection (&cs_jobs);
+
+    return num;
+  }
+
+
+protected:
+  static DWORD WINAPI Spooler (LPVOID user);
+
+  tsf_tex_load_s* getNextJob   (void) {
+    tsf_tex_load_s* job       = nullptr;
+    DWORD           dwResults = 0;
+
+    //while (dwResults != WAIT_OBJECT_0) {
+      //dwResults = WaitForSingleObject (events_.jobs_added, INFINITE);
+    //}
+
+    if (jobs_.empty ())
+      return nullptr;
+
+    EnterCriticalSection (&cs_jobs);
+    {
+      job = jobs_.front ();
+            jobs_.pop   ();
+    }
+    LeaveCriticalSection (&cs_jobs);
+
+    return job;
+  }
+
+  void            postFinished (tsf_tex_load_s* finished)
+  {
+    EnterCriticalSection (&cs_results);
+    {
+      results_.push (finished);
+      SetEvent      (events_.results_waiting);
+    }
+    LeaveCriticalSection (&cs_results);
+  }
+
+private:
+  std::queue <TexLoadRef> jobs_;
+  std::queue <TexLoadRef> results_;
+
+  std::vector <SK_TextureWorkerThread *> workers_;
+
+  struct {
+    HANDLE jobs_added;
+    HANDLE results_waiting;
+  } events_;
+
+  CRITICAL_SECTION cs_jobs;
+  CRITICAL_SECTION cs_results;
+
+  HANDLE spool_thread_;
+} *stream_pool = nullptr;
+
+
+std::queue <TexLoadRef> textures_to_stream;
+std::queue <TexLoadRef> textures_to_resample;
 
 std::map   <uint32_t, tsf_tex_load_s *>
                               textures_in_flight;
 
-std::queue <tsf_tex_load_s *> finished_loads;
+std::queue <TexLoadRef> finished_loads;
 
 CRITICAL_SECTION              cs_tex_stream;
 CRITICAL_SECTION              cs_tex_resample;
@@ -1174,9 +1410,11 @@ pending_loads (void)
 {
   bool ret = false;
 
-  EnterCriticalSection (&cs_tex_inject);
-  ret = (! finished_loads.empty ());
-  LeaveCriticalSection (&cs_tex_inject);
+  return stream_pool != nullptr && stream_pool->working ();
+
+//  EnterCriticalSection (&cs_tex_inject);
+//  ret = (! finished_loads.empty ());
+//  LeaveCriticalSection (&cs_tex_inject);
 
   return ret;
 }
@@ -1219,14 +1457,8 @@ pending_streams (void)
 {
   bool ret = false;
 
-  //EnterCriticalSection (&cs_tex_stream);
-
-  if (streaming)
+  if (streaming || stream_pool->queueLength ())
     ret = true;
-  //if (textures_to_stream.size ())
-    //ret = true;
-
-  //LeaveCriticalSection (&cs_tex_stream);
 
   return ret;
 }
@@ -1253,39 +1485,6 @@ finished_streaming (uint32_t checksum)
 
   if (textures_in_flight.count (checksum))
     textures_in_flight.erase (checksum);
-
-  LeaveCriticalSection (&cs_tex_stream);
-}
-
-tsf_tex_load_s*
-start_next_stream (void)
-{
-  EnterCriticalSection (&cs_tex_stream);
-
-  tsf_tex_load_s*
-    stream =
-      textures_to_stream.front ();
-
-  ++streaming;
-  streaming_bytes += stream->SrcDataSize;
-
-  QueryPerformanceFrequency        (&stream->freq);
-  QueryPerformanceCounter_Original (&stream->start);
-
-  textures_to_stream.pop ();
-
-  LeaveCriticalSection (&cs_tex_stream);
-
-  return stream;
-}
-
-void
-finish_stream (tsf_tex_load_s* stream)
-{
-  EnterCriticalSection (&cs_tex_stream);
-
-  streaming_bytes -= stream->SrcDataSize;
-  --streaming;
 
   LeaveCriticalSection (&cs_tex_stream);
 }
@@ -1346,7 +1545,7 @@ InjectTexture (tsf_tex_load_s* load)
 
         load->SrcDataSize = read;
 
-        if (streamed && size > (16 * 1024)) {
+        if (streamed && size > (32 * 1024)) {
           SetThreadPriority ( GetCurrentThread (),
                                 THREAD_PRIORITY_BELOW_NORMAL |
                                 THREAD_MODE_BACKGROUND_BEGIN );
@@ -1389,7 +1588,7 @@ InjectTexture (tsf_tex_load_s* load)
     struct archive_entry *entry;
     int                   r, tex_count = 0;
 
-    if (streamed && size > (16 * 1024)) {
+    if (streamed && size > (32 * 1024)) {
       SetThreadPriority ( GetCurrentThread (),
                             THREAD_PRIORITY_LOWEST |
                             THREAD_MODE_BACKGROUND_BEGIN );
@@ -1411,15 +1610,16 @@ InjectTexture (tsf_tex_load_s* load)
 
       while (archive_read_next_header (a, &entry) == ARCHIVE_OK) {
         if (fileno == injectable_textures [load->checksum].fileno) {
+      //tex_log.Log (L"%s :: %lu", archives [injectable_textures [load->checksum].archive].c_str (), fileno);
           if ((load->pSrcData = new uint8_t [size])) {
             bool wait = true;
 
             while (wait) {
               DWORD dwResult = WAIT_OBJECT_0;
 
-              if (streamed && size > (16 * 1024)) {
+              if (streamed && size > (32 * 1024)) {
                 dwResult =
-                  WaitForSingleObject ( decomp_semaphore, INFINITE );
+                  WaitForSingleObject ( decomp_semaphore, 100UL );
               }
 
               switch (dwResult) 
@@ -1427,7 +1627,7 @@ InjectTexture (tsf_tex_load_s* load)
               case WAIT_OBJECT_0:
                 read = archive_read_data (a, load->pSrcData, size);
 
-                if (streamed && size > (16 * 1024))
+                if (streamed && size > (32 * 1024))
                   ReleaseSemaphore (decomp_semaphore, 1, nullptr);
 
                 wait = false;
@@ -1455,6 +1655,7 @@ InjectTexture (tsf_tex_load_s* load)
                 break; 
 
               default://case WAIT_TIMEOUT:
+                //wait = false;
                 Sleep (4UL);
                 break; 
               }
@@ -1471,33 +1672,12 @@ InjectTexture (tsf_tex_load_s* load)
     }
   }
 
-  if (streamed && size > (16 * 1024)) {
+  if (streamed && size > (32 * 1024)) {
     SetThreadPriority ( GetCurrentThread (),
                           THREAD_MODE_BACKGROUND_END );
   }
 
   return hr;
-}
-
-DWORD
-WINAPI
-TextureStreamThread (LPVOID user)
-{
-  tsf_tex_load_s* pStream;
-
-  pStream = start_next_stream ();
-  {
-    start_load ();
-    {
-      if (SUCCEEDED (InjectTexture (pStream)))
-        add_finished_load (pStream);
-      else
-        cancel_load ();
-    }
-  }
-  finish_stream (pStream);
-
-  return 0;
 }
 
 DWORD
@@ -1591,8 +1771,10 @@ TSFix_LoadQueuedTextures (void)
     sprintf (szFormatted, " [%7.2f MiB]", (double)streaming_bytes / (1024.0f * 1024.0f));
     mod_text += szFormatted;
 
-    if (textures_to_stream.size ()) {
-      sprintf (szFormatted, " (%lu outstanding)", textures_to_stream.size ());
+    int num_queued = stream_pool->queueLength ();
+
+    if (num_queued) {
+      sprintf (szFormatted, " (%lu outstanding)", num_queued);
       mod_text += szFormatted;
     }
 
@@ -1629,9 +1811,14 @@ TSFix_LoadQueuedTextures (void)
     }
   }
 
-  while (pending_loads ()) {
+  std::vector <tsf_tex_load_s *> finished;
+
+  if (stream_pool != nullptr)
+    finished = stream_pool->getFinished ();
+
+  for (auto it = finished.begin (); it != finished.end (); it++) {
     tsf_tex_load_s* load =
-      get_next_load ();
+      *it;
 
     QueryPerformanceCounter_Original (&load->end);
 
@@ -1893,10 +2080,9 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       else {
         textures_in_flight.insert ( std::make_pair ( load_op->checksum,
                                      load_op ) );
-        textures_to_stream.push   (load_op);
-        CreateThread              (nullptr, 0, TextureStreamThread, nullptr, 0, nullptr);
-      }
 
+        stream_pool->postJob (load_op);
+      }
       LeaveCriticalSection        (&cs_tex_stream);
     }
 
@@ -2454,6 +2640,8 @@ tsf::RenderFix::TextureManager::Init (void)
                         config.textures.max_decomp_jobs,
                           config.textures.max_decomp_jobs,
                             nullptr );
+
+  stream_pool = new SK_TextureThreadPool ();
 }
 
 
@@ -2853,4 +3041,110 @@ TSFix_LogUsedTextures (void)
   }
 
   textures_used.clear ();
+}
+
+
+DWORD
+WINAPI
+SK_TextureWorkerThread::ThreadProc (LPVOID user)
+{
+  SK_TextureWorkerThread* pThread =
+   (SK_TextureWorkerThread *)user;
+
+  DWORD dwWaitStatus = 0;
+
+  struct {
+    const DWORD job_start  = WAIT_OBJECT_0;
+    const DWORD thread_end = WAIT_OBJECT_0 + 1;
+  } wait;
+
+  do {
+    dwWaitStatus =
+      WaitForMultipleObjects ( 2,
+                                 pThread->control_.ops,
+                                   FALSE,
+                                     1000UL );
+
+    // New Work Ready
+    if (dwWaitStatus == wait.job_start) {
+      tsf_tex_load_s* pStream = pThread->job_;
+
+      start_load ();
+
+      ++streaming;
+      streaming_bytes += pStream->SrcDataSize;
+
+      QueryPerformanceFrequency        (&pStream->freq);
+      QueryPerformanceCounter_Original (&pStream->start);
+
+      HRESULT hr = InjectTexture (pStream);
+
+      streaming_bytes -= pStream->SrcDataSize;
+      --streaming;
+
+      pThread->finishJob ();
+
+      if (SUCCEEDED (hr)) {
+        pThread->pool_->postFinished (pStream);
+        add_finished_load (pStream);
+      } else {
+       cancel_load ();
+      }
+    } else {
+      dll_log.Log (L"[ Tex. Mgr ] Unexpected Worker Thread Wait Status: %lu", dwWaitStatus);
+    }
+  } while (dwWaitStatus != (wait.thread_end));
+
+  return 0;
+}
+
+DWORD
+WINAPI
+SK_TextureThreadPool::Spooler (LPVOID user)
+{
+  SK_TextureThreadPool* pPool =
+    (SK_TextureThreadPool *)user;
+
+  WaitForSingleObject (pPool->events_.jobs_added, INFINITE);
+
+  while (true) {
+    tsf_tex_load_s* pJob =
+      pPool->getNextJob ();
+
+    while (pJob != nullptr) {
+      auto it = pPool->workers_.begin ();
+
+      while (it != pPool->workers_.end ()) {
+        if (! (*it)->isBusy ()) {
+          (*it)->startJob (pJob);
+          break;
+        }
+
+        ++it;
+      }
+
+      // All worker threads are busy, so wait...
+      if (it == pPool->workers_.end ()) {
+        WaitForSingleObject (pPool->events_.results_waiting, INFINITE);
+      } else {
+        pJob =
+          pPool->getNextJob ();
+      }
+    }
+
+    WaitForSingleObject (pPool->events_.jobs_added, INFINITE);
+  }
+
+  return 0;
+}
+
+void
+SK_TextureWorkerThread::finishJob (void)
+{
+  EnterCriticalSection (&cs_job_ctl);
+
+  //pool_->postFinished (job_);
+  job_ = nullptr;
+
+  LeaveCriticalSection (&cs_job_ctl);
 }

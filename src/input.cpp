@@ -845,62 +845,11 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
         }
 
         else if (vkCode == '1' && new_press) {
-          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 60.0");
-
-          DWORD dwProtect;
-
-          extern uint8_t __TICK_RATE;
-          __TICK_RATE = 1;
-
-          // Menu Speed
-          VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, PAGE_READWRITE, &dwProtect);
-          const uint8_t rep [] = { __TICK_RATE };
-          memcpy ((LPVOID)(0x4C3815 + 0x6), rep, 1);
-          VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, dwProtect, &dwProtect);
-
-          VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, PAGE_READWRITE, &dwProtect);
-          const uint8_t rep2 [] = { __TICK_RATE };
-          memcpy ((LPVOID)(0x400000 + 0x176E22), rep2, 1);
-          VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, dwProtect, &dwProtect);
-
-          VirtualProtect ((LPVOID)0x05A31FD, 6, PAGE_READWRITE, &dwProtect);
-          const uint8_t rep3 [] = { 0xB9, __TICK_RATE , 0x00, 0x00, 0x00, 0x90 };
-          memcpy ((LPVOID)0x05A31FD, rep3, 6);
-          VirtualProtect ((LPVOID)0x05A31FD, 6, dwProtect, &dwProtect);
-
-          ////pCommandProc->ProcessCommandLine ("Timing.RouteSixty false");
+          pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 60.0");
         }
 
         else if (vkCode == '2' && new_press) {
-          DWORD dwProtect;
-
-          extern uint8_t __TICK_RATE;
-          __TICK_RATE = 2;
-
-          // Menu Speed
-          VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, PAGE_READWRITE, &dwProtect);
-          const uint8_t rep [] = { __TICK_RATE };
-          memcpy ((LPVOID)(0x4C3815 + 0x6), rep, 1);
-          VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, dwProtect, &dwProtect);
-
-          VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, PAGE_READWRITE, &dwProtect);
-          const uint8_t rep2 [] = { __TICK_RATE };
-          memcpy ((LPVOID)(0x400000 + 0x176E22), rep2, 1);
-          VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, dwProtect, &dwProtect);
-
-          VirtualProtect ((LPVOID)0x05A31FD, 6, PAGE_READWRITE, &dwProtect);
-          const uint8_t rep3 [] = { 0xB9, __TICK_RATE , 0x00, 0x00, 0x00, 0x90 };
-          memcpy ((LPVOID)0x05A31FD, rep3, 6);
-          VirtualProtect ((LPVOID)0x05A31FD, 6, dwProtect, &dwProtect);
-
-
-          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 30.0");
-          ////pCommandProc->ProcessCommandLine ("Timing.RouteSixty false");
-        }
-
-        else if (vkCode == '3' && new_press) {
-          pCommandProc->ProcessCommandLine ("Window.ForegroundFPS 0.0");
-          ////pCommandProc->ProcessCommandLine ("Timing.RouteSixty true");
+          pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 30.0");
         }
 
         // TODO: Command processor variable for this

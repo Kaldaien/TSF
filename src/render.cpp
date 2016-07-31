@@ -388,69 +388,73 @@ D3D9EndFrame_Pre (void)
 
   tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
 
+  extern std::set <uint32_t> textures_used;
+  extern uint8_t __TICK_RATE;
 
-  bool last_in_menu = false;
+  uint8_t in_menu   = *(uint8_t *)0x1C2BD34;
+  bool    in_world  = textures_used.count (0x862bf8fe);
+  bool    in_battle = *(uint8_t *)0x0B12952;
 
-  static int last_state = -1;//*(int *)0x01D723C4;
-  //if (last_state != *(int *)0x01D723C4 || last_in_menu != *(bool *)0x182BD34) {
-    uint8_t in_menu = *(uint8_t *)0x1C2BD34;
+  float new_limit = 0.0f;
+  int   new_tick  = 0;
 
-    last_in_menu = in_menu;
-    last_state   = *(int *)0x01D723C4;
+  if (in_menu) {
+    new_tick = ( config.framerate.menu != 0.0f ?
+                   60 / (int)config.framerate.menu :
+                   60 / (int)config.framerate.default );
+    new_limit = ( config.framerate.menu != 0.0f ?
+                    config.framerate.menu :
+                    config.framerate.default );
+  }
 
-    extern std::set <uint32_t> textures_used;
+  else if (in_battle) {
+    new_tick = ( config.framerate.battle != 0.0f ?
+                   60 / (int)config.framerate.battle :
+                   60 / (int)config.framerate.default );
+    new_limit = ( config.framerate.battle != 0.0f ?
+                    config.framerate.battle :
+                    config.framerate.default );
+  }
 
-    if (/*last_state == 0 ||*/ in_menu || textures_used.count (0x862bf8fe)) {
-      SK_GetCommandProcessor ()->ProcessCommandLine ("Window.ForegroundFPS 60.0");
+  else if (in_world) {
+    new_tick = ( config.framerate.world != 0.0f ?
+                   60 / (int)config.framerate.world :
+                   60 / (int)config.framerate.default );
+    new_limit = ( config.framerate.world != 0.0f ?
+                    config.framerate.world :
+                    config.framerate.default );
+  }
 
-      DWORD dwProtect;
-
-      extern uint8_t __TICK_RATE;
-      __TICK_RATE = 1;
-
-      // Menu Speed
-      VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, PAGE_READWRITE, &dwProtect);
-      const uint8_t rep [] = { __TICK_RATE };
-      memcpy ((LPVOID)(0x4C3815 + 0x6), rep, 1);
-      VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, dwProtect, &dwProtect);
-
-      VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, PAGE_READWRITE, &dwProtect);
-      const uint8_t rep2 [] = { __TICK_RATE };
-      memcpy ((LPVOID)(0x400000 + 0x176E22), rep2, 1);
-      VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, dwProtect, &dwProtect);
-
-      VirtualProtect ((LPVOID)0x05A31FD, 6, PAGE_READWRITE, &dwProtect);
-      const uint8_t rep3 [] = { 0xB9, __TICK_RATE , 0x00, 0x00, 0x00, 0x90 };
-      memcpy ((LPVOID)0x05A31FD, rep3, 6);
-      VirtualProtect ((LPVOID)0x05A31FD, 6, dwProtect, &dwProtect);
-    }
-
-    else {
-      DWORD dwProtect;
-
-      extern uint8_t __TICK_RATE;
-      __TICK_RATE = 2;
-
-      // Menu Speed
-      VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, PAGE_READWRITE, &dwProtect);
-      const uint8_t rep [] = { __TICK_RATE };
-      memcpy ((LPVOID)(0x4C3815 + 0x6), rep, 1);
-      VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, dwProtect, &dwProtect);
-
-      VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, PAGE_READWRITE, &dwProtect);
-      const uint8_t rep2 [] = { __TICK_RATE };
-      memcpy ((LPVOID)(0x400000 + 0x176E22), rep2, 1);
-      VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, dwProtect, &dwProtect);
-
-      VirtualProtect ((LPVOID)0x05A31FD, 6, PAGE_READWRITE, &dwProtect);
-      const uint8_t rep3 [] = { 0xB9, __TICK_RATE , 0x00, 0x00, 0x00, 0x90 };
-      memcpy ((LPVOID)0x05A31FD, rep3, 6);
-      VirtualProtect ((LPVOID)0x05A31FD, 6, dwProtect, &dwProtect);
+  else {
+    new_tick  = 60 / (int)config.framerate.default;
+    new_limit = config.framerate.default;
+  }
 
 
-      SK_GetCommandProcessor ()->ProcessCommandLine ("Window.ForegroundFPS 30.0");
-    }
-  //}
+  if (new_tick != __TICK_RATE) {
+    SK_GetCommandProcessor ()->ProcessCommandFormatted ("Window.ForegroundFPS %f", new_limit);
+    SK_GetCommandProcessor ()->ProcessCommandFormatted ("Window.BackgroundFPS %f", new_limit);
+
+    DWORD dwProtect;
+
+    __TICK_RATE = new_tick;
+
+    // Menu Speed
+    VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, PAGE_READWRITE, &dwProtect);
+    const uint8_t rep [] = { __TICK_RATE };
+    memcpy ((LPVOID)(0x4C3815 + 0x6), rep, 1);
+    VirtualProtect ((LPVOID)(0x4C3815 + 0x6), 1, dwProtect, &dwProtect);
+
+    VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, PAGE_READWRITE, &dwProtect);
+    const uint8_t rep2 [] = { __TICK_RATE };
+    memcpy ((LPVOID)(0x400000 + 0x176E22), rep2, 1);
+    VirtualProtect ((LPVOID)(0x400000 + 0x176E22), 1, dwProtect, &dwProtect);
+
+    VirtualProtect ((LPVOID)0x05A31FD, 6, PAGE_READWRITE, &dwProtect);
+    const uint8_t rep3 [] = { 0xB9, __TICK_RATE , 0x00, 0x00, 0x00, 0x90 };
+    memcpy ((LPVOID)0x05A31FD, rep3, 6);
+    VirtualProtect ((LPVOID)0x05A31FD, 6, dwProtect, &dwProtect);
+  }
 
   void TSFix_LogUsedTextures (void);
   TSFix_LogUsedTextures ();

@@ -216,7 +216,7 @@ QueryPerformanceFrequency_Detour (
                     wszName,
                       (uintptr_t)_ReturnAddress () -
                       (uintptr_t)hMod );
-    lpPerformanceCount->QuadPart *= 2;
+    //lpPerformanceCount->QuadPart *= 2;
   }
 
   return bRet;
@@ -249,9 +249,9 @@ CreateTimerQueueTimer_Override (
 )
 {
   if (Flags & 0x8) {
-    //Period = 0;
+    Period = 0;
 
-    Flags  &= ~0x8;
+    //Flags  &= ~0x8;
 
     //if (DueTime == 16)
       //DueTime = 8;
@@ -474,10 +474,10 @@ sub_5CAE30_Detour (void)
 {
   static int iter = 0;
 
-  uint32_t* XXX = (uint32_t *)(0x1C37370);
+  //uint32_t* XXX = (uint32_t *)(0x1C37370);
 
-  if (++iter % 2)
-    *XXX--;
+  //if (++iter % 2)
+    //*XXX--;
 
   int ret = 
     sub_5CAE30_Original ();
@@ -633,7 +633,9 @@ tsf::TimingFix::Init (void)
                            sub_5CA6B0_Detour,
                 (LPVOID *)&sub_5CA6B0_Original );
     TSFix_EnableHook     ((LPVOID)0x5CA6B0);
+#endif
 
+#if 1
     TSFix_CreateFuncHook ( L"NamcoStuff",
                            (LPVOID)0x5CB5B0,
                            sub_5CB5B0_Detour,
@@ -724,6 +726,14 @@ tsf::TimingFix::Init (void)
 
   pCommandProc->AddVariable ("Timing.RouteSixty", new eTB_VarStub <bool>(&game_speed.Half));
   pCommandProc->AddVariable ("Timing.HyperSpeed", new eTB_VarStub <bool>(&game_speed.Hyper));
+
+  pCommandProc->AddVariable ("Timing.BattleFPS",   new eTB_VarStub <float>(&config.framerate.battle));
+  pCommandProc->AddVariable ("Timing.CityFPS",     new eTB_VarStub <float>(&config.framerate.city));
+  pCommandProc->AddVariable ("Timing.CutsceneFPS", new eTB_VarStub <float>(&config.framerate.cutscene));
+  pCommandProc->AddVariable ("Timing.FMVFPS",      new eTB_VarStub <float>(&config.framerate.fmv));
+  pCommandProc->AddVariable ("Timing.MenuFPS",     new eTB_VarStub <float>(&config.framerate.menu));
+  pCommandProc->AddVariable ("Timing.WorldFPS",    new eTB_VarStub <float>(&config.framerate.world));
+  pCommandProc->AddVariable ("Timing.DefaultFPS",  new eTB_VarStub <float>(&config.framerate.default));
 }
 
 void

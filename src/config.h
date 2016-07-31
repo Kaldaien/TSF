@@ -69,6 +69,16 @@ struct tsf_config_s
   } stutter;
 
   struct {
+    float    default          = 30.0f; // Anything set to 0.0f will assume this
+    float    battle           = 0.0f;
+    float    city             = 0.0f;
+    float    cutscene         = 0.0f;
+    float    fmv              = 60.0f;
+    float    menu             = 60.0f;
+    float    world            = 60.0f;
+  } framerate;
+
+  struct {
     int      max_anisotropy   = 4;
     bool     cache            = true;
     bool     dump             = false;

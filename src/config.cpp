@@ -62,6 +62,16 @@ struct {
 } stutter;
 
 struct {
+  tsf::ParameterFloat*   default;
+  tsf::ParameterFloat*   battle;
+  tsf::ParameterFloat*   city;
+  tsf::ParameterFloat*   cutscene;
+  tsf::ParameterFloat*   fmv;
+  tsf::ParameterFloat*   menu;
+  tsf::ParameterFloat*   world;
+} framerate;
+
+struct {
   tsf::ParameterInt*     max_anisotropy;
   tsf::ParameterBool*    cache;
   tsf::ParameterBool*    dump;
@@ -284,6 +294,76 @@ TSFix_LoadConfig (std::wstring name) {
         L"Tolerance" );
 
 
+  framerate.default =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Default Framerate (for any limit set to 0.0)")
+      );
+  framerate.default->register_to_ini (
+    dll_ini,
+      L"TSFix.FrameRate",
+        L"Default" );
+
+  framerate.battle =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Framerate in Battle")
+      );
+  framerate.battle->register_to_ini (
+    dll_ini,
+      L"TSFix.FrameRate",
+        L"Battle" );
+
+  framerate.city =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Framerate in Cities")
+      );
+  framerate.city->register_to_ini (
+    dll_ini,
+      L"TSFix.FrameRate",
+        L"City" );
+
+  framerate.cutscene =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Framerate in Cutscenes")
+      );
+  framerate.cutscene->register_to_ini (
+    dll_ini,
+      L"TSFix.FrameRate",
+        L"Cutscene" );
+
+  framerate.fmv =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Framerate in Videos")
+      );
+  framerate.fmv->register_to_ini (
+    dll_ini,
+      L"TSFix.FrameRate",
+        L"FMV" );
+
+  framerate.menu =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Framerate in Menus")
+      );
+  framerate.menu->register_to_ini (
+    dll_ini,
+      L"TSFix.FrameRate",
+        L"Menu" );
+
+  framerate.world =
+    static_cast <tsf::ParameterFloat *>
+      (g_ParameterFactory.create_parameter <float> (
+        L"Framerate in the Overworld")
+      );
+  framerate.world->register_to_ini (
+    dll_ini,
+      L"TSFix.FrameRate",
+        L"World" );
+
   textures.max_anisotropy =
     static_cast <tsf::ParameterInt *>
       (g_ParameterFactory.create_parameter <int> (
@@ -431,84 +511,59 @@ TSFix_LoadConfig (std::wstring name) {
   //
   // Load Parameters
   //
-  if (render.allow_background->load ())
-    config.render.allow_background = render.allow_background->get_value ();
+  render.allow_background->load  (config.render.allow_background);
+  render.outline_technique->load (config.render.outline_technique);
+  render.postproc_ratio->load    (config.render.postproc_ratio);
 
-  if (render.outline_technique->load ())
-    config.render.outline_technique = render.outline_technique->get_value ();
+  render.msaa_samples->load      (config.render.msaa_samples);
+  render.msaa_quality->load      (config.render.msaa_quality);
 
-  if (render.postproc_ratio->load ())
-    config.render.postproc_ratio = render.postproc_ratio->get_value ();
+  render.remove_blur->load       (config.render.remove_blur);
 
-  if (render.msaa_samples->load ())
-    config.render.msaa_samples = render.msaa_samples->get_value ();
+  render.allow_flipex->load      (config.render.allow_flipex);
+  render.backbuffers->load       (config.render.backbuffers);
 
-  if (render.msaa_quality->load ())
-    config.render.msaa_quality = render.msaa_quality->get_value ();
-
-  if (render.remove_blur->load ())
-    config.render.remove_blur = render.remove_blur->get_value ();
-
-  if (render.allow_flipex->load ())
-    config.render.allow_flipex = render.allow_flipex->get_value ();
-
-  if (render.backbuffers->load ())
-    config.render.backbuffers = render.backbuffers->get_value ();
-
-  if (render.refresh_rate->load ())
-    config.render.refresh_rate = render.refresh_rate->get_value ();
-
-  if (window.borderless->load ())
-    config.window.borderless = window.borderless->get_value ();
-
-  if (window.foreground_fps->load ())
-    config.window.foreground_fps = window.foreground_fps->get_value ();
-
-  if (window.background_fps->load ())
-    config.window.background_fps = window.background_fps->get_value ();
-
-  if (window.background_msaa->load ())
-    config.window.disable_bg_msaa = (! window.background_msaa->get_value ());
-
-  if (window.center->load ())
-    config.window.center = window.center->get_value ();
-
-  if (window.x_offset->load ())
-    config.window.x_offset = window.x_offset->get_value ();
-
-  if (window.y_offset->load ())
-    config.window.y_offset = window.y_offset->get_value ();
-
-  if (stutter.bypass->load ())
-    config.stutter.bypass = stutter.bypass->get_value ();
-
-  if (stutter.tolerance->load ())
-    config.stutter.tolerance = stutter.tolerance->get_value ();
-
-  //if (stutter.shortest_sleep->load ())
-    //config.stutter.shortest_sleep = stutter.shortest_sleep->get_value ();
+  render.refresh_rate->load      (config.render.refresh_rate);
 
 
-  if (textures.max_anisotropy->load ())
-    config.textures.max_anisotropy = textures.max_anisotropy->get_value ();
+  window.borderless->load        (config.window.borderless);
 
-  if (textures.cache->load ())
-    config.textures.cache = textures.cache->get_value ();
+  window.foreground_fps->load    (config.window.foreground_fps);
+  window.background_fps->load    (config.window.background_fps);
 
-  if (textures.dump->load ())
-    config.textures.dump = textures.dump->get_value ();
+  bool msaa;
+  if (window.background_msaa->load (msaa)) {
+    config.window.disable_bg_msaa = 
+      (! msaa);
+  }
 
-  if (textures.full_mipmaps->load ())
-    config.textures.full_mipmaps = textures.full_mipmaps->get_value ();
+  window.center->load            (config.window.center);
+  window.x_offset->load          (config.window.x_offset);
+  window.y_offset->load          (config.window.y_offset);
 
-  if (textures.log->load ())
-    config.textures.log = textures.log->get_value ();
 
-  if (textures.max_cache_size->load ())
-    config.textures.max_cache_in_mib = textures.max_cache_size->get_value ();
+  framerate.default->load        (config.framerate.default);
+  framerate.battle->load         (config.framerate.battle);
+  framerate.city->load           (config.framerate.city);
+  framerate.cutscene->load       (config.framerate.cutscene);
+  framerate.fmv->load            (config.framerate.fmv);
+  framerate.menu->load           (config.framerate.menu);
+  framerate.world->load          (config.framerate.world);
 
-  if (textures.max_decomp_jobs->load ())
-    config.textures.max_decomp_jobs = textures.max_decomp_jobs->get_value ();
+
+  stutter.bypass->load           (config.stutter.bypass);
+  stutter.tolerance->load        (config.stutter.tolerance);
+
+  //stutter.shortest_sleep->load (config.stutter.shortest_sleep);
+
+
+  textures.max_anisotropy->load  (config.textures.max_anisotropy);
+  textures.cache->load           (config.textures.cache);
+  textures.dump->load            (config.textures.dump);
+  textures.full_mipmaps->load    (config.textures.full_mipmaps);
+  textures.log->load             (config.textures.log);
+  textures.max_cache_size->load  (config.textures.max_cache_in_mib);
+  textures.max_decomp_jobs->load (config.textures.max_decomp_jobs);
 
   // When this option is set, it is essential to force 16x AF on
   if (config.textures.full_mipmaps) {
@@ -516,24 +571,14 @@ TSFix_LoadConfig (std::wstring name) {
   }
 
 
-  if (input.block_left_alt->load ())
-    config.input.block_left_alt = input.block_left_alt->get_value ();
-
-  if (input.block_left_ctrl->load ())
-    config.input.block_left_ctrl = input.block_left_ctrl->get_value ();
-
-  if (input.block_windows->load ())
-    config.input.block_windows = input.block_windows->get_value ();
-
-  if (input.block_all_keys->load ())
-    config.input.block_all_keys = input.block_all_keys->get_value ();
+  input.block_left_alt->load     (config.input.block_left_alt);
+  input.block_left_ctrl->load    (config.input.block_left_ctrl);
+  input.block_windows->load      (config.input.block_windows);
+  input.block_all_keys->load     (config.input.block_all_keys);
 
 
-  if (sys.version->load ())
-    config.system.version = sys.version->get_value ();
-
-  if (sys.injector->load ())
-    config.system.injector = sys.injector->get_value ();
+  sys.version->load              (config.system.version);
+  sys.injector->load             (config.system.injector);
 
   if (empty)
     return false;
@@ -543,61 +588,46 @@ TSFix_LoadConfig (std::wstring name) {
 
 void
 TSFix_SaveConfig (std::wstring name, bool close_config) {
-  //render.allow_background->set_value  (config.render.allow_background);
-  //render.allow_background->store      ();
+  //render.allow_background->store      (config.render.allow_background);
 
-  render.outline_technique->set_value (config.render.outline_technique);
-  render.outline_technique->store     ();
-
+  render.outline_technique->store     (config.render.outline_technique);
   render.postproc_ratio->set_value    (config.render.postproc_ratio);
-  render.postproc_ratio->store        ();
 
-  render.msaa_samples->set_value      (config.render.msaa_samples);
-  render.msaa_samples->store          ();
+  render.msaa_samples->store          (config.render.msaa_samples);
+  render.msaa_quality->store          (config.render.msaa_quality);
 
-  render.msaa_quality->set_value      (config.render.msaa_quality);
-  render.msaa_quality->store          ();
+  // *** NOTE: Legacy ==> Pending REMOVAL
+  render.remove_blur->store           (config.render.remove_blur);
 
-  render.remove_blur->set_value       (config.render.remove_blur);
-  render.remove_blur->store           ();
+  render.allow_flipex->store          (config.render.allow_flipex);
+  render.backbuffers->store           (config.render.backbuffers);
 
-  render.allow_flipex->set_value      (config.render.allow_flipex);
-  render.allow_flipex->store          ();
-
-  render.backbuffers->set_value       (config.render.backbuffers);
-  render.backbuffers->store           ();
-
-  render.refresh_rate->set_value      (config.render.refresh_rate);
-  render.refresh_rate->store          ();
+  render.refresh_rate->store          (config.render.refresh_rate);
 
 
-  window.borderless->set_value        (config.window.borderless);
-  window.borderless->store            ();
+  window.borderless->store            (config.window.borderless);
 
-  window.foreground_fps->set_value    (config.window.foreground_fps);
-  window.foreground_fps->store        ();
+  window.foreground_fps->store        (config.window.foreground_fps);
+  window.background_fps->store        (config.window.background_fps);
 
-  window.background_fps->set_value    (config.window.background_fps);
-  window.background_fps->store        ();
-
-  window.center->set_value            (config.window.center);
-  window.center->store                ();
-
-  window.x_offset->set_value          (config.window.x_offset);
-  window.x_offset->store              ();
-
-  window.y_offset->set_value          (config.window.y_offset);
-  window.y_offset->store              ();
+  window.center->store                (config.window.center);
+  window.x_offset->store              (config.window.x_offset);
+  window.y_offset->store              (config.window.y_offset);
 
 
-  stutter.bypass->set_value           (config.stutter.bypass);
-  stutter.bypass->store               ();
+  framerate.default->store            (config.framerate.default);
+  framerate.battle->store             (config.framerate.battle);
+  framerate.city->store               (config.framerate.city);
+  framerate.cutscene->store           (config.framerate.cutscene);
+  framerate.fmv->store                (config.framerate.fmv);
+  framerate.menu->store               (config.framerate.menu);
+  framerate.world->store              (config.framerate.world);
 
-  stutter.tolerance->set_value        (config.stutter.tolerance);
-  stutter.tolerance->store            ();
 
-  //stutter.shortest_sleep->set_value   (config.stutter.shortest_sleep);
-  //stutter.shortest_sleep->store       ();
+  stutter.bypass->store               (config.stutter.bypass);
+  stutter.tolerance->store            (config.stutter.tolerance);
+
+  //stutter.shortest_sleep->store       (config.stutter.shortest_sleep);
 
 
 
@@ -605,45 +635,26 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   // This gets set dynamically depending on certain settings, don't
   //   save this...
   //
-  //textures.max_anisotropy->set_value (config.textures.max_anisotropy);
-  //textures.max_anisotropy->store     ();
+  //textures.max_anisotropy->store    (config.textures.max_anisotropy);
 
-  textures.cache->set_value           (config.textures.cache);
-  textures.cache->store               ();
+  textures.log->store                 (config.textures.log);
+  textures.dump->store                (config.textures.dump);
+  textures.full_mipmaps->store        (config.textures.full_mipmaps);
 
-  textures.dump->set_value            (config.textures.dump);
-  textures.dump->store                ();
+  textures.cache->store               (config.textures.cache);
+  textures.max_cache_size->store      (config.textures.max_cache_in_mib);
 
-  textures.log->set_value             (config.textures.log);
-  textures.log->store                 ();
-
-  textures.max_cache_size->set_value  (config.textures.max_cache_in_mib);
-  textures.max_cache_size->store      ();
-
-  textures.full_mipmaps->set_value    (config.textures.full_mipmaps);
-  textures.full_mipmaps->store        ();
-
-  textures.max_decomp_jobs->set_value (config.textures.max_decomp_jobs);
-  textures.max_decomp_jobs->store     ();
-
-  input.block_left_alt->set_value  (config.input.block_left_alt);
-  input.block_left_alt->store      ();
-
-  input.block_left_ctrl->set_value (config.input.block_left_ctrl);
-  input.block_left_ctrl->store     ();
-
-  input.block_windows->set_value   (config.input.block_windows);
-  input.block_windows->store       ();
-
-  input.block_all_keys->set_value  (config.input.block_all_keys);
-  input.block_all_keys->store      ();
+  textures.max_decomp_jobs->store     (config.textures.max_decomp_jobs);
 
 
-  sys.version->set_value  (TSFIX_VER_STR);
-  sys.version->store      ();
+  input.block_left_alt->store         (config.input.block_left_alt);
+  input.block_left_ctrl->store        (config.input.block_left_ctrl);
+  input.block_windows->store          (config.input.block_windows);
+  input.block_all_keys->store         (config.input.block_all_keys);
 
-  sys.injector->set_value (config.system.injector);
-  sys.injector->store     ();
+
+  sys.version->store                  (TSFIX_VER_STR);
+  sys.injector->store                 (config.system.injector);
 
   dll_ini->write (name + L".ini");
 
