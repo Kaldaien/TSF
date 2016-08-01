@@ -20,6 +20,8 @@
  *
 **/
 
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <d3d9.h>
 
 #include "textures.h"
@@ -100,6 +102,10 @@ std::set           <uint32_t>                   dumped_textures;
 // The set of textures used during the last frame
 std::vector        <uint32_t>                   textures_last_frame;
 std::set           <uint32_t>                   textures_used;
+
+// Textures that we will not allow injection for
+//   (primarily to speed things up, but also for EULA-related reasons).
+std::set           <uint32_t>                   inject_blacklist;
 
 std::wstring
 SK_D3D9_UsageToStr (DWORD dwUsage)
@@ -515,19 +521,19 @@ tsf::RenderFix::TextureManager::numInjectedTextures (void)
   return injected_count;
 }
 
-uint64_t
+int64_t
 tsf::RenderFix::TextureManager::cacheSizeInjected (void)
 {
   return injected_size;
 }
 
-uint64_t
+int64_t
 tsf::RenderFix::TextureManager::cacheSizeBasic (void)
 {
   return basic_size;
 }
 
-uint64_t
+int64_t
 tsf::RenderFix::TextureManager::cacheSizeTotal (void)
 {
   return cacheSizeBasic () + cacheSizeInjected ();
@@ -1117,7 +1123,7 @@ D3DXCreateTextureFromFileEx_pfn
 #define D3DX_SKIP_DDS_MIP_LEVELS(l, f) ((((l) & D3DX_SKIP_DDS_MIP_LEVELS_MASK) \
 << D3DX_SKIP_DDS_MIP_LEVELS_SHIFT) | ((f) == D3DX_DEFAULT ? D3DX_FILTER_BOX : (f)))
 
-typedef struct tsf_tex_load_s {
+struct tsf_tex_load_s {
   enum {
     Stream,    // This load will be streamed
     Immediate, // This load must finish immediately   (pSrc is unused)
@@ -1172,39 +1178,31 @@ public:
     control_.shutdown =
       CreateEvent (nullptr, FALSE, FALSE, nullptr);
 
-    InitializeCriticalSectionAndSpinCount (&cs_job_ctl, 100000UL);
-
     thread_ =
       CreateThread (nullptr, 0, ThreadProc, this, 0, &thread_id_);
   }
 
   ~SK_TextureWorkerThread (void)
   {
-    TerminateThread (thread_, 0);
+    shutdown ();
 
-    DeleteCriticalSection (&cs_job_ctl);
+    WaitForSingleObject (thread_, INFINITE);
+
+    CloseHandle (thread_);
 
     CloseHandle (control_.shutdown);
     CloseHandle (control_.start);
   }
 
   void startJob  (tsf_tex_load_s* job) {
-    EnterCriticalSection (&cs_job_ctl);
     job_ = job;
-    LeaveCriticalSection (&cs_job_ctl);
     SetEvent (control_.start);
   }
 
   void finishJob (void);
 
   bool isBusy   (void) {
-    bool busy = false;
-
-    EnterCriticalSection (&cs_job_ctl);
-    busy = (job_ != nullptr);
-    LeaveCriticalSection (&cs_job_ctl);
-
-    return busy;
+    return (job_ != nullptr);
   }
 
   void shutdown (void) {
@@ -1230,9 +1228,6 @@ protected:
       HANDLE   ops [2];
     };
   } control_;
-
-  CRITICAL_SECTION cs_job_ctl;
-
 };
 
 class SK_TextureThreadPool {
@@ -1245,14 +1240,18 @@ public:
     events_.results_waiting =
       CreateEvent (nullptr, FALSE, FALSE, nullptr);
 
-    InitializeCriticalSectionAndSpinCount (&cs_jobs,      100UL);
-    InitializeCriticalSectionAndSpinCount (&cs_results, 10000UL);
+    events_.shutdown =
+      CreateEvent (nullptr, FALSE, FALSE, nullptr);
+
+    InitializeCriticalSectionAndSpinCount (&cs_jobs,      10UL);
+    InitializeCriticalSectionAndSpinCount (&cs_results, 1000UL);
 
     const int MAX_THREADS = config.textures.max_decomp_jobs;
 
     for (int i = 0; i < MAX_THREADS; i++) {
       SK_TextureWorkerThread* pWorker =
         new SK_TextureWorkerThread (this);
+
       workers_.push_back (pWorker);
     }
 
@@ -1261,29 +1260,33 @@ public:
   }
 
   ~SK_TextureThreadPool (void) {
-    WaitForSingleObject (events_.jobs_added, 100UL);
+    if (spool_thread_ != nullptr) {
+      shutdown ();
 
-    // TODO: More graceful signal.
-    TerminateThread (spool_thread_, 0);
+      WaitForSingleObject (spool_thread_, INFINITE);
+      CloseHandle         (spool_thread_);
+    }
 
     DeleteCriticalSection (&cs_results);
     DeleteCriticalSection (&cs_jobs);
 
     CloseHandle (events_.results_waiting);
     CloseHandle (events_.jobs_added);
+    CloseHandle (events_.shutdown);
   }
 
   void postJob (tsf_tex_load_s* job)
   {
     EnterCriticalSection (&cs_jobs);
     {
-      jobs_.push (job);
-      SetEvent   (events_.jobs_added);
-
+      // Defer the creation of this until the first job is posted
       if (! spool_thread_) {
         spool_thread_ =
           CreateThread (nullptr, 0, Spooler, (LPVOID)this, 0, nullptr);
       }
+
+      jobs_.push (job);
+      SetEvent   (events_.jobs_added);
     }
     LeaveCriticalSection (&cs_jobs);
   }
@@ -1296,14 +1299,14 @@ public:
       WaitForSingleObject (events_.results_waiting, 0);
 
     // Nothing waiting
-    if (dwResults == WAIT_FAILED)
+    if (dwResults != WAIT_OBJECT_0)
       return results;
 
     EnterCriticalSection (&cs_results);
     {
       while (! results_.empty ()) {
         results.push_back (results_.front ());
-        results_.pop ();
+                           results_.pop   ();
       }
     }
     LeaveCriticalSection (&cs_results);
@@ -1325,6 +1328,10 @@ public:
     LeaveCriticalSection (&cs_jobs);
 
     return num;
+  }
+
+  void shutdown (void) {
+    SetEvent (events_.shutdown);
   }
 
 
@@ -1371,22 +1378,77 @@ private:
   struct {
     HANDLE jobs_added;
     HANDLE results_waiting;
+    HANDLE shutdown;
   } events_;
 
   CRITICAL_SECTION cs_jobs;
   CRITICAL_SECTION cs_results;
 
   HANDLE spool_thread_;
-} *stream_pool = nullptr;
+};
 
 
-std::queue <TexLoadRef> textures_to_stream;
+//
+// Split stream jobs into small and large in order to prevent
+//   starvation from wreaking havoc on load times.
+//
+//   This is a simple, but remarkably effective approach and
+//     further optimization work probably will not be done.
+//
+struct SK_StreamSplitter {
+  bool working (void) {
+    if (lrg_tex && lrg_tex->working ())
+      return true;
+
+    if (sm_tex && sm_tex->working ())
+      return true;
+
+    return false;
+  }
+
+  int queueLength (void) {
+    int len = 0;
+
+    if (lrg_tex) len += lrg_tex->queueLength ();
+    if (sm_tex)  len += sm_tex->queueLength  ();
+
+    return len;
+  }
+
+  std::vector <tsf_tex_load_s *> getFinished (void)
+  {
+    std::vector <tsf_tex_load_s *> results;
+
+    std::vector <tsf_tex_load_s *> lrg_loads;
+    std::vector <tsf_tex_load_s *> sm_loads;
+
+    if (lrg_tex) lrg_loads = lrg_tex->getFinished ();
+    if (sm_tex)  sm_loads  = sm_tex->getFinished  ();
+
+    results.insert (results.begin (), lrg_loads.begin (), lrg_loads.end ());
+    results.insert (results.begin (), sm_loads.begin  (), sm_loads.end  ());
+
+    return results;
+  }
+
+  void postJob (tsf_tex_load_s* job)
+  {
+    // A "Large" load is one >= 128 KiB
+    if (job->SrcDataSize > (128 * 1024))
+      lrg_tex->postJob (job);
+    else
+      sm_tex->postJob (job);
+  }
+
+  SK_TextureThreadPool* lrg_tex = nullptr;
+  SK_TextureThreadPool* sm_tex  = nullptr;
+} stream_pool;
+
+
 std::queue <TexLoadRef> textures_to_resample;
 
 std::map   <uint32_t, tsf_tex_load_s *>
                               textures_in_flight;
-
-std::queue <TexLoadRef> finished_loads;
 
 CRITICAL_SECTION              cs_tex_stream;
 CRITICAL_SECTION              cs_tex_resample;
@@ -1400,23 +1462,15 @@ CRITICAL_SECTION              cs_tex_inject;
 
 std::set <DWORD> inject_tids;
 
-int      streaming       = 0;
-uint32_t streaming_bytes = 0UL;
+ LONG streaming       = 0;
+ULONG streaming_bytes = 0UL;
 
 int resampling = 0;
 
 bool
 pending_loads (void)
 {
-  bool ret = false;
-
-  return stream_pool != nullptr && stream_pool->working ();
-
-//  EnterCriticalSection (&cs_tex_inject);
-//  ret = (! finished_loads.empty ());
-//  LeaveCriticalSection (&cs_tex_inject);
-
-  return ret;
+  return stream_pool.working ();
 }
 
 void
@@ -1430,22 +1484,9 @@ start_load (void)
 }
 
 void
-cancel_load (void)
+end_load (void)
 {
   EnterCriticalSection (&cs_tex_inject);
-
-  inject_tids.erase (GetCurrentThreadId ());
-
-  LeaveCriticalSection (&cs_tex_inject);
-}
-
-void
-add_finished_load (tsf_tex_load_s* load)
-{
-  EnterCriticalSection (&cs_tex_inject);
-
-  // Now, queue up a copy from this texture to the original
-   finished_loads.push (load);
 
   inject_tids.erase (GetCurrentThreadId ());
 
@@ -1457,7 +1498,7 @@ pending_streams (void)
 {
   bool ret = false;
 
-  if (streaming || stream_pool->queueLength ())
+  if (streaming || stream_pool.queueLength ())
     ret = true;
 
   return ret;
@@ -1488,23 +1529,6 @@ finished_streaming (uint32_t checksum)
 
   LeaveCriticalSection (&cs_tex_stream);
 }
-
-tsf_tex_load_s*
-get_next_load (void)
-{
-  EnterCriticalSection (&cs_tex_inject);
-
-  tsf_tex_load_s*
-    load =
-      finished_loads.front ();
-
-  finished_loads.pop ();
-
-  LeaveCriticalSection (&cs_tex_inject);
-
-  return load;
-}
-
 
 HANDLE decomp_semaphore;
 
@@ -1603,7 +1627,7 @@ InjectTexture (tsf_tex_load_s* load)
       archive_read_open_filename_w (
         a,
           archives [injectable_textures [load->checksum].archive].c_str (),
-            10240 );
+            16384 );
 
     if (r == ARCHIVE_OK) {
       int fileno = 0;
@@ -1619,7 +1643,7 @@ InjectTexture (tsf_tex_load_s* load)
 
               if (streamed && size > (32 * 1024)) {
                 dwResult =
-                  WaitForSingleObject ( decomp_semaphore, 100UL );
+                  WaitForSingleObject ( decomp_semaphore, INFINITE );
               }
 
               switch (dwResult) 
@@ -1642,24 +1666,26 @@ InjectTexture (tsf_tex_load_s* load)
                 hr = D3DXCreateTextureFromFileInMemoryEx_Original (
                   load->pDevice,
                     load->pSrcData, load->SrcDataSize,
-                      D3DX_DEFAULT, D3DX_DEFAULT, img_info.MipLevels,
-                        0, D3DFMT_FROM_FILE,
+                      img_info.Width, img_info.Height, img_info.MipLevels,
+                        0, img_info.Format,
                           D3DPOOL_DEFAULT,
                             D3DX_DEFAULT, D3DX_DEFAULT,
                               0,
                                 &img_info, nullptr,
                                   &load->pSrc );
-
-                delete [] load->pSrcData;
-                load->pSrcData = nullptr;
-                break; 
+                break;
 
               default://case WAIT_TIMEOUT:
-                //wait = false;
-                Sleep (4UL);
+                tex_log.Log ( L"[  Tex. Mgr  ] Unexpected Wait Status: %X (crc32=%x)",
+                                dwResult,
+                                  load->checksum );
+                wait = false;
                 break; 
               }
             }
+
+            delete [] load->pSrcData;
+            load->pSrcData = nullptr;
           }
           break;
         }
@@ -1714,7 +1740,7 @@ TextureResampleThread (LPVOID user)
     EnterCriticalSection (&cs_tex_inject);
 
     // Now, queue up a copy from this texture to the original
-    finished_loads.push (load_params);
+    //finished_loads.push (load_params);
 
     LeaveCriticalSection (&cs_tex_inject);
   }
@@ -1768,10 +1794,10 @@ TSFix_LoadQueuedTextures (void)
     if (streaming > 1)
       mod_text += 's';
 
-    sprintf (szFormatted, " [%7.2f MiB]", (double)streaming_bytes / (1024.0f * 1024.0f));
+    sprintf (szFormatted, " [%7.2f MiB]", (double)streaming_bytes / (1024.0 * 1024.0));
     mod_text += szFormatted;
 
-    int num_queued = stream_pool->queueLength ();
+    int num_queued = stream_pool.queueLength ();
 
     if (num_queued) {
       sprintf (szFormatted, " (%lu outstanding)", num_queued);
@@ -1786,8 +1812,6 @@ TSFix_LoadQueuedTextures (void)
     mod_text += "-------------\n";
     mod_text += tsf::RenderFix::tex_mgr.osdStats ();
   }
-
-  LARGE_INTEGER start, now;
 
   int loads = 0;
 
@@ -1813,14 +1837,11 @@ TSFix_LoadQueuedTextures (void)
 
   std::vector <tsf_tex_load_s *> finished;
 
-  if (stream_pool != nullptr)
-    finished = stream_pool->getFinished ();
+  finished = stream_pool.getFinished ();
 
   for (auto it = finished.begin (); it != finished.end (); it++) {
     tsf_tex_load_s* load =
       *it;
-
-    QueryPerformanceCounter_Original (&load->end);
 
     if (true) {
       tex_log.Log ( L"[%s] Finished %s texture %08x (%5.2f MiB in %9.4f ms)",
@@ -1831,17 +1852,17 @@ TSFix_LoadQueuedTextures (void)
                         (load->type == tsf_tex_load_s::Immediate) ? L"loading" :
                                                                     L"filtering",
                         load->checksum,
-                          (double)load->SrcDataSize / (1024.0f * 1024.0f),
-                            1000.0f * (double)(load->end.QuadPart - load->start.QuadPart) /
-                                      (double)load->freq.QuadPart );
+                          (double)load->SrcDataSize / (1024.0 * 1024.0),
+                            1000.0 * (double)(load->end.QuadPart - load->start.QuadPart) /
+                                     (double)load->freq.QuadPart );
     }
 
     tsf::RenderFix::Texture* pTex =
       tsf::RenderFix::tex_mgr.getTexture (load->checksum);
 
     if (pTex != nullptr) {
-      pTex->load_time = 1000.0f * (double)(load->end.QuadPart - load->start.QuadPart) /
-                                      (double)load->freq.QuadPart;
+      pTex->load_time = 1000.0f * (float)(load->end.QuadPart - load->start.QuadPart) /
+                                  (float)load->freq.QuadPart;
     }
 
     ISKTextureD3D9* pSKTex =
@@ -2061,27 +2082,35 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 
       load_op->pDest = *ppTexture;
       EnterCriticalSection        (&cs_tex_stream);
+      {
+        if (load_op->type == tsf_tex_load_s::Immediate)
+          ((ISKTextureD3D9 *)*ppTexture)->must_block = true;
 
-      if (load_op->type == tsf_tex_load_s::Immediate)
-        ((ISKTextureD3D9 *)*ppTexture)->must_block = true;
+        if (is_streaming (load_op->checksum)) {
+          ISKTextureD3D9* pTexOrig =
+            (ISKTextureD3D9 *)textures_in_flight [load_op->checksum]->pDest;
 
-      if (is_streaming (load_op->checksum)) {
-        // Remap the output of the in-flight texture
-        textures_in_flight [load_op->checksum]->pDest =
-          *ppTexture;
+          // Remap the output of the in-flight texture
+          textures_in_flight [load_op->checksum]->pDest =
+            *ppTexture;
 
-        if (tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)  != nullptr) {
-          for (int i = 0; i < tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)->refs; i++) {
-            (*ppTexture)->AddRef ();
+          if (tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)  != nullptr) {
+            for ( int i = 0;
+                      i < tsf::RenderFix::tex_mgr.getTexture (load_op->checksum)->refs;
+                    ++i ) {
+              (*ppTexture)->AddRef ();
+            }
           }
+
+          ////tsf::RenderFix::tex_mgr.removeTexture (pTexOrig);
         }
-      }
 
-      else {
-        textures_in_flight.insert ( std::make_pair ( load_op->checksum,
-                                     load_op ) );
+        else {
+          textures_in_flight.insert ( std::make_pair ( load_op->checksum,
+                                       load_op ) );
 
-        stream_pool->postJob (load_op);
+          stream_pool.postJob (load_op);
+        }
       }
       LeaveCriticalSection        (&cs_tex_stream);
     }
@@ -2171,11 +2200,11 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 
       pTex->crc32 = checksum;
 
-      pTex->d3d9_tex = (*ppTexture);
+      pTex->d3d9_tex = *(ISKTextureD3D9 **)ppTexture;
       pTex->d3d9_tex->AddRef ();
       pTex->refs++;
 
-      pTex->load_time = 1000.0f * (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart;
+      pTex->load_time = 1000.0f * (float)(end.QuadPart - start.QuadPart) / (float)freq.QuadPart;
 
       tsf::RenderFix::tex_mgr.addTexture (checksum, pTex, SrcDataSize);
     }
@@ -2189,7 +2218,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
       tex_log.Log ( L"[Load Trace]                Pool: %s",
                       SK_D3D9_PoolToStr (Pool) );
       tex_log.Log ( L"[Load Trace]      Load Time: %6.4f ms", 
-                    1000.0f * (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart );
+                    1000.0 * (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart );
     }
   }
 
@@ -2223,11 +2252,42 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
 }
 
 
+std::vector <ISKTextureD3D9 *> remove_textures;
+
 tsf::RenderFix::Texture*
 tsf::RenderFix::TextureManager::getTexture (uint32_t checksum)
 {
-  if (textures.find (checksum) != textures.end ())
-    return textures [checksum];
+  EnterCriticalSection (&cs_cache);
+  
+    auto rem = remove_textures.begin ();
+
+    while (rem != remove_textures.end ()) {
+      if ((*rem)->pTexOverride != nullptr) {
+        InterlockedDecrement (&injected_count);
+        InterlockedAdd64     (&injected_size, -(*rem)->override_size);
+      }
+
+      (*rem)->pTex         = nullptr;
+      (*rem)->pTexOverride = nullptr;
+
+      InterlockedAdd64 (&basic_size,  -(*rem)->tex_size);
+      {
+        textures.erase     ((*rem)->tex_crc32);
+      }
+
+      delete *rem;
+
+      ++rem;
+    }
+
+    remove_textures.clear ();
+
+    auto tex = textures.find (checksum);
+
+  LeaveCriticalSection (&cs_cache);
+
+  if (tex != textures.end ())
+    return tex->second;
 
   return nullptr;
 }
@@ -2236,10 +2296,26 @@ void
 tsf::RenderFix::TextureManager::addTexture (uint32_t checksum, tsf::RenderFix::Texture* pTex, size_t size)
 {
   pTex->size = size;
-  basic_size += pTex->size;
 
-  textures [checksum] = pTex;
+  InterlockedAdd64 (&basic_size, pTex->size);
+
+  EnterCriticalSection (&cs_cache);
+  {
+    textures [checksum] = pTex;
+  }
+  LeaveCriticalSection (&cs_cache);
+
   updateOSD ();
+}
+
+void
+tsf::RenderFix::TextureManager::removeTexture (ISKTextureD3D9* pTexD3D9)
+{
+  EnterCriticalSection (&cs_cache);
+
+  remove_textures.push_back (pTexD3D9);
+
+  LeaveCriticalSection (&cs_cache);
 }
 
 void
@@ -2248,7 +2324,7 @@ tsf::RenderFix::TextureManager::refTexture (tsf::RenderFix::Texture* pTex)
   pTex->d3d9_tex->AddRef ();
   pTex->refs++;
 
-  ++hits;
+  InterlockedIncrement (&hits);
 
   if (config.textures.log) {
     tex_log.Log ( L"[CacheTrace] Cache hit (%X), saved %2.1f ms",
@@ -2264,12 +2340,31 @@ tsf::RenderFix::TextureManager::refTexture (tsf::RenderFix::Texture* pTex)
 void
 tsf::RenderFix::TextureManager::Init (void)
 {
+  InitializeCriticalSectionAndSpinCount (&cs_cache, 16384UL);
+
   // Create the directory to store dumped textures
   if (config.textures.dump)
     CreateDirectoryW (TSFIX_TEXTURE_DIR, nullptr);
 
   tex_log.silent = false;
   tex_log.init ("logs/textures.log", "w+");
+
+  // PS3 Button Map (Loaded at start, but never used)
+  inject_blacklist.insert (0x3016437b);
+
+  // Gamma-ramp, not fixed in initial upscale
+  inject_blacklist.insert (0xfcbde7ab); // (Exponent Unknown -- sRGB?)
+  inject_blacklist.insert (0x53709d09); // (")
+  inject_blacklist.insert (0xacc41af0); // (")
+  inject_blacklist.insert (0xf4329f92); // (")
+  inject_blacklist.insert (0x2840f65e); // (")
+
+  inject_blacklist.insert (0xd66ce109); // (Pure black...)
+  inject_blacklist.insert (0x61082a54); // (Pure white...)
+
+  inject_blacklist.insert (0xd5d4653a); // Namco Logo   - EULA Forbids Replacement
+  inject_blacklist.insert (0x1e5c8a5e); // Criware Logo - "
+  inject_blacklist.insert (0x5606ed7b); // Another Namco Logo
 
   //
   // Walk injectable textures so we don't have to query the filesystem on every
@@ -2294,7 +2389,8 @@ tsf::RenderFix::TextureManager::Init (void)
             swscanf (fd.cFileName, L"%x" TSFIX_TEXTURE_EXT, &checksum);
 
             // Already got this texture...
-            if (injectable_textures.count (checksum))
+            if ( injectable_textures.count (checksum) ||
+                 inject_blacklist.count    (checksum) )
                 continue;
 
             ++files;
@@ -2329,7 +2425,8 @@ tsf::RenderFix::TextureManager::Init (void)
             swscanf (fd.cFileName, L"%x" TSFIX_TEXTURE_EXT, &checksum);
 
             // Already got this texture...
-            if (injectable_textures.count (checksum))
+            if ( injectable_textures.count (checksum) ||
+                 inject_blacklist.count    (checksum) )
                 continue;
 
             ++files;
@@ -2364,7 +2461,8 @@ tsf::RenderFix::TextureManager::Init (void)
             swscanf (fd.cFileName, L"%x" TSFIX_TEXTURE_EXT, &checksum);
 
             // Already got this texture...
-            if (injectable_textures.count (checksum))
+            if ( injectable_textures.count (checksum) ||
+                 inject_blacklist.count    (checksum) )
                 continue;
 
             ++files;
@@ -2444,7 +2542,8 @@ tsf::RenderFix::TextureManager::Init (void)
                   swscanf (wszUnqualifiedEntry, L"%x" TSFIX_TEXTURE_EXT, &checksum);
 
                   // Already got this texture...
-                  if (injectable_textures.count (checksum)) {
+                  if ( injectable_textures.count (checksum) ||
+                       inject_blacklist.count    (checksum) ) {
                     free (wszFullName);
                     archive_read_data_skip (a);
                     ++fileno;
@@ -2631,9 +2730,9 @@ tsf::RenderFix::TextureManager::Init (void)
 
   time_saved = 0.0f;
 
-  InitializeCriticalSectionAndSpinCount (&cs_tex_inject,   10000000);
-  InitializeCriticalSectionAndSpinCount (&cs_tex_resample, 100000);
-  InitializeCriticalSectionAndSpinCount (&cs_tex_stream,   100000);
+  InitializeCriticalSectionAndSpinCount (&cs_tex_inject,   100000UL);
+  InitializeCriticalSectionAndSpinCount (&cs_tex_resample, 1000UL);
+  InitializeCriticalSectionAndSpinCount (&cs_tex_stream,   1000UL);
 
   decomp_semaphore = 
     CreateSemaphore ( nullptr,
@@ -2641,7 +2740,8 @@ tsf::RenderFix::TextureManager::Init (void)
                           config.textures.max_decomp_jobs,
                             nullptr );
 
-  stream_pool = new SK_TextureThreadPool ();
+  stream_pool.lrg_tex = new SK_TextureThreadPool ();
+  stream_pool.sm_tex  = new SK_TextureThreadPool ();
 }
 
 
@@ -2651,14 +2751,13 @@ tsf::RenderFix::TextureManager::Shutdown (void)
   while (! textures_to_resample.empty ())
     textures_to_resample.pop ();
 
-  while (! textures_to_stream.empty ())
-    textures_to_stream.pop ();
-
   tex_mgr.reset ();
 
   DeleteCriticalSection (&cs_tex_stream);
   DeleteCriticalSection (&cs_tex_resample);
   DeleteCriticalSection (&cs_tex_inject);
+
+  DeleteCriticalSection (&cs_cache);
 
   CloseHandle (decomp_semaphore);
 
@@ -2695,13 +2794,8 @@ tsf::RenderFix::TextureManager::purge (void)
   std::vector <tsf::RenderFix::Texture *> unreferenced_textures;
 
   while (it != textures.end ()) {
-    void* dontcare = nullptr;
-
-    if ( (*it).second->d3d9_tex != nullptr &&
-         (*it).second->d3d9_tex->QueryInterface (IID_SKTextureD3D9, &dontcare) == S_OK ) {
-      if (((ISKTextureD3D9 *)(*it).second->d3d9_tex)->can_free)
-        unreferenced_textures.push_back ((*it).second);
-    }
+    if ((*it).second->d3d9_tex->can_free)
+      unreferenced_textures.push_back ((*it).second);
 
     ++it;
   }
@@ -2711,8 +2805,8 @@ tsf::RenderFix::TextureManager::purge (void)
       []( tsf::RenderFix::Texture *a,
           tsf::RenderFix::Texture *b )
     {
-      return ((ISKTextureD3D9 *)a->d3d9_tex)->last_used.QuadPart <
-             ((ISKTextureD3D9 *)b->d3d9_tex)->last_used.QuadPart;
+      return a->d3d9_tex->last_used.QuadPart <
+             b->d3d9_tex->last_used.QuadPart;
     }
   );
 
@@ -2720,12 +2814,13 @@ tsf::RenderFix::TextureManager::purge (void)
     unreferenced_textures.begin ();
 
   // We need to over-free, or we will likely be purging every other texture load
-  uint64_t target_size =
-    max (128, config.textures.max_cache_in_mib - 64) * 1024 * 1024;
+  int64_t target_size =
+    max (128, config.textures.max_cache_in_mib - 64) * 1024LL * 1024LL;
 
   while ( cacheSizeTotal () > target_size &&
             free_it != unreferenced_textures.end () ) {
-    int tex_refs = -1;
+    int             tex_refs = -1;
+    ISKTextureD3D9* pSKTex   = (*free_it)->d3d9_tex;
 
     //
     // Skip loads that are in-flight so that we do not hitch
@@ -2740,27 +2835,23 @@ tsf::RenderFix::TextureManager::purge (void)
     //   will cause performance problems if we have to reload them
     //     again later.
     //
-    if (((ISKTextureD3D9 *)(*free_it)->d3d9_tex)->must_block) {
+    if (pSKTex->must_block) {
       ++free_it;
       continue;
     }
 
-    size_t ovr_size = 0;
-    void*  dontcare = nullptr;
+    int64_t ovr_size  = 0;
+    int64_t base_size = 0;
 
-    ovr_size = ((ISKTextureD3D9 *)(*free_it)->d3d9_tex)->override_size;
+    ++free_it;
 
-    tex_refs = (*free_it)->d3d9_tex->Release ();
-    (*free_it)->refs = 0;
+    base_size = pSKTex->tex_size;
+    ovr_size  = pSKTex->override_size;
+    tex_refs  = pSKTex->Release ();
 
     if (tex_refs == 0) {
-      if (ovr_size != 0 && ((ISKTextureD3D9 *)(*free_it)->d3d9_tex)->pTexOverride == nullptr) {
-        injected_count--;
-
-        reclaimed     += ovr_size;
-        injected_size -= ovr_size;
-
-        ((ISKTextureD3D9 *)(*free_it)->d3d9_tex)->override_size = 0;
+      if (ovr_size != 0) {
+        reclaimed += ovr_size;
 
         released_injected++;
         reclaimed_injected += ovr_size;
@@ -2770,12 +2861,7 @@ tsf::RenderFix::TextureManager::purge (void)
     }
 
     ++released;
-    reclaimed  += (*free_it)->size;
-    basic_size -= (*free_it)->size;
-
-    textures.erase ((*free_it)->crc32);
-
-    ++free_it;
+    reclaimed  += base_size;
   }
 
   tex_log.Log ( L"[ Tex. Mgr ]   %4d textures (%4d remain)",
@@ -2810,17 +2896,7 @@ tsf::RenderFix::TextureManager::reset (void)
   uint64_t reclaimed          = 0;
   uint64_t reclaimed_injected = 0;
 
-
   tex_log.Log (L"[ Tex. Mgr ] -- TextureManager::reset (...) -- ");
-
-//#define WAIT_FOR_LOADS_TO_FINISH
-#ifdef WAIT_FOR_LOADS_TO_FINISH
-  while (pending_streams ())
-    Sleep (0);
-
-  if (pending_loads ())
-    TSFix_LoadQueuedTextures ();
-#endif
 
   tex_log.Log (L"[ Tex. Mgr ]   Releasing textures...");
 
@@ -2828,66 +2904,49 @@ tsf::RenderFix::TextureManager::reset (void)
     textures.begin ();
 
   while (it != textures.end ()) {
-    bool   can_free = false;
-    void*  dontcare = nullptr;
-    size_t ovr_size = 0;
+    ISKTextureD3D9* pSKTex =
+      (*it).second->d3d9_tex;
 
-    if ( (*it).second->d3d9_tex != nullptr &&
-         (*it).second->d3d9_tex->QueryInterface (IID_SKTextureD3D9, &dontcare) == S_OK ) {
-      if (((ISKTextureD3D9 *)(*it).second->d3d9_tex)->can_free) {
-        can_free = true;
-        ovr_size = ((ISKTextureD3D9 *)(*it).second->d3d9_tex)->override_size;
-      }
+    ++it;
 
-      if (! can_free) {
-        int tex_refs = ((ISKTextureD3D9 *)(*it).second->d3d9_tex)->refs;
-        ext_refs     += tex_refs;
-        ext_textures ++;
-      }
+    bool    can_free  = false;
+    int64_t base_size = 0;
+    int64_t ovr_size  = 0;
+
+    if (pSKTex->can_free) {
+      can_free = true;
+      base_size = pSKTex->tex_size;
+      ovr_size  = pSKTex->override_size;
     }
 
-    if (! can_free) {
+    else {
+      ext_refs     += pSKTex->refs;
+      ext_textures ++;
+
       ++unreleased_count;
-      ++it;
       continue;
     }
 
-    int tex_refs = (*it).second->d3d9_tex->Release ();
-    (*it).second->refs = 0;
+    int tex_refs = pSKTex->Release ();
 
     if (tex_refs == 0) {
-      if (ovr_size != 0 && ((ISKTextureD3D9 *)(*it).second->d3d9_tex)->pTexOverride == nullptr) {
-        injected_count--;
-
-        reclaimed     += ovr_size;
-        injected_size -= ovr_size;
-
-        ((ISKTextureD3D9 *)(*it).second->d3d9_tex)->override_size = 0;
+      if (ovr_size != 0) {
+        reclaimed += ovr_size;
 
         released_injected++;
         reclaimed_injected += ovr_size;
       }
 
       ++release_count;
-      reclaimed  += (*it).second->size;
-      basic_size -= (*it).second->size;
+      reclaimed += base_size;
 
-      ref_count  += 1;
-
-      it = textures.erase (it);
+      ref_count += 1;
     }
 
-    else if (tex_refs > 0) {
+    else {
       ++unreleased_count;
       ext_refs     += tex_refs;
       ext_textures ++;
-      ++it;
-    }
-
-    else if (tex_refs < 0) {
-      ++unreleased_count;
-      ++underflows;
-      ++it;
     }
   }
 
@@ -2898,12 +2957,6 @@ tsf::RenderFix::TextureManager::reset (void)
   if (ext_refs > 0) {
     tex_log.Log ( L"[ Tex. Mgr ] >> WARNING: The game is still holding references (%d) to %d textures !!!",
                     ext_refs, ext_textures );
-  }
-
-  if (underflows) {
-    tex_log.Log ( L"[ Tex. Mgr ] >> WARNING: Reference counting sanity check failed: "
-                  L"Reference Underflow (%d times) !!!",
-                    underflows );
   }
 
   // If there are extra references, chances are this will fail as well -- let's
@@ -2949,7 +3002,8 @@ tsf::RenderFix::TextureManager::reset (void)
   tex_log.Log ( L"[ Mem. Mgr ]  %12.2f MiB Freed",
                   (double)reclaimed         / (1024.0 * 1024.0) );
   tex_log.Log ( L"[ Mem. Mgr ]  %12.2f MiB Leaked",
-                  (double)cacheSizeTotal () / (1024.0 * 1024.0) );
+                  (double)(cacheSizeTotal () - reclaimed)
+                                            / (1024.0 * 1024.0) );
 
   updateOSD ();
 
@@ -2969,8 +3023,10 @@ tsf::RenderFix::TextureManager::updateOSD (void)
   sprintf ( szFormatted, "%6lu Total Textures : %8.2f MiB   (%4lu MiB Available)\n",
               numTextures () + numInjectedTextures (),
                 cache_total,
-                  tsf::RenderFix::pDevice != nullptr ? tsf::RenderFix::pDevice->GetAvailableTextureMem () / 1024UL / 1024UL:
-                                                                                            0 );
+                  tsf::RenderFix::pDevice != nullptr ?
+                     tsf::RenderFix::pDevice->GetAvailableTextureMem () / 1024UL / 1024UL
+                        :
+                     0 );
   osd_stats += szFormatted;
 
   sprintf ( szFormatted, "%6lu  Base Textures : %8.2f MiB\n",
@@ -3017,22 +3073,32 @@ TSFix_LogUsedTextures (void)
     for ( auto it  = textures_used.begin ();
                it != textures_used.end   ();
              ++it ) {
-      ISKTextureD3D9* pSKTex =
-        (ISKTextureD3D9 *)tsf::RenderFix::tex_mgr.getTexture (*it)->d3d9_tex;
+      auto tex_record =
+        tsf::RenderFix::tex_mgr.getTexture (*it);
 
-      textures_used_last_dump.push_back (*it);
+      // Handle the RARE case where a purge happens immediately following
+      //   the last frame
+      if ( tex_record           != nullptr &&
+           tex_record->d3d9_tex != nullptr )
+      {
+        ISKTextureD3D9* pSKTex =
+          (ISKTextureD3D9 *)tex_record->d3d9_tex;
 
-      tex_log.Log ( L"[ Tex. Log ] %08x.dds  { Base: %6.2f MiB,  Inject: %6.2f MiB,  Load Time: %8.3f ms }  [%i]",
-                      *it,
-                        (double)pSKTex->tex_size /
-                          (1024.0 * 1024.0),
+        textures_used_last_dump.push_back (*it);
 
-                  pSKTex->override_size != 0 ? 
-                    (double)pSKTex->override_size / 
-                          (1024.0 * 1024.0) : 0.0,
+        tex_log.Log ( L"[ Tex. Log ] %08x.dds  { Base: %6.2f MiB,  "
+                      L"Inject: %6.2f MiB,  Load Time: %8.3f ms }  [%i]",
+                        *it,
+                          (double)pSKTex->tex_size /
+                            (1024.0 * 1024.0),
 
-                        tsf::RenderFix::tex_mgr.getTexture (*it)->load_time,
-                          *it );
+                    pSKTex->override_size != 0 ? 
+                      (double)pSKTex->override_size / 
+                            (1024.0 * 1024.0) : 0.0,
+
+                          tsf::RenderFix::tex_mgr.getTexture (*it)->load_time,
+                            *it );
+      }
     }
 
     tex_log.Log (L"[ Tex. Log ] ---------- FrameTrace ----------- ");
@@ -3063,35 +3129,38 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
       WaitForMultipleObjects ( 2,
                                  pThread->control_.ops,
                                    FALSE,
-                                     1000UL );
+                                     INFINITE );
 
     // New Work Ready
     if (dwWaitStatus == wait.job_start) {
       tsf_tex_load_s* pStream = pThread->job_;
 
       start_load ();
+      {
+        InterlockedIncrement   (&streaming);
+        InterlockedExchangeAdd (&streaming_bytes, pStream->SrcDataSize);
 
-      ++streaming;
-      streaming_bytes += pStream->SrcDataSize;
+        QueryPerformanceFrequency        (&pStream->freq);
+        QueryPerformanceCounter_Original (&pStream->start);
 
-      QueryPerformanceFrequency        (&pStream->freq);
-      QueryPerformanceCounter_Original (&pStream->start);
+        HRESULT hr =
+          InjectTexture (pStream);
 
-      HRESULT hr = InjectTexture (pStream);
+        QueryPerformanceCounter_Original (&pStream->end);
 
-      streaming_bytes -= pStream->SrcDataSize;
-      --streaming;
+        InterlockedExchangeSubtract (&streaming_bytes, pStream->SrcDataSize);
+        InterlockedDecrement        (&streaming);
 
-      pThread->finishJob ();
+        if (SUCCEEDED (hr))
+          pThread->pool_->postFinished (pStream);
 
-      if (SUCCEEDED (hr)) {
-        pThread->pool_->postFinished (pStream);
-        add_finished_load (pStream);
-      } else {
-       cancel_load ();
+        pThread->finishJob ();
       }
-    } else {
-      dll_log.Log (L"[ Tex. Mgr ] Unexpected Worker Thread Wait Status: %lu", dwWaitStatus);
+      end_load ();
+
+    } else if (dwWaitStatus != (wait.thread_end)) {
+      dll_log.Log ( L"[ Tex. Mgr ] Unexpected Worker Thread Wait Status: %X",
+                      dwWaitStatus );
     }
   } while (dwWaitStatus != (wait.thread_end));
 
@@ -3107,7 +3176,7 @@ SK_TextureThreadPool::Spooler (LPVOID user)
 
   WaitForSingleObject (pPool->events_.jobs_added, INFINITE);
 
-  while (true) {
+  while (WaitForSingleObject (pPool->events_.shutdown, 0) == WAIT_TIMEOUT) {
     tsf_tex_load_s* pJob =
       pPool->getNextJob ();
 
@@ -3141,10 +3210,5 @@ SK_TextureThreadPool::Spooler (LPVOID user)
 void
 SK_TextureWorkerThread::finishJob (void)
 {
-  EnterCriticalSection (&cs_job_ctl);
-
-  //pool_->postFinished (job_);
   job_ = nullptr;
-
-  LeaveCriticalSection (&cs_job_ctl);
 }

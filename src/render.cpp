@@ -391,6 +391,10 @@ D3D9EndFrame_Pre (void)
   extern std::set <uint32_t> textures_used;
   extern uint8_t __TICK_RATE;
 
+  // Some of this stuff (e.g. replacing 6 bytes of machine code) is never
+  //   atomic and needs to be fixed or random crashes will occur if we do
+  //     this once per-frame !!
+#if 0
   uint8_t in_menu   = *(uint8_t *)0x1C2BD34;
   bool    in_world  = textures_used.count (0x862bf8fe);
   bool    in_battle = *(uint8_t *)0x0B12952;
@@ -455,6 +459,7 @@ D3D9EndFrame_Pre (void)
     memcpy ((LPVOID)0x05A31FD, rep3, 6);
     VirtualProtect ((LPVOID)0x05A31FD, 6, dwProtect, &dwProtect);
   }
+#endif
 
   void TSFix_LogUsedTextures (void);
   TSFix_LogUsedTextures ();

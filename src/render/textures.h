@@ -27,6 +27,11 @@
 #include <set>
 #include <map>
 
+#include "../log.h"
+extern tsf_logger_s tex_log;
+
+interface ISKTextureD3D9;
+
 namespace tsf {
 namespace RenderFix {
 #if 0
@@ -48,11 +53,11 @@ namespace RenderFix {
       d3d9_tex  = nullptr;
     }
 
-    uint32_t           crc32;
-    size_t             size;
-    int                refs;
-    float              load_time;
-    IDirect3DTexture9* d3d9_tex;
+    uint32_t        crc32;
+    size_t          size;
+    int             refs;
+    float           load_time;
+    ISKTextureD3D9* d3d9_tex;
   };
 
   class TextureManager {
@@ -60,9 +65,7 @@ namespace RenderFix {
     void Init     (void);
     void Shutdown (void);
 
-    bool                     contains      (IDirect3DTexture9* pTex);
-    void                     removeTexture (IDirect3DTexture9* pTex);
-    void                     decRef        (IDirect3DTexture9* pTex);
+    void                     removeTexture   (ISKTextureD3D9* pTexD3D9);
 
     tsf::RenderFix::Texture* getTexture (uint32_t crc32);
     void                     addTexture (uint32_t crc32, tsf::RenderFix::Texture* pTex, size_t size);
@@ -78,15 +81,15 @@ namespace RenderFix {
     }
     int                      numInjectedTextures (void);
 
-    uint64_t                 cacheSizeTotal    (void);
-    uint64_t                 cacheSizeBasic    (void);
-    uint64_t                 cacheSizeInjected (void);
+    int64_t                  cacheSizeTotal    (void);
+    int64_t                  cacheSizeBasic    (void);
+    int64_t                  cacheSizeInjected (void);
 
     int                      numMSAASurfs (void);
 
     void                     addInjected (size_t size) {
-      injected_count++;
-      injected_size += size;
+      InterlockedIncrement (&injected_count);
+      InterlockedAdd64     (&injected_size, size);
     }
 
     std::string              osdStats  (void) { return osd_stats; }
@@ -94,15 +97,16 @@ namespace RenderFix {
 
   private:
     std::unordered_map <uint32_t, tsf::RenderFix::Texture*> textures;
-    std::unordered_map <IDirect3DTexture9*, uint32_t>       rev_textures;
-    float                                                   time_saved;
-    int                                                     hits;
+    float                                                   time_saved     = 0.0f;
+    ULONG                                                   hits           = 0UL;
 
-    uint64_t                                                basic_size;
-    uint64_t                                                injected_size;
-    int                                                     injected_count;
+    LONG64                                                  basic_size     = 0LL;
+    LONG64                                                  injected_size  = 0LL;
+    ULONG                                                   injected_count = 0UL;
 
-    std::string                                             osd_stats;
+    std::string                                             osd_stats      = "";
+
+    CRITICAL_SECTION                                        cs_cache;
   } extern tex_mgr;
 }
 }
@@ -247,6 +251,7 @@ public:
         return S_OK;
       }
 
+#if 1
       if ( IsEqualGUID (riid, IID_IUnknown)              ||
            IsEqualGUID (riid, IID_IDirect3DTexture9)     ||
            IsEqualGUID (riid, IID_IDirect3DBaseTexture9)    )
@@ -257,39 +262,31 @@ public:
       }
 
       return E_FAIL;
-      //return pTex->QueryInterface (riid, ppvObj);
+#else
+      return pTex->QueryInterface (riid, ppvObj);
+#endif
     }
     STDMETHOD_(ULONG,AddRef)(THIS) {
-      refs++;
-
-      ULONG ret = pTex->AddRef ();
-
-      if (refs != ret) {
-        /// Mismatch
-      }
+      ULONG ret = InterlockedIncrement (&refs);
 
       can_free = false;
 
       return ret;
     }
     STDMETHOD_(ULONG,Release)(THIS) {
-      refs--;
+      ULONG ret = InterlockedDecrement (&refs);
 
-      ULONG ret = pTex->Release ();
-
-      if (ret != refs) {
-        /// Mismatch
-      }
-
-      if (ret <= 1) {
+      if (ret == 1) {
         can_free = true;
       }
 
       if (ret == 0) {
-        if (pTexOverride != nullptr) {
-          if (pTexOverride->Release () == 0)
-            pTexOverride = nullptr;
-        }
+        if (pTex)         pTex->Release         ();
+        if (pTexOverride) pTexOverride->Release ();
+
+        // Does not delete this immediately; defers the
+        //   process until the next cached texture load.
+        tsf::RenderFix::tex_mgr.removeTexture (this);
       }
 
       return ret;
@@ -297,60 +294,114 @@ public:
 
     /*** IDirect3DBaseTexture9 methods ***/
     STDMETHOD(GetDevice)(THIS_ IDirect3DDevice9** ppDevice) {
+      tex_log.Log (L"[ Tex. Mgr ] ISKTextureD3D9::GetDevice (%ph)", ppDevice);
       return pTex->GetDevice (ppDevice);
     }
     STDMETHOD(SetPrivateData)(THIS_ REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::SetPrivateData (%x, %ph, %lu, %x)",
+                      refguid,
+                        pData,
+                          SizeOfData,
+                            Flags );
       return pTex->SetPrivateData (refguid, pData, SizeOfData, Flags);
     }
     STDMETHOD(GetPrivateData)(THIS_ REFGUID refguid,void* pData,DWORD* pSizeOfData) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetPrivateData (%x, %ph, %lu)",
+                      refguid,
+                        pData,
+                          *pSizeOfData );
+
       return pTex->GetPrivateData (refguid, pData, pSizeOfData);
     }
     STDMETHOD(FreePrivateData)(THIS_ REFGUID refguid) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::FreePrivateData (%x)",
+                      refguid );
+
       return pTex->FreePrivateData (refguid);
     }
     STDMETHOD_(DWORD, SetPriority)(THIS_ DWORD PriorityNew) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::SetPriority (%lu)",
+                      PriorityNew );
+
       return pTex->SetPriority (PriorityNew);
     }
     STDMETHOD_(DWORD, GetPriority)(THIS) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetPriority ()" );
+
       return pTex->GetPriority ();
     }
     STDMETHOD_(void, PreLoad)(THIS) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::PreLoad ()" );
+
       pTex->PreLoad ();
     }
     STDMETHOD_(D3DRESOURCETYPE, GetType)(THIS) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetType ()" );
+
       return pTex->GetType ();
     }
     STDMETHOD_(DWORD, SetLOD)(THIS_ DWORD LODNew) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::SetLOD (%lu)",
+                      LODNew );
+
       return pTex->SetLOD (LODNew);
     }
     STDMETHOD_(DWORD, GetLOD)(THIS) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetLOD ()" );
+
       return pTex->GetLOD ();
     }
     STDMETHOD_(DWORD, GetLevelCount)(THIS) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetLevelCount ()" );
+
       return pTex->GetLevelCount ();
     }
     STDMETHOD(SetAutoGenFilterType)(THIS_ D3DTEXTUREFILTERTYPE FilterType) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::SetAutoGenFilterType (%x)",
+                      FilterType );
+
       return pTex->SetAutoGenFilterType (FilterType);
     }
     STDMETHOD_(D3DTEXTUREFILTERTYPE, GetAutoGenFilterType)(THIS) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetAutoGenFilterType ()" );
+
       return pTex->GetAutoGenFilterType ();
     }
     STDMETHOD_(void, GenerateMipSubLevels)(THIS) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GenerateMipSubLevels ()" );
+
       pTex->GenerateMipSubLevels ();
     }
     STDMETHOD(GetLevelDesc)(THIS_ UINT Level,D3DSURFACE_DESC *pDesc) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetLevelDesc (%lu, %ph)",
+                      Level,
+                        pDesc );
       return pTex->GetLevelDesc (Level, pDesc);
     }
     STDMETHOD(GetSurfaceLevel)(THIS_ UINT Level,IDirect3DSurface9** ppSurfaceLevel) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::GetSurfaceLevel (%lu, %ph)",
+                      Level,
+                        ppSurfaceLevel );
+
       return pTex->GetSurfaceLevel (Level, ppSurfaceLevel);
     }
     STDMETHOD(LockRect)(THIS_ UINT Level,D3DLOCKED_RECT* pLockedRect,CONST RECT* pRect,DWORD Flags) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::LockRect (%lu, %ph, %ph, %x)",
+                      Level,
+                        pLockedRect,
+                          pRect,
+                            Flags );
+
       return pTex->LockRect (Level, pLockedRect, pRect, Flags);
     }
     STDMETHOD(UnlockRect)(THIS_ UINT Level) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::UnlockRect (%lu)", Level );
+
       return pTex->UnlockRect (Level);
     }
     STDMETHOD(AddDirtyRect)(THIS_ CONST RECT* pDirtyRect) {
+      tex_log.Log ( L"[ Tex. Mgr ] ISKTextureD3D9::SetDirtyRect (...)" );
+
       return pTex->AddDirtyRect (pDirtyRect);
     }
 
@@ -359,13 +410,13 @@ public:
                                       //  override finishes streaming
 
     IDirect3DTexture9* pTex;          // The original texture data
-    SIZE_T             tex_size;      //   Original data size
+    SSIZE_T            tex_size;      //   Original data size
     uint32_t           tex_crc32;     //   Original data checksum
 
     IDirect3DTexture9* pTexOverride;  // The overridden texture data (nullptr if unchanged)
-    SIZE_T             override_size; //   Override data size
+    SSIZE_T            override_size; //   Override data size
 
-    int                refs;
+    ULONG              refs;
     LARGE_INTEGER      last_used;     // The last time this texture was used (for rendering)
                                       //   different from the last time referenced, this is
                                       //     set when SetTexture (...) is called.
