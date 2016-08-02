@@ -36,16 +36,12 @@
 
 #include <mmsystem.h> // timeGetTime (...)
 
-extern "C" {
-#  define LZMA_API_STATIC
-#  include "../../include/lzma.h"
-#  pragma comment (lib, "../lib/liblzma.a")
-
-#  define LIBARCHIVE_STATIC
-#  include "../../include/archive/archive.h"
-#  include "../../include/archive/archive_entry.h"
-#  pragma comment (lib, "../lib/archive_static.lib")
-}
+#include <lzma/7z.h>
+#include <lzma/7zAlloc.h>
+#include <lzma/7zBuf.h>
+#include <lzma/7zCrc.h>
+#include <lzma/7zFile.h>
+#include <lzma/7zVersion.h>
 
 #define TSFIX_TEXTURE_DIR L"TSFix_Res"
 #define TSFIX_TEXTURE_EXT L".dds"
@@ -1545,9 +1541,9 @@ HANDLE decomp_semaphore;
 // Keep a pool of memory around so that we are not allocating and freeing
 //  memory constantly...
 namespace streaming_memory {
-static __declspec (thread) void*    data     = nullptr;
-static __declspec (thread) size_t   data_len = 0;
-static __declspec (thread) uint32_t data_age = 0;
+  static __declspec (thread) void*    data     = nullptr;
+  static __declspec (thread) size_t   data_len = 0;
+  static __declspec (thread) uint32_t data_age = 0;
 
   bool alloc (size_t len)
   {
@@ -1638,9 +1634,10 @@ InjectTexture (tsf_tex_load_s* load)
 
     if (hTexFile != INVALID_HANDLE_VALUE) {
                 size = GetFileSize (hTexFile, nullptr);
-      load->pSrcData = new uint8_t [size];
 
-      if (load->pSrcData != nullptr) {
+      if (streaming_memory::alloc (size)) {
+        load->pSrcData = streaming_memory::data;
+
         ReadFile (hTexFile, load->pSrcData, size, &read, nullptr);
 
         load->SrcDataSize = read;
@@ -1667,7 +1664,6 @@ InjectTexture (tsf_tex_load_s* load)
                         &img_info, nullptr,
                           &load->pSrc );
 
-        delete [] load->pSrcData;
         load->pSrcData = nullptr;
       } else {
         // OUT OF MEMORY ?!
@@ -1682,28 +1678,37 @@ InjectTexture (tsf_tex_load_s* load)
   //
   else
   {
-    static __declspec (thread) bool           archive_init        = false;
-    static __declspec (thread) archive*       arc                 = nullptr;
-    static __declspec (thread) archive_entry* entry               = nullptr;
-    static __declspec (thread) wchar_t        arc_name [MAX_PATH];
+    static __declspec (thread) wchar_t       arc_name [MAX_PATH];
+    static __declspec (thread) CFileInStream arc_stream;
+    static __declspec (thread) CLookToRead   look_stream;
+    static __declspec (thread) ISzAlloc      thread_alloc;
+    static __declspec (thread) ISzAlloc      thread_tmp_alloc;
+    static __declspec (thread) bool          stream_init = false;
 
-    // Allocate this on first use per-thread, to keep the heap
-    //   from going bonkers while streaming textures.
-    if (! archive_init) {
-      entry        = archive_entry_new ();
-      archive_init = true;
+    if (! stream_init) {
+      FileInStream_CreateVTable (&arc_stream);
+      LookToRead_CreateVTable   (&look_stream, False);
+
+      look_stream.realStream = &arc_stream.s;
+      LookToRead_Init         (&look_stream);
+
+      thread_alloc.Alloc     = SzAlloc;
+      thread_alloc.Free      = SzFree;
+
+      thread_tmp_alloc.Alloc = SzAllocTemp;
+      thread_tmp_alloc.Free  = SzFreeTemp;
+
+      stream_init = true;
     }
 
-    size_t       read     = 0UL;
-                 size     = inj_tex->size;
-    int          fileno   = inj_tex->fileno;
+    CSzArEx      arc;
+                 size   = inj_tex->size;
+    int          fileno = inj_tex->fileno;
 
     if (inj_tex->archive <= archives.size ())
       wcscpy (arc_name, archives [inj_tex->archive].c_str ());
     else
       wcscpy (arc_name, L"INVALID");
-
-    int r, tex_count = 0;
 
     if (streamed && size > (32 * 1024)) {
       SetThreadPriority ( GetCurrentThread (),
@@ -1711,90 +1716,91 @@ InjectTexture (tsf_tex_load_s* load)
                             THREAD_MODE_BACKGROUND_BEGIN );
     }
 
-    arc =
-      archive_read_new  ();
-
-    archive_read_support_filter_all (arc);
-    archive_read_support_format_all (arc);
-
-    r =
-      archive_read_open_filename_w (
-        arc,
-          arc_name,
-            16384 );
-
-    if (r == ARCHIVE_OK)
+    if (InFile_OpenW (&arc_stream.file, arc_name))
     {
-      int cur_file = 0;
+      tex_log.Log ( L"[Inject Tex]  ** Cannot open archive file: %s",
+                      arc_name );
+      return E_FAIL;
+    }
 
-      while ( archive_read_next_header2 (arc, entry) == ARCHIVE_OK )
+    SzArEx_Init (&arc);
+
+    if (SzArEx_Open (&arc, &look_stream.s, &thread_alloc, &thread_tmp_alloc) != SZ_OK)
+    {
+      tex_log.Log ( L"[Inject Tex]  ** Cannot open archive file: %s",
+                      arc_name );
+      return E_FAIL;
+    }
+
+    if (streaming_memory::alloc (size))
+    {
+      load->pSrcData = streaming_memory::data;
+
+      bool wait = true;
+
+      while (wait)
       {
-        if (cur_file == fileno)
-        {
-          if (streaming_memory::alloc (size))
-          {
-            load->pSrcData = streaming_memory::data;
+        DWORD dwResult = WAIT_OBJECT_0;
 
-            bool wait = true;
-
-            while (wait)
-            {
-              DWORD dwResult = WAIT_OBJECT_0;
-
-              if (streamed && size > (32 * 1024)) {
-                dwResult =
-                  WaitForSingleObject ( decomp_semaphore, INFINITE );
-              }
-
-              switch (dwResult) 
-              {
-              case WAIT_OBJECT_0:
-                read = archive_read_data (arc, load->pSrcData, size);
-
-                if (streamed && size > (32 * 1024))
-                  ReleaseSemaphore (decomp_semaphore, 1, nullptr);
-
-                wait = false;
-
-                load->SrcDataSize = read;
-
-                D3DXGetImageInfoFromFileInMemory (
-                  load->pSrcData,
-                    load->SrcDataSize,
-                      &img_info );
-
-                hr = D3DXCreateTextureFromFileInMemoryEx_Original (
-                  load->pDevice,
-                    load->pSrcData, load->SrcDataSize,
-                      img_info.Width, img_info.Height, img_info.MipLevels,
-                        0, img_info.Format,
-                          D3DPOOL_DEFAULT,
-                            D3DX_DEFAULT, D3DX_DEFAULT,
-                              0,
-                                &img_info, nullptr,
-                                  &load->pSrc );
-                break;
-
-              default:
-                tex_log.Log ( L"[  Tex. Mgr  ] Unexpected Wait Status: %X (crc32=%x)",
-                                dwResult,
-                                  load->checksum );
-                wait = false;
-                break; 
-              }
-            }
-
-            load->pSrcData = nullptr;
-          }
-          break;
+        if (streamed && size > (32 * 1024)) {
+          dwResult =
+            WaitForSingleObject ( decomp_semaphore, INFINITE );
         }
 
-        archive_read_data_skip (arc);
-        ++cur_file;
+        switch (dwResult) 
+        {
+        case WAIT_OBJECT_0:
+        {
+          uint32_t block_idx     = 0xFFFFFFFF;
+          Byte*    out           = (Byte *)streaming_memory::data;
+          size_t   out_len       =         streaming_memory::data_len;
+          size_t   offset        = 0;
+          size_t   decomp_size   = 0;
+
+          SzArEx_Extract ( &arc,          &look_stream.s, fileno,
+                           &block_idx,    &out,           &out_len,
+                           &offset,       &decomp_size,
+                           &thread_alloc, &thread_tmp_alloc );
+
+          if (streamed && size > (32 * 1024))
+            ReleaseSemaphore (decomp_semaphore, 1, nullptr);
+
+          wait = false;
+
+          load->pSrcData    = (Byte *)streaming_memory::data + offset;
+          load->SrcDataSize = decomp_size;
+
+          D3DXGetImageInfoFromFileInMemory (
+            load->pSrcData,
+              load->SrcDataSize,
+                &img_info );
+
+          hr = D3DXCreateTextureFromFileInMemoryEx_Original (
+            load->pDevice,
+              load->pSrcData, load->SrcDataSize,
+                img_info.Width, img_info.Height, img_info.MipLevels,
+                  0, img_info.Format,
+                    D3DPOOL_DEFAULT,
+                      D3DX_DEFAULT, D3DX_DEFAULT,
+                        0,
+                          &img_info, nullptr,
+                            &load->pSrc );
+        } break;
+
+        default:
+          tex_log.Log ( L"[  Tex. Mgr  ] Unexpected Wait Status: %X (crc32=%x)",
+                          dwResult,
+                            load->checksum );
+          wait = false;
+          break; 
+        }
       }
 
-      archive_read_finish (arc);
+      load->pSrcData = nullptr;
     }
+
+    File_Close  (&arc_stream.file);
+    SzArEx_Free (&arc, &thread_alloc);
   }
 
   if (streamed && size > (32 * 1024)) {
@@ -2436,6 +2442,8 @@ tsf::RenderFix::TextureManager::refTexture (tsf::RenderFix::Texture* pTex)
   updateOSD ();
 }
 
+static ISzAlloc g_Alloc = { SzAlloc, SzFree };
+
 void
 tsf::RenderFix::TextureManager::Init (void)
 {
@@ -2464,6 +2472,17 @@ tsf::RenderFix::TextureManager::Init (void)
   inject_blacklist.insert (0xd5d4653a); // Namco Logo   - EULA Forbids Replacement
   inject_blacklist.insert (0x1e5c8a5e); // Criware Logo - "
   inject_blacklist.insert (0x5606ed7b); // Another Namco Logo
+
+  CrcGenerateTable ();
+
+  CFileInStream arc_stream;
+  CLookToRead   look_stream;
+
+  FileInStream_CreateVTable (&arc_stream);
+  LookToRead_CreateVTable   (&look_stream, False);
+
+  look_stream.realStream = &arc_stream.s;
+  LookToRead_Init         (&look_stream);
 
   //
   // Walk injectable textures so we don't have to query the filesystem on every
@@ -2597,16 +2616,19 @@ tsf::RenderFix::TextureManager::Init (void)
           wchar_t* wszArchiveNameLwr =
             _wcslwr (_wcsdup (fd.cFileName));
 
-          if ( wcsstr (wszArchiveNameLwr, L".zip") ||
-               wcsstr (wszArchiveNameLwr, L".7z") ) {
-            struct archive       *a;
-            struct archive_entry *entry;
-            int                   r, tex_count = 0;
+          if ( wcsstr (wszArchiveNameLwr, L".7z") ) {
 
-            a = archive_read_new ();
+            int tex_count = 0;
 
-            archive_read_support_filter_all (a);
-            archive_read_support_format_all (a);
+            CSzArEx       arc;
+            ISzAlloc      thread_alloc;
+            ISzAlloc      thread_tmp_alloc;
+
+            thread_alloc.Alloc     = SzAlloc;
+            thread_alloc.Free      = SzFree;
+
+            thread_tmp_alloc.Alloc = SzAllocTemp;
+            thread_tmp_alloc.Free  = SzFreeTemp;
 
             wchar_t wszQualifiedArchiveName [MAX_PATH];
             _swprintf ( wszQualifiedArchiveName,
@@ -2614,14 +2636,36 @@ tsf::RenderFix::TextureManager::Init (void)
                             TSFIX_TEXTURE_DIR,
                               fd.cFileName );
 
-            r = archive_read_open_filename_w (a, wszQualifiedArchiveName, 10240);
+            if (InFile_OpenW (&arc_stream.file, wszQualifiedArchiveName))
+            {
+              tex_log.Log ( L"[Inject Tex]  ** Cannot open archive file: %s",
+                              wszQualifiedArchiveName );
+              continue;
+            }
 
-            if (r == ARCHIVE_OK) {
-              int fileno = 0;
+            SzArEx_Init (&arc);
 
-              while (archive_read_next_header (a, &entry) == ARCHIVE_OK) {
+            if ( SzArEx_Open ( &arc,
+                                 &look_stream.s,
+                                   &thread_alloc,
+                                     &thread_tmp_alloc ) == SZ_OK )
+            {
+              uint32_t i;
+
+              wchar_t wszEntry [MAX_PATH];
+
+              for (i = 0; i < arc.NumFiles; i++)
+              {
+                if (SzArEx_IsDir (&arc, i))
+                  continue;
+
+                SzArEx_GetFileNameUtf16 (&arc, i, (UInt16 *)wszEntry);
+
+                // Truncate to 32-bits --> there's no way in hell a texture will ever be >= 2 GiB
+                uint32_t fileSize = SzArEx_GetFileSize (&arc, i);
+
                 wchar_t* wszFullName =
-                  _wcslwr (_wcsdup (archive_entry_pathname_w (entry)));
+                  _wcslwr (_wcsdup (wszEntry));
 
                 if ( wcsstr ( wszFullName, TSFIX_TEXTURE_EXT) ) {
                   tsf_load_method_t method = DontCare;
@@ -2644,8 +2688,6 @@ tsf::RenderFix::TextureManager::Init (void)
                   if ( injectable_textures.count (checksum) ||
                        inject_blacklist.count    (checksum) ) {
                     free (wszFullName);
-                    archive_read_data_skip (a);
-                    ++fileno;
                     continue;
                   }
 
@@ -2655,9 +2697,9 @@ tsf::RenderFix::TextureManager::Init (void)
                     method = Blocking;
 
                   tsf_tex_record_s rec;
-                  rec.size    = (uint32_t)archive_entry_size (entry);
+                  rec.size    = (uint32_t)fileSize;
                   rec.archive = archive;
-                  rec.fileno  = fileno;
+                  rec.fileno  = i;
                   rec.method  = method;
 
                   injectable_textures.insert (std::make_pair (checksum, rec));
@@ -2669,22 +2711,19 @@ tsf::RenderFix::TextureManager::Init (void)
                 }
 
                 free (wszFullName);
-
-                archive_read_data_skip (a);
-                ++fileno;
               }
 
-              if (tex_count == 0) {
-              } else {
+              if (tex_count > 0) {
                 ++archive;
                 archives.push_back (wszQualifiedArchiveName);
               }
-
-              r = archive_read_free (a);
             }
 
-            free (wszArchiveNameLwr);
+            SzArEx_Free (&arc, &thread_alloc);
+            File_Close  (&arc_stream.file);
           }
+
+          free (wszArchiveNameLwr);
         }
       } while (FindNextFileW (hFind, &fd) != 0);
 
@@ -3310,7 +3349,7 @@ SK_TextureThreadPool::Spooler (LPVOID user)
             (*it)->startJob (pJob);
             started = true;
           } else {
-            //(*it)->trim ();
+            (*it)->trim ();
           }
         }
 

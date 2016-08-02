@@ -49,11 +49,15 @@
     <LinkIncremental>true</LinkIncremental>
     <TargetName>tsfix</TargetName>
     <OutDir>\\zilcho\Tales of Symphonia\</OutDir>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(SolutionDir)\include</IncludePath>
+    <LibraryPath>$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);$(NETFXKitsDir)Lib\um\x86;;$(SolutionDir)\lib</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
     <TargetName>tsfix</TargetName>
     <OutDir>\\zilcho\Tales of Symphonia\</OutDir>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(SolutionDir)\include</IncludePath>
+    <LibraryPath>$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);$(NETFXKitsDir)Lib\um\x86;;$(SolutionDir)\lib</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -135,6 +139,40 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\include\lzma\7z.h" />
+    <ClInclude Include="..\include\lzma\7zAlloc.h" />
+    <ClInclude Include="..\include\lzma\7zBuf.h" />
+    <ClInclude Include="..\include\lzma\7zCrc.h" />
+    <ClInclude Include="..\include\lzma\7zFile.h" />
+    <ClInclude Include="..\include\lzma\7zTypes.h" />
+    <ClInclude Include="..\include\lzma\7zVersion.h" />
+    <ClInclude Include="..\include\lzma\Aes.h" />
+    <ClInclude Include="..\include\lzma\Alloc.h" />
+    <ClInclude Include="..\include\lzma\Bcj2.h" />
+    <ClInclude Include="..\include\lzma\Bra.h" />
+    <ClInclude Include="..\include\lzma\Compiler.h" />
+    <ClInclude Include="..\include\lzma\CpuArch.h" />
+    <ClInclude Include="..\include\lzma\Delta.h" />
+    <ClInclude Include="..\include\lzma\LzFind.h" />
+    <ClInclude Include="..\include\lzma\LzFindMt.h" />
+    <ClInclude Include="..\include\lzma\LzHash.h" />
+    <ClInclude Include="..\include\lzma\Lzma2Dec.h" />
+    <ClInclude Include="..\include\lzma\Lzma2Enc.h" />
+    <ClInclude Include="..\include\lzma\Lzma86.h" />
+    <ClInclude Include="..\include\lzma\LzmaDec.h" />
+    <ClInclude Include="..\include\lzma\LzmaEnc.h" />
+    <ClInclude Include="..\include\lzma\LzmaLib.h" />
+    <ClInclude Include="..\include\lzma\MtCoder.h" />
+    <ClInclude Include="..\include\lzma\Ppmd.h" />
+    <ClInclude Include="..\include\lzma\Ppmd7.h" />
+    <ClInclude Include="..\include\lzma\Precomp.h" />
+    <ClInclude Include="..\include\lzma\RotateDefs.h" />
+    <ClInclude Include="..\include\lzma\Sha256.h" />
+    <ClInclude Include="..\include\lzma\Sort.h" />
+    <ClInclude Include="..\include\lzma\Threads.h" />
+    <ClInclude Include="..\include\lzma\Xz.h" />
+    <ClInclude Include="..\include\lzma\XzCrc64.h" />
+    <ClInclude Include="..\include\lzma\XzEnc.h" />
     <ClInclude Include="command.h" />
     <ClInclude Include="config.h" />
     <ClInclude Include="hook.h" />
@@ -166,6 +204,47 @@
     <ClCompile Include="ini.cpp" />
     <ClCompile Include="input.cpp" />
     <ClCompile Include="log.cpp" />
+    <ClCompile Include="lzma\7zAlloc.c" />
+    <ClCompile Include="lzma\7zArcIn.c" />
+    <ClCompile Include="lzma\7zBuf.c" />
+    <ClCompile Include="lzma\7zBuf2.c" />
+    <ClCompile Include="lzma\7zCrc.c" />
+    <ClCompile Include="lzma\7zCrcOpt.c" />
+    <ClCompile Include="lzma\7zDec.c" />
+    <ClCompile Include="lzma\7zFile.c" />
+    <ClCompile Include="lzma\7zStream.c" />
+    <ClCompile Include="lzma\Aes.c" />
+    <ClCompile Include="lzma\AesOpt.c" />
+    <ClCompile Include="lzma\Alloc.c" />
+    <ClCompile Include="lzma\Bcj2.c" />
+    <ClCompile Include="lzma\Bcj2Enc.c" />
+    <ClCompile Include="lzma\Bra.c" />
+    <ClCompile Include="lzma\Bra86.c" />
+    <ClCompile Include="lzma\BraIA64.c" />
+    <ClCompile Include="lzma\CpuArch.c" />
+    <ClCompile Include="lzma\Delta.c" />
+    <ClCompile Include="lzma\LzFind.c" />
+    <ClCompile Include="lzma\LzFindMt.c" />
+    <ClCompile Include="lzma\Lzma2Dec.c" />
+    <ClCompile Include="lzma\Lzma2Enc.c" />
+    <ClCompile Include="lzma\Lzma86Dec.c" />
+    <ClCompile Include="lzma\Lzma86Enc.c" />
+    <ClCompile Include="lzma\LzmaDec.c" />
+    <ClCompile Include="lzma\LzmaEnc.c" />
+    <ClCompile Include="lzma\LzmaLib.c" />
+    <ClCompile Include="lzma\MtCoder.c" />
+    <ClCompile Include="lzma\Ppmd7.c" />
+    <ClCompile Include="lzma\Ppmd7Dec.c" />
+    <ClCompile Include="lzma\Ppmd7Enc.c" />
+    <ClCompile Include="lzma\Sha256.c" />
+    <ClCompile Include="lzma\Sort.c" />
+    <ClCompile Include="lzma\Threads.c" />
+    <ClCompile Include="lzma\Xz.c" />
+    <ClCompile Include="lzma\XzCrc64.c" />
+    <ClCompile Include="lzma\XzCrc64Opt.c" />
+    <ClCompile Include="lzma\XzDec.c" />
+    <ClCompile Include="lzma\XzEnc.c" />
+    <ClCompile Include="lzma\XzIn.c" />
     <ClCompile Include="parameter.cpp" />
     <ClCompile Include="render.cpp">
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</MultiProcessorCompilation>
@@ -176,6 +255,7 @@
     <ClCompile Include="window.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="..\include\lzma\7zVersion.rc" />
     <ResourceCompile Include="TSFix.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
