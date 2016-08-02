@@ -21,6 +21,7 @@
 **/
 
 #define _CRT_SECURE_NO_WARNINGS
+#define NOMINMAX
 
 #include <d3d9.h>
 
@@ -79,10 +80,10 @@ enum tsf_load_method_t {
 };
 
 struct tsf_tex_record_s {
-         int               archive = -1;
-         int               fileno  =  0UL;
-  enum   tsf_load_method_t method  = DontCare;
-         size_t            size    = 0UL;
+  unsigned int               archive = std::numeric_limits <unsigned int>::max ();
+           int               fileno  = 0UL;
+  enum     tsf_load_method_t method  = DontCare;
+           size_t            size    = 0UL;
 };
 
 bool pending_loads            (void);
@@ -92,6 +93,7 @@ void TSFix_LoadQueuedTextures (void);
 #include <set>
 #include <queue>
 #include <vector>
+#include <algorithm>
 #include <unordered_map>
 
 // All of the enumerated textures in TSFix_Textures/inject/...
@@ -1175,6 +1177,8 @@ public:
 
     control_.start =
       CreateEvent (nullptr, FALSE, FALSE, nullptr);
+    control_.trim =
+      CreateEvent (nullptr, FALSE, FALSE, nullptr);
     control_.shutdown =
       CreateEvent (nullptr, FALSE, FALSE, nullptr);
 
@@ -1191,12 +1195,17 @@ public:
     CloseHandle (thread_);
 
     CloseHandle (control_.shutdown);
+    CloseHandle (control_.trim);
     CloseHandle (control_.start);
   }
 
   void startJob  (tsf_tex_load_s* job) {
     job_ = job;
     SetEvent (control_.start);
+  }
+
+  void trim (void) {
+    SetEvent (control_.trim);
   }
 
   void finishJob (void);
@@ -1223,9 +1232,10 @@ protected:
     union {
       struct {
         HANDLE start;
+        HANDLE trim;
         HANDLE shutdown;
       };
-      HANDLE   ops [2];
+      HANDLE   ops [3];
     };
   } control_;
 };
@@ -1532,6 +1542,59 @@ finished_streaming (uint32_t checksum)
 
 HANDLE decomp_semaphore;
 
+// Keep a pool of memory around so that we are not allocating and freeing
+//  memory constantly...
+namespace streaming_memory {
+static __declspec (thread) void*    data     = nullptr;
+static __declspec (thread) size_t   data_len = 0;
+static __declspec (thread) uint32_t data_age = 0;
+
+  bool alloc (size_t len)
+  {
+    if (data_len < len) {
+      if (data != nullptr)
+        free (data);
+
+      if (len < 8192 * 1024)
+        data_len = 8192 * 1024;
+      else
+        data_len = len;
+
+      data     = malloc      (data_len);
+      data_age = timeGetTime ();
+
+      if (data != nullptr) {
+        return true;
+      } else {
+        data_len = 0;
+        return false;
+      }
+    } else {
+      return true;
+    }
+  }
+
+  void trim (size_t max_size, uint32_t min_age) {
+    if (data_age < min_age) {
+      if (data_len > max_size) {
+        free (data);
+        data = nullptr;
+
+        if (max_size > 0)
+          data = malloc (max_size);
+
+        if (data != nullptr) {
+          data_len = max_size;
+          data_age = timeGetTime ();
+        } else {
+          data_len = 0;
+          data_age = 0;
+        }
+      }
+    }
+  }
+}
+
 HRESULT
 InjectTexture (tsf_tex_load_s* load)
 {
@@ -1541,13 +1604,26 @@ InjectTexture (tsf_tex_load_s* load)
   size_t         size = 0;
   HRESULT        hr = E_FAIL;
 
+  auto inject = injectable_textures.find (load->checksum);
+
+  if (inject == injectable_textures.end ()) {
+    tex_log.Log ( L"[Inject Tex]  >> Load Request for Checksum: %X "
+                  L"has no Injection Record !!",
+                    load->checksum );
+
+    return E_NOT_VALID_STATE;
+  }
+
+  const tsf_tex_record_s* inj_tex = &(*inject).second;
+
   streamed =
-    injectable_textures [load->checksum].method == Streaming;
+    (inj_tex->method == Streaming);
 
   //
   // Load:  From Regular Filesystem
   //
-  if (injectable_textures [load->checksum].archive == -1) {
+  if ( inj_tex->archive == std::numeric_limits <unsigned int>::max () )
+  {
     HANDLE hTexFile =
       CreateFile ( load->wszFilename,
                      GENERIC_READ,
@@ -1604,13 +1680,30 @@ InjectTexture (tsf_tex_load_s* load)
   //
   // Load:  From (Compressed) Archive (.7z or .zip)
   //
-  else {
-    size_t       read = 0UL;
-                 size = injectable_textures [load->checksum].size;
+  else
+  {
+    static __declspec (thread) bool           archive_init        = false;
+    static __declspec (thread) archive*       arc                 = nullptr;
+    static __declspec (thread) archive_entry* entry               = nullptr;
+    static __declspec (thread) wchar_t        arc_name [MAX_PATH];
 
-    struct archive       *a;
-    struct archive_entry *entry;
-    int                   r, tex_count = 0;
+    // Allocate this on first use per-thread, to keep the heap
+    //   from going bonkers while streaming textures.
+    if (! archive_init) {
+      entry        = archive_entry_new ();
+      archive_init = true;
+    }
+
+    size_t       read     = 0UL;
+                 size     = inj_tex->size;
+    int          fileno   = inj_tex->fileno;
+
+    if (inj_tex->archive <= archives.size ())
+      wcscpy (arc_name, archives [inj_tex->archive].c_str ());
+    else
+      wcscpy (arc_name, L"INVALID");
+
+    int r, tex_count = 0;
 
     if (streamed && size > (32 * 1024)) {
       SetThreadPriority ( GetCurrentThread (),
@@ -1618,27 +1711,34 @@ InjectTexture (tsf_tex_load_s* load)
                             THREAD_MODE_BACKGROUND_BEGIN );
     }
 
-    a = archive_read_new ();
+    arc =
+      archive_read_new  ();
 
-    archive_read_support_filter_all (a);
-    archive_read_support_format_all (a);
+    archive_read_support_filter_all (arc);
+    archive_read_support_format_all (arc);
 
     r =
       archive_read_open_filename_w (
-        a,
-          archives [injectable_textures [load->checksum].archive].c_str (),
+        arc,
+          arc_name,
             16384 );
 
-    if (r == ARCHIVE_OK) {
-      int fileno = 0;
+    if (r == ARCHIVE_OK)
+    {
+      int cur_file = 0;
 
-      while (archive_read_next_header (a, &entry) == ARCHIVE_OK) {
-        if (fileno == injectable_textures [load->checksum].fileno) {
-      //tex_log.Log (L"%s :: %lu", archives [injectable_textures [load->checksum].archive].c_str (), fileno);
-          if ((load->pSrcData = new uint8_t [size])) {
+      while ( archive_read_next_header2 (arc, entry) == ARCHIVE_OK )
+      {
+        if (cur_file == fileno)
+        {
+          if (streaming_memory::alloc (size))
+          {
+            load->pSrcData = streaming_memory::data;
+
             bool wait = true;
 
-            while (wait) {
+            while (wait)
+            {
               DWORD dwResult = WAIT_OBJECT_0;
 
               if (streamed && size > (32 * 1024)) {
@@ -1649,7 +1749,7 @@ InjectTexture (tsf_tex_load_s* load)
               switch (dwResult) 
               {
               case WAIT_OBJECT_0:
-                read = archive_read_data (a, load->pSrcData, size);
+                read = archive_read_data (arc, load->pSrcData, size);
 
                 if (streamed && size > (32 * 1024))
                   ReleaseSemaphore (decomp_semaphore, 1, nullptr);
@@ -1675,7 +1775,7 @@ InjectTexture (tsf_tex_load_s* load)
                                   &load->pSrc );
                 break;
 
-              default://case WAIT_TIMEOUT:
+              default:
                 tex_log.Log ( L"[  Tex. Mgr  ] Unexpected Wait Status: %X (crc32=%x)",
                                 dwResult,
                                   load->checksum );
@@ -1684,17 +1784,16 @@ InjectTexture (tsf_tex_load_s* load)
               }
             }
 
-            delete [] load->pSrcData;
             load->pSrcData = nullptr;
           }
           break;
         }
 
-        archive_read_data_skip (a);
-        ++fileno;
+        archive_read_data_skip (arc);
+        ++cur_file;
       }
 
-      archive_read_finish (a);
+      archive_read_finish (arc);
     }
   }
 
@@ -2815,7 +2914,7 @@ tsf::RenderFix::TextureManager::purge (void)
 
   // We need to over-free, or we will likely be purging every other texture load
   int64_t target_size =
-    max (128, config.textures.max_cache_in_mib - 64) * 1024LL * 1024LL;
+    std::max (128, config.textures.max_cache_in_mib - 64) * 1024LL * 1024LL;
 
   while ( cacheSizeTotal () > target_size &&
             free_it != unreferenced_textures.end () ) {
@@ -3121,12 +3220,13 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
 
   struct {
     const DWORD job_start  = WAIT_OBJECT_0;
-    const DWORD thread_end = WAIT_OBJECT_0 + 1;
+    const DWORD mem_trim   = WAIT_OBJECT_0 + 1;
+    const DWORD thread_end = WAIT_OBJECT_0 + 2;
   } wait;
 
   do {
     dwWaitStatus =
-      WaitForMultipleObjects ( 2,
+      WaitForMultipleObjects ( 3,
                                  pThread->control_.ops,
                                    FALSE,
                                      INFINITE );
@@ -3158,11 +3258,30 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
       }
       end_load ();
 
-    } else if (dwWaitStatus != (wait.thread_end)) {
+    }
+
+    else if (dwWaitStatus == (wait.mem_trim)) {
+      const size_t   MIN_SIZE = 8192 * 1024;
+      const uint32_t MIN_AGE  = 5000UL;
+
+      size_t before = streaming_memory::data_len;
+
+      streaming_memory::trim (MIN_SIZE, timeGetTime () - MIN_AGE);
+
+      if (before != streaming_memory::data_len) {
+        tex_log.Log ( L"[ Mem. Mgr ]  Trimmed %lu bytes of scratch memory for tid=%x",
+                        before - streaming_memory::data_len,
+                          GetCurrentThreadId () );
+      }
+    }
+
+    else if (dwWaitStatus != (wait.thread_end)) {
       dll_log.Log ( L"[ Tex. Mgr ] Unexpected Worker Thread Wait Status: %X",
                       dwWaitStatus );
     }
   } while (dwWaitStatus != (wait.thread_end));
+
+  streaming_memory::trim (0, timeGetTime ());
 
   return 0;
 }
@@ -3183,17 +3302,23 @@ SK_TextureThreadPool::Spooler (LPVOID user)
     while (pJob != nullptr) {
       auto it = pPool->workers_.begin ();
 
+      bool started = false;
+
       while (it != pPool->workers_.end ()) {
         if (! (*it)->isBusy ()) {
-          (*it)->startJob (pJob);
-          break;
+          if (! started) {
+            (*it)->startJob (pJob);
+            started = true;
+          } else {
+            //(*it)->trim ();
+          }
         }
 
         ++it;
       }
 
       // All worker threads are busy, so wait...
-      if (it == pPool->workers_.end ()) {
+      if (! started) {
         WaitForSingleObject (pPool->events_.results_waiting, INFINITE);
       } else {
         pJob =
@@ -3201,7 +3326,21 @@ SK_TextureThreadPool::Spooler (LPVOID user)
       }
     }
 
-    WaitForSingleObject (pPool->events_.jobs_added, INFINITE);
+    const int MAX_TIME_BETWEEN_TRIMS = 1500UL;
+    while ( WaitForSingleObject (
+              pPool->events_.jobs_added,
+                MAX_TIME_BETWEEN_TRIMS ) ==
+                               WAIT_TIMEOUT ) {
+      auto it = pPool->workers_.begin ();
+
+      while (it != pPool->workers_.end ()) {
+        if (! (*it)->isBusy ()) {
+          (*it)->trim ();
+        }
+
+        ++it;
+      }
+    }
   }
 
   return 0;
