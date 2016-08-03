@@ -1165,6 +1165,7 @@ protected:
 class SK_TextureThreadPool;
 
 class SK_TextureWorkerThread {
+friend class SK_TextureThreadPool;
 public:
   SK_TextureWorkerThread (SK_TextureThreadPool* pool)
   {
@@ -1215,6 +1216,9 @@ public:
   }
 
 protected:
+  static CRITICAL_SECTION        cs_worker_init;
+  static SYNCHRONIZATION_BARRIER sb_worker_init;
+
   static DWORD WINAPI ThreadProc (LPVOID user);
 
   SK_TextureThreadPool* pool_;
@@ -1253,6 +1257,15 @@ public:
     InitializeCriticalSectionAndSpinCount (&cs_results, 1000UL);
 
     const int MAX_THREADS = config.textures.max_decomp_jobs;
+
+    static bool init_worker_sync = false;
+    if (! init_worker_sync) {
+      // We will add a sync. barrier that waits for all of the threads in this pool, plus all of the threads
+      //   in the other pool to initialize. This design is flawed, but safe.
+      InitializeCriticalSectionAndSpinCount (&SK_TextureWorkerThread::cs_worker_init,                  10000UL);
+      InitializeSynchronizationBarrier      (&SK_TextureWorkerThread::sb_worker_init, MAX_THREADS * 2, 1000UL);
+      init_worker_sync = true;
+    }
 
     for (int i = 0; i < MAX_THREADS; i++) {
       SK_TextureWorkerThread* pWorker =
@@ -1541,28 +1554,28 @@ HANDLE decomp_semaphore;
 // Keep a pool of memory around so that we are not allocating and freeing
 //  memory constantly...
 namespace streaming_memory {
-  static __declspec (thread) void*    data     = nullptr;
-  static __declspec (thread) size_t   data_len = 0;
-  static __declspec (thread) uint32_t data_age = 0;
+  std::unordered_map <DWORD, void*>    data;
+  std::unordered_map <DWORD, size_t>   data_len;
+  std::unordered_map <DWORD, uint32_t> data_age;
 
-  bool alloc (size_t len)
+  bool alloc (size_t len, DWORD dwThreadId = GetCurrentThreadId ())
   {
-    if (data_len < len) {
-      if (data != nullptr)
-        free (data);
+    if (data_len [dwThreadId] < len) {
+      if (data [dwThreadId] != nullptr)
+        free (data [dwThreadId]);
 
       if (len < 8192 * 1024)
-        data_len = 8192 * 1024;
+        data_len [dwThreadId] = 8192 * 1024;
       else
-        data_len = len;
+        data_len [dwThreadId] = len;
 
-      data     = malloc      (data_len);
-      data_age = timeGetTime ();
+      data     [dwThreadId] = malloc      (data_len [dwThreadId]);
+      data_age [dwThreadId] = timeGetTime ();
 
-      if (data != nullptr) {
+      if (data [dwThreadId] != nullptr) {
         return true;
       } else {
-        data_len = 0;
+        data_len [dwThreadId] = 0;
         return false;
       }
     } else {
@@ -1570,21 +1583,21 @@ namespace streaming_memory {
     }
   }
 
-  void trim (size_t max_size, uint32_t min_age) {
-    if (data_age < min_age) {
-      if (data_len > max_size) {
-        free (data);
-        data = nullptr;
+  void trim (size_t max_size, uint32_t min_age, DWORD dwThreadId = GetCurrentThreadId ()) {
+    if (data_age [dwThreadId] < min_age) {
+      if (data_len [dwThreadId] > max_size) {
+        free (data [dwThreadId]);
+        data  [dwThreadId] = nullptr;
 
         if (max_size > 0)
-          data = malloc (max_size);
+          data [dwThreadId] = malloc (max_size);
 
-        if (data != nullptr) {
-          data_len = max_size;
-          data_age = timeGetTime ();
+        if (data  [dwThreadId] != nullptr) {
+          data_len [dwThreadId] = max_size;
+          data_age [dwThreadId] = timeGetTime ();
         } else {
-          data_len = 0;
-          data_age = 0;
+          data_len [dwThreadId] = 0;
+          data_age [dwThreadId] = 0;
         }
       }
     }
@@ -1636,7 +1649,7 @@ InjectTexture (tsf_tex_load_s* load)
                 size = GetFileSize (hTexFile, nullptr);
 
       if (streaming_memory::alloc (size)) {
-        load->pSrcData = streaming_memory::data;
+        load->pSrcData = streaming_memory::data [GetCurrentThreadId ()];
 
         ReadFile (hTexFile, load->pSrcData, size, &read, nullptr);
 
@@ -1678,28 +1691,23 @@ InjectTexture (tsf_tex_load_s* load)
   //
   else
   {
-    static __declspec (thread) wchar_t       arc_name [MAX_PATH];
-    static __declspec (thread) CFileInStream arc_stream;
-    static __declspec (thread) CLookToRead   look_stream;
-    static __declspec (thread) ISzAlloc      thread_alloc;
-    static __declspec (thread) ISzAlloc      thread_tmp_alloc;
-    static __declspec (thread) bool          stream_init = false;
+    wchar_t       arc_name [MAX_PATH];
+    CFileInStream arc_stream;
+    CLookToRead   look_stream;
+    ISzAlloc      thread_alloc;
+    ISzAlloc      thread_tmp_alloc;
 
-    if (! stream_init) {
-      FileInStream_CreateVTable (&arc_stream);
-      LookToRead_CreateVTable   (&look_stream, False);
+    FileInStream_CreateVTable (&arc_stream);
+    LookToRead_CreateVTable   (&look_stream, False);
 
-      look_stream.realStream = &arc_stream.s;
-      LookToRead_Init         (&look_stream);
+    look_stream.realStream = &arc_stream.s;
+    LookToRead_Init         (&look_stream);
 
-      thread_alloc.Alloc     = SzAlloc;
-      thread_alloc.Free      = SzFree;
+    thread_alloc.Alloc     = SzAlloc;
+    thread_alloc.Free      = SzFree;
 
-      thread_tmp_alloc.Alloc = SzAllocTemp;
-      thread_tmp_alloc.Free  = SzFreeTemp;
-
-      stream_init = true;
-    }
+    thread_tmp_alloc.Alloc = SzAllocTemp;
+    thread_tmp_alloc.Free  = SzFreeTemp;
 
     CSzArEx      arc;
                  size   = inj_tex->size;
@@ -1734,7 +1742,7 @@ InjectTexture (tsf_tex_load_s* load)
 
     if (streaming_memory::alloc (size))
     {
-      load->pSrcData = streaming_memory::data;
+      load->pSrcData = streaming_memory::data [GetCurrentThreadId ()];
 
       bool wait = true;
 
@@ -1752,8 +1760,8 @@ InjectTexture (tsf_tex_load_s* load)
         case WAIT_OBJECT_0:
         {
           uint32_t block_idx     = 0xFFFFFFFF;
-          Byte*    out           = (Byte *)streaming_memory::data;
-          size_t   out_len       =         streaming_memory::data_len;
+          Byte*    out           = (Byte *)streaming_memory::data     [GetCurrentThreadId ()];
+          size_t   out_len       =         streaming_memory::data_len [GetCurrentThreadId ()];
           size_t   offset        = 0;
           size_t   decomp_size   = 0;
 
@@ -1767,7 +1775,7 @@ InjectTexture (tsf_tex_load_s* load)
 
           wait = false;
 
-          load->pSrcData    = (Byte *)streaming_memory::data + offset;
+          load->pSrcData    = (Byte *)streaming_memory::data [GetCurrentThreadId ()] + offset;
           load->SrcDataSize = decomp_size;
 
           D3DXGetImageInfoFromFileInMemory (
@@ -2954,8 +2962,10 @@ tsf::RenderFix::TextureManager::purge (void)
   // We need to over-free, or we will likely be purging every other texture load
   int64_t target_size =
     std::max (128, config.textures.max_cache_in_mib - 64) * 1024LL * 1024LL;
+  int64_t start_size =
+    cacheSizeTotal ();
 
-  while ( cacheSizeTotal () > target_size &&
+  while ( start_size - reclaimed > target_size &&
             free_it != unreferenced_textures.end () ) {
     int             tex_refs = -1;
     ISKTextureD3D9* pSKTex   = (*free_it)->d3d9_tex;
@@ -3248,10 +3258,27 @@ TSFix_LogUsedTextures (void)
 }
 
 
+CRITICAL_SECTION        SK_TextureWorkerThread::cs_worker_init;
+SYNCHRONIZATION_BARRIER SK_TextureWorkerThread::sb_worker_init;
+
 DWORD
 WINAPI
 SK_TextureWorkerThread::ThreadProc (LPVOID user)
 {
+  EnterCriticalSection (&cs_worker_init);
+  {
+    DWORD dwThreadId = GetCurrentThreadId ();
+
+    if (! streaming_memory::data_len.count (dwThreadId)) {
+      streaming_memory::data_len [dwThreadId] = 0;
+      streaming_memory::data     [dwThreadId] = nullptr;
+      streaming_memory::data_age [dwThreadId] = 0;
+    }
+  }
+  LeaveCriticalSection        ( &cs_worker_init);
+  EnterSynchronizationBarrier ( &sb_worker_init,
+                                  SYNCHRONIZATION_BARRIER_FLAGS_BLOCK_ONLY );
+
   SK_TextureWorkerThread* pThread =
    (SK_TextureWorkerThread *)user;
 
@@ -3303,13 +3330,13 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
       const size_t   MIN_SIZE = 8192 * 1024;
       const uint32_t MIN_AGE  = 5000UL;
 
-      size_t before = streaming_memory::data_len;
+      size_t before = streaming_memory::data_len [GetCurrentThreadId ()];
 
       streaming_memory::trim (MIN_SIZE, timeGetTime () - MIN_AGE);
 
-      if (before != streaming_memory::data_len) {
+      if (before != streaming_memory::data_len [GetCurrentThreadId ()]) {
         tex_log.Log ( L"[ Mem. Mgr ]  Trimmed %lu bytes of scratch memory for tid=%x",
-                        before - streaming_memory::data_len,
+                        before - streaming_memory::data_len [GetCurrentThreadId ()],
                           GetCurrentThreadId () );
       }
     }
