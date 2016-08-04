@@ -854,18 +854,19 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
 
         // TODO: Command processor variable for this
         else if (vkCode == 'U' && new_press) {
-          extern bool __remap_textures;
-          __remap_textures = (! __remap_textures);
+          pCommandProc->ProcessCommandLine ("Textures.Remap toggle");
         }
 
         else if (vkCode == 'Z' && new_press) {
-          extern bool __need_purge;
-          __need_purge = true;
+          pCommandProc->ProcessCommandLine ("Textures.Purge true");
         }
 
         else if (vkCode == 'X' && new_press) {
-          extern bool __log_used;
-          __log_used = true;
+          pCommandProc->ProcessCommandLine ("Textures.Trace true");
+        }
+
+        else if (vkCode == 'V' && new_press) {
+          pCommandProc->ProcessCommandLine ("Textures.ShowCache toggle");
         }
 
         else if (vkCode == VK_OEM_6 && new_press) {

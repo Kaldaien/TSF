@@ -41,9 +41,6 @@
 HMODULE hDLLMod      = { 0 }; // Handle to SELF
 HMODULE hInjectorDLL = { 0 }; // Handle to Special K
 
-typedef BOOL (__stdcall *SK_DrawExternalOSD_pfn)(std::string app_name, std::string text);
-SK_DrawExternalOSD_pfn SK_DrawExternalOSD = nullptr;
-
 typedef void (__stdcall *SK_SetPluginName_pfn)(std::wstring name);
 SK_SetPluginName_pfn SK_SetPluginName = nullptr;
 
@@ -82,10 +79,6 @@ DllThread (LPVOID user)
   SK_GetCommandProcessor =
     (SK_GetCommandProcessor_pfn)
       GetProcAddress (hInjectorDLL, "SK_GetCommandProcessor");
-  SK_DrawExternalOSD =
-    (SK_DrawExternalOSD_pfn)
-      GetProcAddress (hInjectorDLL, "SK_DrawExternalOSD");
-
 
   //
   // If this is NULL, the injector system isn't working right!!!
@@ -147,8 +140,6 @@ DllMain (HMODULE hModule,
       tsf::RenderFix::Shutdown     ();
       tsf::InputManager::Shutdown  ();
       tsf::TimingFix::Shutdown     ();
-
-      SK_DrawExternalOSD ("ToZ Fix", "\n");
 
       TSFix_UnInit_MinHook ();
       TSFix_SaveConfig     ();

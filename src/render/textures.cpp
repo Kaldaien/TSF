@@ -68,6 +68,7 @@ bool dumping          = false;
 bool __remap_textures = true;
 bool __need_purge     = false;
 bool __log_used       = false;
+bool __show_cache     = false;
 
 enum tsf_load_method_t {
   Streaming,
@@ -1216,8 +1217,8 @@ public:
   }
 
 protected:
-  static CRITICAL_SECTION        cs_worker_init;
-  static SYNCHRONIZATION_BARRIER sb_worker_init;
+  static CRITICAL_SECTION cs_worker_init;
+  static ULONG            num_threads_init;
 
   static DWORD WINAPI ThreadProc (LPVOID user);
 
@@ -1262,8 +1263,7 @@ public:
     if (! init_worker_sync) {
       // We will add a sync. barrier that waits for all of the threads in this pool, plus all of the threads
       //   in the other pool to initialize. This design is flawed, but safe.
-      InitializeCriticalSectionAndSpinCount (&SK_TextureWorkerThread::cs_worker_init,                  10000UL);
-      InitializeSynchronizationBarrier      (&SK_TextureWorkerThread::sb_worker_init, MAX_THREADS * 2, 1000UL);
+      InitializeCriticalSectionAndSpinCount (&SK_TextureWorkerThread::cs_worker_init, 10000UL);
       init_worker_sync = true;
     }
 
@@ -1920,7 +1920,7 @@ TSFix_LoadQueuedTextures (void)
     mod_text += "\n\n";
   }
 
-  if (config.textures.cache) {
+  if (config.textures.cache && __show_cache) {
     mod_text += "Texture Cache\n";
     mod_text += "-------------\n";
     mod_text += tsf::RenderFix::tex_mgr.osdStats ();
@@ -2888,6 +2888,23 @@ tsf::RenderFix::TextureManager::Init (void)
 
   stream_pool.lrg_tex = new SK_TextureThreadPool ();
   stream_pool.sm_tex  = new SK_TextureThreadPool ();
+
+  SK_GetCommandProcessor ()->AddVariable (
+    "Textures.Remap",
+      new eTB_VarStub <bool> (&__remap_textures) );
+
+  SK_GetCommandProcessor ()->AddVariable (
+    "Textures.Purge",
+      new eTB_VarStub <bool> (&__need_purge) );
+
+  SK_GetCommandProcessor ()->AddVariable (
+    "Textures.Trace",
+      new eTB_VarStub <bool> (&__log_used) );
+
+  SK_GetCommandProcessor ()->AddVariable (
+    "Textures.ShowCache",
+      new eTB_VarStub <bool> (&__show_cache) );
+
 }
 
 
@@ -3259,7 +3276,7 @@ TSFix_LogUsedTextures (void)
 
 
 CRITICAL_SECTION        SK_TextureWorkerThread::cs_worker_init;
-SYNCHRONIZATION_BARRIER SK_TextureWorkerThread::sb_worker_init;
+ULONG                   SK_TextureWorkerThread::num_threads_init;
 
 DWORD
 WINAPI
@@ -3275,9 +3292,14 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
       streaming_memory::data_age [dwThreadId] = 0;
     }
   }
-  LeaveCriticalSection        ( &cs_worker_init);
-  EnterSynchronizationBarrier ( &sb_worker_init,
-                                  SYNCHRONIZATION_BARRIER_FLAGS_BLOCK_ONLY );
+  LeaveCriticalSection (&cs_worker_init);
+
+  InterlockedIncrement (&num_threads_init);
+
+  // Ghetto sync. barrier, since Windows 7 does not support them...
+  while (num_threads_init < config.textures.max_decomp_jobs * 2) {
+    Sleep (15);
+  }
 
   SK_TextureWorkerThread* pThread =
    (SK_TextureWorkerThread *)user;
@@ -3334,9 +3356,10 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
 
       streaming_memory::trim (MIN_SIZE, timeGetTime () - MIN_AGE);
 
-      if (before != streaming_memory::data_len [GetCurrentThreadId ()]) {
-        tex_log.Log ( L"[ Mem. Mgr ]  Trimmed %lu bytes of scratch memory for tid=%x",
-                        before - streaming_memory::data_len [GetCurrentThreadId ()],
+      size_t now    =  streaming_memory::data_len [GetCurrentThreadId ()];
+      if (before != now) {
+        tex_log.Log ( L"[ Mem. Mgr ]  Trimmed %9lu bytes of temporary memory for tid=%x",
+                        before - now,
                           GetCurrentThreadId () );
       }
     }
