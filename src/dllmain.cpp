@@ -33,6 +33,7 @@
 #include "input.h"
 #include "window.h"
 
+#include <process.h>
 #include <winsvc.h>
 #include <comdef.h>
 
@@ -44,8 +45,8 @@ HMODULE hInjectorDLL = { 0 }; // Handle to Special K
 typedef void (__stdcall *SK_SetPluginName_pfn)(std::wstring name);
 SK_SetPluginName_pfn SK_SetPluginName = nullptr;
 
-DWORD
-WINAPI
+unsigned int
+__stdcall
 DllThread (LPVOID user)
 {
   std::wstring plugin_name = L"Tales of Symphonia \"Fix\" v " + TSFIX_VER_STR;
@@ -86,6 +87,8 @@ DllThread (LPVOID user)
   if (SK_SetPluginName != nullptr)
     SK_SetPluginName (plugin_name);
 
+  CoInitialize (nullptr);
+
   //
   // Kill Raptr instead of it killing us!
   //
@@ -125,13 +128,12 @@ DllMain (HMODULE hModule,
   {
     case DLL_PROCESS_ATTACH:
     {
-      DisableThreadLibraryCalls ((hDLLMod = hModule));
-
-      // This is safe because this DLL is never loaded at launch, it is always
-      //   loaded from d3d9.dll
-      DllThread (nullptr);
-
-      //CreateThread              (nullptr, 0, DllThread, nullptr, 0, nullptr);
+      _beginthreadex ( nullptr,
+                         0,
+                           DllThread,
+                             nullptr,
+                               0x00,
+                                 nullptr );
     } break;
 
     case DLL_PROCESS_DETACH:

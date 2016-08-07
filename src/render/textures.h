@@ -281,9 +281,6 @@ public:
       }
 
       if (ret == 0) {
-        if (pTex)         pTex->Release         ();
-        if (pTexOverride) pTexOverride->Release ();
-
         // Does not delete this immediately; defers the
         //   process until the next cached texture load.
         tsf::RenderFix::tex_mgr.removeTexture (this);

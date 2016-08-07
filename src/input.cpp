@@ -38,6 +38,8 @@
 #include <mmsystem.h>
 #pragma comment (lib, "winmm.lib")
 
+#include <process.h>
+
 #include "input.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -507,18 +509,21 @@ void
 tsf::InputManager::Hooker::Start (void)
 {
   hMsgPump =
-    CreateThread ( NULL,
-                     NULL,
-                       Hooker::MessagePump,
-                         &hooks,
-                           NULL,
-                             NULL );
+    (HANDLE)
+      _beginthreadex ( nullptr,
+                        0,
+                          Hooker::MessagePump,
+                            &hooks,
+                              0,
+                                nullptr );
 }
 
 void
 tsf::InputManager::Hooker::End (void)
 {
   TerminateThread     (hMsgPump, 0);
+  CloseHandle         (hMsgPump);
+
   UnhookWindowsHookEx (hooks.keyboard);
   UnhookWindowsHookEx (hooks.mouse);
 }
@@ -572,8 +577,8 @@ tsf::InputManager::Hooker::Draw (void)
   SK_DrawExternalOSD ("ToZ Fix", output.c_str ());
 }
 
-DWORD
-WINAPI
+unsigned int
+__stdcall
 tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
 {
   hooks_s* pHooks = (hooks_s *)hook_ptr;
@@ -658,6 +663,8 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
   // Keep the thread alive indefinitely, we need a thread (even if it does nothing)
   //   alive in order for the keyboard hook to work.
   Sleep (INFINITE);
+
+  _endthreadex (0);
 
   return 0;
 }
@@ -852,21 +859,24 @@ tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam
           pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 30.0");
         }
 
-        // TODO: Command processor variable for this
         else if (vkCode == 'U' && new_press) {
-          pCommandProc->ProcessCommandLine ("Textures.Remap toggle");
+          pCommandProc->ProcessCommandLine  ("Textures.Remap toggle");
+          tsf::RenderFix::tex_mgr.updateOSD ();
         }
 
         else if (vkCode == 'Z' && new_press) {
-          pCommandProc->ProcessCommandLine ("Textures.Purge true");
+          pCommandProc->ProcessCommandLine  ("Textures.Purge true");
+          tsf::RenderFix::tex_mgr.updateOSD ();
         }
 
         else if (vkCode == 'X' && new_press) {
-          pCommandProc->ProcessCommandLine ("Textures.Trace true");
+          pCommandProc->ProcessCommandLine  ("Textures.Trace true");
+          tsf::RenderFix::tex_mgr.updateOSD ();
         }
 
         else if (vkCode == 'V' && new_press) {
-          pCommandProc->ProcessCommandLine ("Textures.ShowCache toggle");
+          pCommandProc->ProcessCommandLine  ("Textures.ShowCache toggle");
+          tsf::RenderFix::tex_mgr.updateOSD ();
         }
 
         else if (vkCode == VK_OEM_6 && new_press) {

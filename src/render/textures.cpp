@@ -846,8 +846,6 @@ D3D9SetDepthStencilSurface_Detour (
   return D3D9SetDepthStencilSurface_Original (This, pNewZStencil);
 }
 
-IDirect3DTexture9* last_tex = nullptr;
-
 COM_DECLSPEC_NOTHROW
 HRESULT
 STDMETHODCALLTYPE
@@ -981,9 +979,6 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                           SK_D3D9_PoolToStr   (Pool) );
     }
   }
-
-  if (Pool == D3DPOOL_DEFAULT)
-    last_tex = *ppTexture;
 
   return result;
 }
@@ -1181,7 +1176,12 @@ public:
       CreateEvent (nullptr, FALSE, FALSE, nullptr);
 
     thread_ =
-      CreateThread (nullptr, 0, ThreadProc, this, 0, &thread_id_);
+      (HANDLE)_beginthreadex ( nullptr,
+                                 0,
+                                   ThreadProc,
+                                     this,
+                                       0x00,
+                                         (unsigned int *)&thread_id_ );
   }
 
   ~SK_TextureWorkerThread (void)
@@ -1190,11 +1190,11 @@ public:
 
     WaitForSingleObject (thread_, INFINITE);
 
-    CloseHandle (thread_);
-
     CloseHandle (control_.shutdown);
     CloseHandle (control_.trim);
     CloseHandle (control_.start);
+
+    CloseHandle (thread_);
   }
 
   void startJob  (tsf_tex_load_s* job) {
@@ -1220,11 +1220,11 @@ protected:
   static CRITICAL_SECTION cs_worker_init;
   static ULONG            num_threads_init;
 
-  static DWORD WINAPI ThreadProc (LPVOID user);
+  static unsigned int __stdcall ThreadProc (LPVOID user);
 
   SK_TextureThreadPool* pool_;
 
-  DWORD                 thread_id_;
+  unsigned int          thread_id_;
   HANDLE                thread_;
 
   tsf_tex_load_s*       job_;
@@ -1301,8 +1301,16 @@ public:
       // Defer the creation of this until the first job is posted
       if (! spool_thread_) {
         spool_thread_ =
-          CreateThread (nullptr, 0, Spooler, (LPVOID)this, 0, nullptr);
+          (HANDLE)_beginthreadex ( nullptr,
+                                     0,
+                                       Spooler,
+                                         this,
+                                           0x00,
+                                             nullptr );
       }
+
+      // Don't let the game free this while we are working on it...
+      job->pDest->AddRef ();
 
       jobs_.push (job);
       SetEvent   (events_.jobs_added);
@@ -1355,7 +1363,7 @@ public:
 
 
 protected:
-  static DWORD WINAPI Spooler (LPVOID user);
+  static unsigned int __stdcall Spooler (LPVOID user);
 
   tsf_tex_load_s* getNextJob   (void) {
     tsf_tex_load_s* job       = nullptr;
@@ -1382,6 +1390,9 @@ protected:
   {
     EnterCriticalSection (&cs_results);
     {
+      // Remove the temporary reference we added earlier
+      finished->pDest->Release ();
+
       results_.push (finished);
       SetEvent      (events_.results_waiting);
     }
@@ -2179,7 +2190,7 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
   hr =
     D3DXCreateTextureFromFileInMemoryEx_Original ( pDevice,
                                                      pSrcData,         SrcDataSize,
-                                                       Width,          Height,    MipLevels,
+                                                       Width,          Height,    load_op == nullptr ? MipLevels : 1,
                                                          Usage,        Format,    Pool,
                                                            Filter,     MipFilter, ColorKey,
                                                              pSrcInfo, pPalette,
@@ -2356,9 +2367,9 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
                   TSFIX_TEXTURE_DIR,
                     SK_D3D9_FormatToStr (fmt_real, false).c_str (),
                       checksum,
-                        L".png" );//TSFIX_TEXTURE_EXT );
+                        TSFIX_TEXTURE_EXT );
 
-    D3DXSaveTextureToFile (wszFileName, D3DXIFF_PNG, (*ppTexture), NULL);
+    D3DXSaveTextureToFile (wszFileName, D3DXIFF_DDS, (*ppTexture), NULL);
   }
 
   return hr;
@@ -2371,7 +2382,7 @@ tsf::RenderFix::Texture*
 tsf::RenderFix::TextureManager::getTexture (uint32_t checksum)
 {
   EnterCriticalSection (&cs_cache);
-  
+
     auto rem = remove_textures.begin ();
 
     while (rem != remove_textures.end ()) {
@@ -2380,12 +2391,15 @@ tsf::RenderFix::TextureManager::getTexture (uint32_t checksum)
         InterlockedAdd64     (&injected_size, -(*rem)->override_size);
       }
 
+      if ((*rem)->pTex)         (*rem)->pTex->Release         ();
+      if ((*rem)->pTexOverride) (*rem)->pTexOverride->Release ();
+
       (*rem)->pTex         = nullptr;
       (*rem)->pTexOverride = nullptr;
 
       InterlockedAdd64 (&basic_size,  -(*rem)->tex_size);
       {
-        textures.erase     ((*rem)->tex_crc32);
+        textures.erase ((*rem)->tex_crc32);
       }
 
       delete *rem;
@@ -2451,6 +2465,26 @@ tsf::RenderFix::TextureManager::refTexture (tsf::RenderFix::Texture* pTex)
 }
 
 static ISzAlloc g_Alloc = { SzAlloc, SzFree };
+
+typedef void (WINAPI *_endthreadex_pfn)(unsigned retval);
+_endthreadex_pfn _endthreadex_Original = nullptr;
+
+void
+WINAPI
+_endthreadex_Detour (
+   unsigned retval
+)
+{
+  tex_log.Log ( L"[  Thread  ] _endthreadex (%lu) [tid=%x]",
+                  retval, GetCurrentThreadId () );
+
+  // Work-around a double-free bug in the game's code.
+  ExitThread (retval);
+
+  // Don't make the original call...
+  //_endthreadex_Original (retval);
+  return;
+}
 
 void
 tsf::RenderFix::TextureManager::Init (void)
@@ -2765,9 +2799,9 @@ tsf::RenderFix::TextureManager::Init (void)
 
           if (hSubFind != INVALID_HANDLE_VALUE) {
             do {
-              if (wcsstr (_wcslwr (fd_sub.cFileName), L".png")) {
+              if (wcsstr (_wcslwr (fd_sub.cFileName), L".dds")) {
                 uint32_t checksum;
-                swscanf (fd_sub.cFileName, L"%08x.png", &checksum);
+                swscanf (fd_sub.cFileName, L"%08x.dds", &checksum);
 
                 ++files;
 
@@ -2830,6 +2864,13 @@ tsf::RenderFix::TextureManager::Init (void)
                          "D3DXCreateTextureFromFileInMemoryEx",
                           D3DXCreateTextureFromFileInMemoryEx_Detour,
                (LPVOID *)&D3DXCreateTextureFromFileInMemoryEx_Original );
+
+#if 0
+  TSFix_CreateDLLHook ( L"msvcr100.dll",
+                         "_endthreadex",
+                          _endthreadex_Detour,
+               (LPVOID *)&_endthreadex_Original );
+#endif
 
   D3DXSaveTextureToFile =
     (D3DXSaveTextureToFile_pfn)
@@ -2904,7 +2945,6 @@ tsf::RenderFix::TextureManager::Init (void)
   SK_GetCommandProcessor ()->AddVariable (
     "Textures.ShowCache",
       new eTB_VarStub <bool> (&__show_cache) );
-
 }
 
 
@@ -2948,6 +2988,9 @@ tsf::RenderFix::TextureManager::purge (void)
                                           L"(User Limit: %6.2f MiB)",
                   (double)cacheSizeTotal () / (1024.0 * 1024.0),
                     (double)config.textures.max_cache_in_mib );
+
+  // Purge any pending removes
+  getTexture (0);
 
   tex_log.Log (L"[ Tex. Mgr ]   Releasing textures...");
 
@@ -3046,8 +3089,6 @@ tsf::RenderFix::TextureManager::purge (void)
 void
 tsf::RenderFix::TextureManager::reset (void)
 {
-  last_tex = nullptr;
-
   int underflows       = 0;
 
   int ext_refs         = 0;
@@ -3062,6 +3103,9 @@ tsf::RenderFix::TextureManager::reset (void)
   uint64_t reclaimed_injected = 0;
 
   tex_log.Log (L"[ Tex. Mgr ] -- TextureManager::reset (...) -- ");
+
+  // Purge any pending removes
+  getTexture (0);
 
   tex_log.Log (L"[ Tex. Mgr ]   Releasing textures...");
 
@@ -3185,24 +3229,32 @@ tsf::RenderFix::TextureManager::updateOSD (void)
   osd_stats = "";
 
   char szFormatted [64];
-  sprintf ( szFormatted, "%6lu Total Textures : %8.2f MiB   (%4lu MiB Available)\n",
+  sprintf ( szFormatted, "%6lu Total Textures : %8.2f MiB",
               numTextures () + numInjectedTextures (),
-                cache_total,
-                  tsf::RenderFix::pDevice != nullptr ?
-                     tsf::RenderFix::pDevice->GetAvailableTextureMem () / 1024UL / 1024UL
-                        :
-                     0 );
+                cache_total );
   osd_stats += szFormatted;
 
-  sprintf ( szFormatted, "%6lu  Base Textures : %8.2f MiB\n",
+  if ( tsf::RenderFix::pDevice != nullptr &&
+       tsf::RenderFix::pDevice->GetAvailableTextureMem () / 1048576UL != 4095)
+    sprintf ( szFormatted, "    (%4lu MiB Available)\n",
+              tsf::RenderFix::pDevice->GetAvailableTextureMem () 
+                / 1048576UL );
+  else
+    sprintf (szFormatted, "\n");
+
+  osd_stats += szFormatted;
+
+  sprintf ( szFormatted, "%6lu  Base Textures : %8.2f MiB    %s\n",
               numTextures (),
-                cache_basic );
+                cache_basic,
+                  __remap_textures ? "" : "<----" );
 
   osd_stats += szFormatted;
 
-  sprintf ( szFormatted, "%6lu   New Textures : %8.2f MiB\n",
+  sprintf ( szFormatted, "%6lu   New Textures : %8.2f MiB    %s\n",
               numInjectedTextures (),
-                cache_injected );
+                cache_injected,
+                  __remap_textures ? "<----" : "" );
 
   osd_stats += szFormatted;
 
@@ -3276,10 +3328,10 @@ TSFix_LogUsedTextures (void)
 
 
 CRITICAL_SECTION        SK_TextureWorkerThread::cs_worker_init;
-ULONG                   SK_TextureWorkerThread::num_threads_init;
+ULONG                   SK_TextureWorkerThread::num_threads_init = 0UL;
 
-DWORD
-WINAPI
+unsigned int
+__stdcall
 SK_TextureWorkerThread::ThreadProc (LPVOID user)
 {
   EnterCriticalSection (&cs_worker_init);
@@ -3297,7 +3349,11 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
   InterlockedIncrement (&num_threads_init);
 
   // Ghetto sync. barrier, since Windows 7 does not support them...
-  while (num_threads_init < config.textures.max_decomp_jobs * 2) {
+  while ( InterlockedCompareExchange (
+            &num_threads_init,
+              config.textures.max_decomp_jobs * 2,
+                config.textures.max_decomp_jobs * 2
+          ) <     config.textures.max_decomp_jobs * 2 ) {
     Sleep (15);
   }
 
@@ -3372,11 +3428,13 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
 
   streaming_memory::trim (0, timeGetTime ());
 
+  _endthreadex (0);
+
   return 0;
 }
 
-DWORD
-WINAPI
+unsigned int
+__stdcall
 SK_TextureThreadPool::Spooler (LPVOID user)
 {
   SK_TextureThreadPool* pPool =
@@ -3431,6 +3489,8 @@ SK_TextureThreadPool::Spooler (LPVOID user)
       }
     }
   }
+
+  _endthreadex (0);
 
   return 0;
 }
