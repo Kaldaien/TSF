@@ -26,9 +26,9 @@
 #include "log.h"
 
 static
-  tsf::INI::File* 
+  iSK_INI* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.9.4";
+std::wstring TSFIX_VER_STR = L"0.9.5";
 tsf_config_s config;
 
 struct {
@@ -99,12 +99,22 @@ struct {
 
 tsf::ParameterFactory g_ParameterFactory;
 
+typedef std::wstring (__stdcall *SK_GetConfigPath_pfn)(void);
+static SK_GetConfigPath_pfn SK_GetConfigPath = nullptr;
 
 bool
-TSFix_LoadConfig (std::wstring name) {
+TSFix_LoadConfig (std::wstring name)
+{
+  SK_GetConfigPath =
+    (SK_GetConfigPath_pfn)
+      GetProcAddress (
+        GetModuleHandle ( L"d3d9.dll" ),
+          "SK_GetConfigPath"
+      );
+
   // Load INI File
-  std::wstring full_name = name + L".ini";  
-  dll_ini = new tsf::INI::File ((wchar_t *)full_name.c_str ());
+  std::wstring full_name = SK_GetConfigPath () + name + L".ini";
+  dll_ini = TSF_CreateINI ((wchar_t *)full_name.c_str ());
 
   bool empty = dll_ini->get_sections ().empty ();
 
@@ -656,7 +666,11 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   sys.version->store                  (TSFIX_VER_STR);
   sys.injector->store                 (config.system.injector);
 
-  dll_ini->write (name + L".ini");
+  std::wstring full_name = SK_GetConfigPath () + 
+                             name              +
+                               L".ini";
+
+  dll_ini->write (full_name);
 
   if (close_config) {
     if (dll_ini != nullptr) {

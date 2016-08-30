@@ -39,9 +39,9 @@ TSFix_PatchZelosAchievement (void)
                            nullptr );
 
   if (str != nullptr) {
-    dll_log.Log (L"[  Achiev  ] Fixing Harem Master... addr=%ph", str);
+    dll_log->Log (L"[  Achiev  ] Fixing Harem Master... addr=%ph", str);
     strcpy (str, "TROPHY_ID_ZELOSZ_TITLE_COMPLETE");
   } else {
-    dll_log.Log (L"[  Achiev  ] Could not locate Harem Master achievement bug", str);
+    dll_log->Log (L"[  Achiev  ] Could not locate Harem Master achievement bug", str);
   }
 }

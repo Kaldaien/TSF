@@ -45,8 +45,8 @@ HMODULE hInjectorDLL = { 0 }; // Handle to Special K
 typedef void (__stdcall *SK_SetPluginName_pfn)(std::wstring name);
 SK_SetPluginName_pfn SK_SetPluginName = nullptr;
 
-unsigned int
-__stdcall
+DWORD
+WINAPI
 DllThread (LPVOID user)
 {
   std::wstring plugin_name = L"Tales of Symphonia \"Fix\" v " + TSFIX_VER_STR;
@@ -57,14 +57,14 @@ DllThread (LPVOID user)
   //     until initial DLL startup finishes and threads are allowed
   //       to start.
   //
-  dll_log.init  ( "logs/tsfix.log",
-                    "w" );
-  dll_log.LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
-                         L"-------\n" ); // <--- I was bored ;)
-  dll_log.Log   (        L"tsfix.dll Plug-In\n"
-                         L"=========== (Version: v %s) "
-                         L"===========",
-                           TSFIX_VER_STR.c_str () );
+  dll_log = TSF_CreateLog (L"logs/tsfix.log");
+
+  dll_log->LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
+                          L"-------\n" ); // <--- I was bored ;)
+  dll_log->Log   (        L"tsfix.dll Plug-In\n"
+                          L"=========== (Version: v %s) "
+                          L"===========",
+                            TSFIX_VER_STR.c_str () );
 
   if (! TSFix_LoadConfig ()) {
     // Save a new config if none exists
@@ -128,12 +128,12 @@ DllMain (HMODULE hModule,
   {
     case DLL_PROCESS_ATTACH:
     {
-      _beginthreadex ( nullptr,
-                         0,
-                           DllThread,
-                             nullptr,
-                               0x00,
-                                 nullptr );
+      CreateThread ( nullptr,
+                       0,
+                         DllThread,
+                           nullptr,
+                             0x00,
+                               nullptr );
     } break;
 
     case DLL_PROCESS_DETACH:
@@ -146,14 +146,14 @@ DllMain (HMODULE hModule,
       TSFix_UnInit_MinHook ();
       TSFix_SaveConfig     ();
 
-      dll_log.LogEx ( false, L"=========== (Version: v %s) "
-                             L"===========\n",
+      dll_log->LogEx ( false, L"=========== (Version: v %s) "
+                              L"===========\n",
                                TSFIX_VER_STR.c_str () );
-      dll_log.LogEx ( true,  L"End TSFix Plug-In\n" );
-      dll_log.LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
-                             L"-------\n" );
+      dll_log->LogEx ( true,  L"End TSFix Plug-In\n" );
+      dll_log->LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
+                              L"-------\n" );
 
-      dll_log.close ();
+      dll_log->close ();
     } break;
   }
 

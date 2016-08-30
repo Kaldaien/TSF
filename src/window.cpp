@@ -62,7 +62,7 @@ MoveWindow_Detour(
                                        bRedraw );
   }
 
-  dll_log.Log (L"[Window Mgr][!] MoveWindow (...)");
+  dll_log->Log (L"[Window Mgr][!] MoveWindow (...)");
 
   tsf::window.window_rect.left = X;
   tsf::window.window_rect.top  = Y;
@@ -100,7 +100,7 @@ SetWindowPos_Detour(
   }
 
 #if 0
-  dll_log.Log ( L"[Window Mgr][!] SetWindowPos (...)");
+  dll_log->Log ( L"[Window Mgr][!] SetWindowPos (...)");
 #endif
 
   // Ignore this, because it's invalid.
@@ -108,20 +108,20 @@ SetWindowPos_Detour(
     tsf::window.window_rect.right  = tsf::window.window_rect.left + tsf::RenderFix::width;
     tsf::window.window_rect.bottom = tsf::window.window_rect.top  + tsf::RenderFix::height;
 
-    dll_log.Log ( L"[Window Mgr] *** Encountered invalid SetWindowPos (...) - "
-                                    L"{cy:%lu, cx:%lu, uFlags:0x%x} - "
-                                    L"<left:%lu, top:%lu, WxH=(%lux%lu)>",
-                    cy, cx, uFlags,
-                      tsf::window.window_rect.left, tsf::window.window_rect.top,
-                        tsf::RenderFix::width, tsf::RenderFix::height );
+    dll_log->Log ( L"[Window Mgr] *** Encountered invalid SetWindowPos (...) - "
+                                     L"{cy:%lu, cx:%lu, uFlags:0x%x} - "
+                                     L"<left:%lu, top:%lu, WxH=(%lux%lu)>",
+                     cy, cx, uFlags,
+                       tsf::window.window_rect.left, tsf::window.window_rect.top,
+                         tsf::RenderFix::width, tsf::RenderFix::height );
 
     return TRUE;
   }
 
 #if 0
-  dll_log.Log ( L"  >> Before :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
-                  tsf::window.window_rect.left, tsf::window.window_rect.top,
-                    tsf::window.window_rect.right, tsf::window.window_rect.bottom );
+  dll_log->Log ( L"  >> Before :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
+                   tsf::window.window_rect.left, tsf::window.window_rect.top,
+                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
 #endif
 
   int original_width  = tsf::window.window_rect.right -
@@ -150,9 +150,9 @@ SetWindowPos_Detour(
   }
 
 #if 0
-  dll_log.Log ( L"  >> After :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
-                  tsf::window.window_rect.left, tsf::window.window_rect.top,
-                    tsf::window.window_rect.right, tsf::window.window_rect.bottom );
+  dll_log->Log ( L"  >> After :: Top-Left: [%d/%d], Bottom-Right: [%d/%d]",
+                   tsf::window.window_rect.left, tsf::window.window_rect.top,
+                     tsf::window.window_rect.right, tsf::window.window_rect.bottom );
 #endif
 
   //
@@ -206,11 +206,11 @@ SetWindowLongA_Detour (
   }
 
   if (nIndex == GWL_EXSTYLE || nIndex == GWL_STYLE) {
-    dll_log.Log ( L"[Window Mgr] SetWindowLongA (0x%06X, %s, 0x%06X)",
-                    hWnd,
-              nIndex == GWL_EXSTYLE ? L"GWL_EXSTYLE" :
-                                      L" GWL_STYLE ",
-                      dwNewLong );
+    dll_log->Log ( L"[Window Mgr] SetWindowLongA (0x%06X, %s, 0x%06X)",
+                     hWnd,
+               nIndex == GWL_EXSTYLE ? L"GWL_EXSTYLE" :
+                                       L" GWL_STYLE ",
+                       dwNewLong );
   }
 
   // Override window styles
@@ -231,7 +231,7 @@ SetWindowLongA_Detour (
 void
 tsf::WindowManager::BorderManager::Disable (void)
 {
-  //dll_log.Log (L"BorderManager::Disable");
+  //dll_log->Log (L"BorderManager::Disable");
 
   window.borderless = true;
 
@@ -293,7 +293,7 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
   GetMonitorInfo (hMonitor, &mi);
 
   if (tsf::RenderFix::fullscreen) {
-    //dll_log.Log (L"BorderManager::AdjustWindow - Fullscreen");
+    //dll_log->Log (L"BorderManager::AdjustWindow - Fullscreen");
 
     SetWindowPos_Original ( tsf::window.hwnd,
                               HWND_TOP,
@@ -302,12 +302,12 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                                   mi.rcMonitor.right  - mi.rcMonitor.left,
                                   mi.rcMonitor.bottom - mi.rcMonitor.top,
                                     SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOSENDCHANGING );
-    dll_log.Log ( L"[Border Mgr] FULLSCREEN => {Left: %li, Top: %li} - (WxH: %lix%li)",
-                    mi.rcMonitor.left, mi.rcMonitor.top,
-                      mi.rcMonitor.right - mi.rcMonitor.left,
-                        mi.rcMonitor.bottom - mi.rcMonitor.top );
+    dll_log->Log ( L"[Border Mgr] FULLSCREEN => {Left: %li, Top: %li} - (WxH: %lix%li)",
+                     mi.rcMonitor.left, mi.rcMonitor.top,
+                       mi.rcMonitor.right - mi.rcMonitor.left,
+                         mi.rcMonitor.bottom - mi.rcMonitor.top );
   } else {
-    //dll_log.Log (L"BorderManager::AdjustWindow - Windowed");
+    //dll_log->Log (L"BorderManager::AdjustWindow - Windowed");
 
     AdjustWindowRect (&mi.rcWork, GetWindowLongW (tsf::window.hwnd, GWL_STYLE), FALSE);
 
@@ -330,9 +330,9 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
 
 
     if (config.window.center && config.window.x_offset == 0 && config.window.y_offset == 0) {
-      //dll_log.Log ( L"[Window Mgr] Center --> (%li,%li)",
-      //                mi.rcWork.right - mi.rcWork.left,
-      //                  mi.rcWork.bottom - mi.rcWork.top );
+      //dll_log->Log ( L"[Window Mgr] Center --> (%li,%li)",
+      //                 mi.rcWork.right - mi.rcWork.left,
+      //                   mi.rcWork.bottom - mi.rcWork.top );
 
       window.window_rect.left = max (0, (mon_width  - win_width)  / 2);
       window.window_rect.top  = max (0, (mon_height - win_height) / 2);
@@ -367,10 +367,10 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
     VirtualProtect (fAspect, sizeof (float), dwProtect, &dwProtect);
 
 
-    dll_log.Log ( L"[Border Mgr] WINDOW => {Left: %li, Top: %li} - (WxH: %lix%li)",
-                    window.window_rect.left, window.window_rect.top,
-                      window.window_rect.right - window.window_rect.left,
-                        window.window_rect.bottom - window.window_rect.top );
+    dll_log->Log ( L"[Border Mgr] WINDOW => {Left: %li, Top: %li} - (WxH: %lix%li)",
+                     window.window_rect.left, window.window_rect.top,
+                       window.window_rect.right - window.window_rect.left,
+                         window.window_rect.bottom - window.window_rect.top );
   }
 
   BringWindowToTop (window.hwnd);
@@ -400,7 +400,7 @@ HWND
 WINAPI
 GetForegroundWindow_Detour (void)
 {
-  //dll_log.Log (L"[Window Mgr][!] GetForegroundWindow (...)");
+  //dll_log->Log (L"[Window Mgr][!] GetForegroundWindow (...)");
 
   if (config.render.allow_background) {
     return tsf::RenderFix::hWndDevice;
@@ -413,7 +413,7 @@ HWND
 WINAPI
 GetFocus_Detour (void)
 {
-  //dll_log.Log (L"[Window Mgr][!] GetFocus (...)");
+  //dll_log->Log (L"[Window Mgr][!] GetFocus (...)");
 
   if (config.render.allow_background) {
     return tsf::RenderFix::hWndDevice;
@@ -480,7 +480,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
   // Ignore this event
   if (uMsg == WM_MOUSEACTIVATE && config.render.allow_background) {
     if ((HWND)wParam == tsf::window.hwnd) {
-      dll_log.Log (L"[Window Mgr] WM_MOUSEACTIVATE ==> Activate and Eat");
+      dll_log->Log (L"[Window Mgr] WM_MOUSEACTIVATE ==> Activate and Eat");
       tsf::window.active = true;
       return MA_ACTIVATEANDEAT;
     }
@@ -495,11 +495,11 @@ DetourWindowProc ( _In_  HWND   hWnd,
 
     if (uMsg == WM_NCACTIVATE) {
       if (wParam == TRUE) {
-        //dll_log.Log (L"[Window Mgr] Application Activated");
+        //dll_log->Log (L"[Window Mgr] Application Activated");
 
         tsf::window.active = true;
       } else {
-        //dll_log.Log (L"[Window Mgr] Application Deactivated");
+        //dll_log->Log (L"[Window Mgr] Application Deactivated");
 
         tsf::window.active = false;
       }
@@ -654,9 +654,9 @@ bool
   }
 
   if (! known) {
-    dll_log.Log ( L"[Window Mgr] UNKNOWN Variable Changed (%p --> %p)",
-                    var,
-                      val );
+    dll_log->Log ( L"[Window Mgr] UNKNOWN Variable Changed (%p --> %p)",
+                     var,
+                       val );
   }
 
   return false;

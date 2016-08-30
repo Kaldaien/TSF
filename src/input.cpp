@@ -78,14 +78,14 @@ IDirectInputDevice8_SetCooperativeLevel_pfn
 
 
 #define DINPUT8_CALL(_Ret, _Call) {                                     \
-  dll_log.LogEx (true, L"[   Input  ]  Calling original function: ");   \
+  dll_log->LogEx (true, L"[   Input  ]  Calling original function: ");  \
   (_Ret) = (_Call);                                                     \
   _com_error err ((_Ret));                                              \
   if ((_Ret) != S_OK)                                                   \
-    dll_log.LogEx (false, L"(ret=0x%04x - %s)\n", err.WCode (),         \
+    dll_log->LogEx (false, L"(ret=0x%04x - %s)\n", err.WCode (),        \
                                                   err.ErrorMessage ()); \
   else                                                                  \
-    dll_log.LogEx (false, L"(ret=S_OK)\n");                             \
+    dll_log->LogEx (false, L"(ret=S_OK)\n");                            \
 }
 
 #define __PTR_SIZE   sizeof LPCVOID 
@@ -189,11 +189,11 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
                                 (rguid == GUID_SysMouse) ? L"Default System Mouse" :
                                                            L"Other Device";
 
-  dll_log.Log ( L"[   Input  ][!] IDirectInput8::CreateDevice (%08Xh, %s, %08Xh, %08Xh)",
-                  This,
-                    wszDevice,
-                      lplpDirectInputDevice,
-                        pUnkOuter );
+  dll_log->Log ( L"[   Input  ][!] IDirectInput8::CreateDevice (%08Xh, %s, %08Xh, %08Xh)",
+                   This,
+                     wszDevice,
+                       lplpDirectInputDevice,
+                         pUnkOuter );
 
   HRESULT hr;
   DINPUT8_CALL ( hr,
@@ -205,22 +205,25 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
   if (SUCCEEDED (hr)) {
     void** vftable = *(void***)*lplpDirectInputDevice;
 
-    TSFix_CreateFuncHook ( L"IDirectInputDevice8::GetDeviceState",
-                           vftable [9],
-                           IDirectInputDevice8_GetDeviceState_Detour,
-                 (LPVOID*)&IDirectInputDevice8_GetDeviceState_Original );
+    if (rguid == GUID_SysKeyboard) {
+      if (IDirectInputDevice8_GetDeviceState_Original == nullptr) {
+        TSFix_CreateFuncHook ( L"IDirectInputDevice8::GetDeviceState",
+                               vftable [9],
+                               IDirectInputDevice8_GetDeviceState_Detour,
+                     (LPVOID*)&IDirectInputDevice8_GetDeviceState_Original );
 
-    TSFix_EnableHook (vftable [9]);
+        TSFix_EnableHook (vftable [9]);
 
-    TSFix_CreateFuncHook ( L"IDirectInputDevice8::SetCooperativeLevel",
-                           vftable [13],
-                           IDirectInputDevice8_SetCooperativeLevel_Detour,
-                 (LPVOID*)&IDirectInputDevice8_SetCooperativeLevel_Original );
+        TSFix_CreateFuncHook ( L"IDirectInputDevice8::SetCooperativeLevel",
+                               vftable [13],
+                               IDirectInputDevice8_SetCooperativeLevel_Detour,
+                     (LPVOID*)&IDirectInputDevice8_SetCooperativeLevel_Original );
 
-    TSFix_EnableHook (vftable [13]);
+        TSFix_EnableHook (vftable [13]);
+      }
 
-    if (rguid == GUID_SysKeyboard)
       _dik.pDev = *lplpDirectInputDevice;
+    }
   }
 
   return hr;
@@ -424,12 +427,12 @@ HookRawInput (void)
 {
   // Defer installation of this hook until DirectInput8 is setup
   if (GetRawInputData_Original == nullptr) {
-    dll_log.LogEx (true, L"[   Input  ] Installing Deferred Hook: \"GetRawInputData (...)\"... ");
+    dll_log->LogEx (true, L"[   Input  ] Installing Deferred Hook: \"GetRawInputData (...)\"... ");
     MH_STATUS status =
       TSFix_CreateDLLHook ( L"user32.dll", "GetRawInputData",
                             GetRawInputData_Detour,
                   (LPVOID*)&GetRawInputData_Original );
-   dll_log.LogEx (false, L"%hs\n", MH_StatusToString (status));
+   dll_log->LogEx (false, L"%hs\n", MH_StatusToString (status));
   }
 }
 
@@ -610,7 +613,7 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
 
     // Ugly hack, but a different window might be in the foreground...
     if (dwProc != GetCurrentProcessId ()) {
-      //dll_log.Log (L" *** Tried to hook the wrong process!!!");
+      //dll_log->Log (L" *** Tried to hook the wrong process!!!");
       Sleep (83);
       continue;
     }
@@ -626,9 +629,9 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
   pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.window.foreground_fps);
 
 
-  dll_log.Log ( L"[   Input  ] # Found window in %03.01f seconds, "
-                    L"installing deferred keyboard hook...",
-                  (float)(timeGetTime () - dwTime) / 1000.0f );
+  dll_log->Log ( L"[   Input  ] # Found window in %03.01f seconds, "
+                     L"installing deferred keyboard hook...",
+                   (float)(timeGetTime () - dwTime) / 1000.0f );
 
   dwTime = timeGetTime ();
   hits   = 1;
@@ -639,13 +642,13 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
                                                         dwThreadId ))) {
     _com_error err (HRESULT_FROM_WIN32 (GetLastError ()));
 
-    dll_log.Log ( L"[   Input  ] @ SetWindowsHookEx failed: 0x%04X (%s)",
-                  err.WCode (), err.ErrorMessage () );
+    dll_log->Log ( L"[   Input  ] @ SetWindowsHookEx failed: 0x%04X (%s)",
+                   err.WCode (), err.ErrorMessage () );
 
     ++hits;
 
     if (hits >= 5) {
-      dll_log.Log ( L"[   Input  ] * Failed to install keyboard hook after %lu tries... "
+      dll_log->Log ( L"[   Input  ] * Failed to install keyboard hook after %lu tries... "
         L"bailing out!",
         hits );
       return 0;
@@ -654,11 +657,11 @@ tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
     Sleep (1);
   }
 
-  dll_log.Log ( L"[   Input  ] * Installed keyboard hook for command console... "
-                      L"%lu %s (%lu ms!)",
-                hits,
-                  hits > 1 ? L"tries" : L"try",
-                    timeGetTime () - dwTime );
+  dll_log->Log ( L"[   Input  ] * Installed keyboard hook for command console... "
+                       L"%lu %s (%lu ms!)",
+                 hits,
+                   hits > 1 ? L"tries" : L"try",
+                     timeGetTime () - dwTime );
 
   // Keep the thread alive indefinitely, we need a thread (even if it does nothing)
   //   alive in order for the keyboard hook to work.

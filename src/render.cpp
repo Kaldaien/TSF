@@ -478,7 +478,7 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
 {
   // Ignore anything that's not the primary render device.
   if (device != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 frame ended on unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: D3D9 frame ended on unknown IDirect3DDevice9! << ");
 
     return SK_EndBufferSwap (hr, device);
   }
@@ -486,7 +486,7 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   hr = SK_EndBufferSwap (hr, device);
 
   if (tsf::RenderFix::tracer.log && tsf::RenderFix::tracer.count > 0) {
-    dll_log.Log (L"[FrameTrace] --- SwapChain Present ---");
+    dll_log->Log (L"[FrameTrace] --- SwapChain Present ---");
     if (--tsf::RenderFix::tracer.count <= 0)
       tsf::RenderFix::tracer.log = false;
   }
@@ -575,7 +575,7 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   if ( pparams->BackBufferWidth            == 1 &&
        pparams->BackBufferHeight           == 1 &&
        pparams->FullScreen_RefreshRateInHz == 0 ) {
-    dll_log.Log (L"[Render Fix] * Fake D3D9Ex Device Detected... Ignoring!");
+    dll_log->Log (L"[Render Fix] * Fake D3D9Ex Device Detected... Ignoring!");
     return SK_SetPresentParamsD3D9_Original (device, pparams);
   }
 
@@ -596,8 +596,8 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     if (win7 && config.render.allow_flipex && ( (! tsf::RenderFix::fullscreen)  ||
                                                  config.render.allow_background ||
                                                  config.window.borderless ) ) {
-      dll_log.Log ( L"[Render Fix] Opt-In:  D3D9Ex FlipEx Model  (Windows 7+ Detected)");
-      dll_log.Log ( L"[Render Fix]          ^^ %lu Backbuffers ^^", config.render.backbuffers);
+      dll_log->Log ( L"[Render Fix] Opt-In:  D3D9Ex FlipEx Model  (Windows 7+ Detected)");
+      dll_log->Log ( L"[Render Fix]          ^^ %lu Backbuffers ^^", config.render.backbuffers);
 
       pparams->SwapEffect           = D3DSWAPEFFECT_FLIPEX;
       pparams->BackBufferCount      = config.render.backbuffers;
@@ -625,9 +625,9 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                       &dwQualityLevels )
                       )
            ) {
-          dll_log.Log ( L"[Render Fix] >> Render device has %d quality level(s) available "
-                        L"for %d-Sample MSAA.",
-                          dwQualityLevels, config.render.msaa_samples );
+          dll_log->Log ( L"[Render Fix] >> Render device has %d quality level(s) available "
+                         L"for %d-Sample MSAA.",
+                           dwQualityLevels, config.render.msaa_samples );
 
           if (dwQualityLevels > 0) {
             // After range restriction, write the correct value back to the config
@@ -635,17 +635,17 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
             config.render.msaa_quality = min ( dwQualityLevels-1,
                                                   config.render.msaa_quality );
 
-            dll_log.Log ( L"[Render Fix]  (*) Selected %dxMSAA Quality Level: %d",
-                            config.render.msaa_samples,
-                              config.render.msaa_quality );
+            dll_log->Log ( L"[Render Fix]  (*) Selected %dxMSAA Quality Level: %d",
+                             config.render.msaa_samples,
+                               config.render.msaa_quality );
             tsf::RenderFix::draw_state.has_msaa = true;
           }
         }
 
         else {
-            dll_log.Log ( L"[Render Fix]  ### Requested %dxMSAA Quality Level: %d invalid",
-                            config.render.msaa_samples,
-                              config.render.msaa_quality );
+            dll_log->Log ( L"[Render Fix]  ### Requested %dxMSAA Quality Level: %d invalid",
+                             config.render.msaa_samples,
+                               config.render.msaa_quality );
         }
 
         pD3D9->Release ();
@@ -653,17 +653,17 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     }
 
     if (device != nullptr) {
-      dll_log.Log ( L"[Render Fix] %% Caught D3D9 Swapchain :: Fullscreen=%s "
-                    L" (%lux%lu@%lu Hz) "
-                    L" [Device Window: 0x%04X, Pointer: %ph]",
-                      pparams->Windowed ? L"False" :
+      dll_log->Log ( L"[Render Fix] %% Caught D3D9 Swapchain :: Fullscreen=%s "
+                     L" (%lux%lu@%lu Hz) "
+                     L" [Device Window: 0x%04X, Pointer: %ph]",
+                       pparams->Windowed ? L"False" :
 
-                       L"True",
-                        pparams->BackBufferWidth,
-                          pparams->BackBufferHeight,
-                            pparams->FullScreen_RefreshRateInHz,
-                              pparams->hDeviceWindow,
-                                device );
+                        L"True",
+                         pparams->BackBufferWidth,
+                           pparams->BackBufferHeight,
+                             pparams->FullScreen_RefreshRateInHz,
+                               pparams->hDeviceWindow,
+                                 device );
     }
 
     // Some games don't set this even though it's supposed to be
@@ -729,12 +729,12 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
       devmode.dmPelsHeight       = tsf::RenderFix::height;
       devmode.dmDisplayFrequency = pparams->FullScreen_RefreshRateInHz;
 
-      dll_log.LogEx (true, L"[Render Fix] Requested display mode requires display mode change... ");
+      dll_log->LogEx (true, L"[Render Fix] Requested display mode requires display mode change... ");
 
       if (DISP_CHANGE_SUCCESSFUL != ChangeDisplaySettings (&devmode, CDS_FULLSCREEN)) {
-        dll_log.LogEx (false, L"failed!\n");
+        dll_log->LogEx (false, L"failed!\n");
       } else {
-        dll_log.LogEx (false, L"success!\n");
+        dll_log->LogEx (false, L"success!\n");
       }
 
       EnumDisplaySettings (nullptr, 0,                     &devmode);
@@ -765,12 +765,12 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
       }
 
       if (shrunk) {
-        dll_log.Log ( L"[Render Fix] Original window dimensions (%lux%lu) were "
-                      L"impossible given desktop -- Shrunk to (%lux%lu)",
-                        present_params.BackBufferWidth,
-                        present_params.BackBufferHeight,
-                          tsf::RenderFix::width,
-                          tsf::RenderFix::height );
+        dll_log->Log ( L"[Render Fix] Original window dimensions (%lux%lu) were "
+                       L"impossible given desktop -- Shrunk to (%lux%lu)",
+                         present_params.BackBufferWidth,
+                         present_params.BackBufferHeight,
+                           tsf::RenderFix::width,
+                           tsf::RenderFix::height );
       }
     }
   }
@@ -836,17 +836,17 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 command came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: D3D9 command came from unknown IDirect3DDevice9! << ");
     return D3D9SetViewport_Original (This, pViewport);
   }
 
   tsf::RenderFix::draw_state.vp = *pViewport;
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[FrameTrace] SetViewport     - [%lu,%lu] / [%lu,%lu] :: [%f - %f]",
-                    pViewport->X, pViewport->Y,
-                      pViewport->Width, pViewport->Height,
-                        pViewport->MinZ, pViewport->MaxZ );
+    dll_log->Log ( L"[FrameTrace] SetViewport     - [%lu,%lu] / [%lu,%lu] :: [%f - %f]",
+                     pViewport->X, pViewport->Y,
+                       pViewport->Width, pViewport->Height,
+                         pViewport->MinZ, pViewport->MaxZ );
   }
 
   // ...
@@ -905,7 +905,7 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 command came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: D3D9 command came from unknown IDirect3DDevice9! << ");
 
     return D3D9SetVertexShaderConstantF_Original ( This,
                                                      StartRegister,
@@ -916,16 +916,16 @@ D3D9SetVertexShaderConstantF_Detour (IDirect3DDevice9* This,
   tsf::RenderFix::draw_state.last_vs_vec4 = Vector4fCount;
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[FrameTrace] SetVertexShaderConstantF\n"
-                  L"                         [FrameTrace]                 "
-                  L"- StartRegister: %lu, Vector4fCount: %lu",
-                    StartRegister, Vector4fCount );
+    dll_log->Log ( L"[FrameTrace] SetVertexShaderConstantF\n"
+                   L"                         [FrameTrace]                 "
+                   L"- StartRegister: %lu, Vector4fCount: %lu",
+                     StartRegister, Vector4fCount );
     for (int i = 0; i < Vector4fCount; i++) {
-      dll_log.LogEx ( false, L"                         [FrameTrace]"
-                             L"                 - %11.6f %11.6f "
-                                                L"%11.6f %11.6f\n",
-                       pConstantData [i*4+0],pConstantData [i*4+1],
-                       pConstantData [i*4+2],pConstantData [i*4+3] );
+      dll_log->LogEx ( false, L"                         [FrameTrace]"
+                              L"                 - %11.6f %11.6f "
+                                                 L"%11.6f %11.6f\n",
+                        pConstantData [i*4+0],pConstantData [i*4+1],
+                        pConstantData [i*4+2],pConstantData [i*4+3] );
     }
   }
 
@@ -975,7 +975,7 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: D3D9 BeginScene came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: D3D9 BeginScene came from unknown IDirect3DDevice9! << ");
 
     return D3D9BeginScene_Original (This);
   }
@@ -1034,15 +1034,15 @@ D3D9SetScissorRect_Detour ( _In_       IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: SetScissorRect came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: SetScissorRect came from unknown IDirect3DDevice9! << ");
 
     return D3D9SetScissorRect_Original (This, pRect);
   }
 
   if (tsf::RenderFix::tracer.log && pRect != nullptr) {
-    dll_log.Log ( L"[FrameTrace] SetScissorRect  - [%lu,%lu] / [%lu,%lu]",
-                    pRect->left, pRect->top,
-                      pRect->right, pRect->bottom );
+    dll_log->Log ( L"[FrameTrace] SetScissorRect  - [%lu,%lu] / [%lu,%lu]",
+                     pRect->left, pRect->top,
+                       pRect->right, pRect->bottom );
   }
 
   RECT newR;
@@ -1069,8 +1069,8 @@ D3D9SetScissorRect_Detour ( _In_       IDirect3DDevice9* This,
       } out;
 
 #if 0
-      dll_log.Log ( L"Scissor --Viewport-- Width: %f, Height: %f :: (x: %f, y: %f)",
-                      in.width, in.height, in.x, in.y );
+      dll_log->Log ( L"Scissor --Viewport-- Width: %f, Height: %f :: (x: %f, y: %f)",
+                       in.width, in.height, in.x, in.y );
 
       // I imagine querying this from the D3D9 (usermode) driver every frame is
       //   inefficient ... consider caching surface descriptors
@@ -1083,8 +1083,8 @@ D3D9SetScissorRect_Detour ( _In_       IDirect3DDevice9* This,
         out.width  = desc.Width;
         out.height = desc.Height;
 
-        dll_log.Log ( L"Scissor --Surface-- Width: %f, Height: %f",
-                        screen_width, screen_height );
+        dll_log->Log ( L"Scissor --Surface-- Width: %f, Height: %f",
+                         screen_width, screen_height );
       }
 #endif
 
@@ -1122,7 +1122,7 @@ D3D9SetScissorRect_Detour ( _In_       IDirect3DDevice9* This,
       newR.top    = (ndc_scissor.top    * out.height + out.height) / 2;
       newR.bottom = (ndc_scissor.bottom * out.height + out.height) / 2;
     } else {
-      dll_log.Log (L"[Render Fix] >> Scissor Rectangle Applied During Post-Processing!");
+      dll_log->Log (L"[Render Fix] >> Scissor Rectangle Applied During Post-Processing!");
     }
   }
 
@@ -1146,7 +1146,7 @@ D3D9DrawPrimitive_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: DrawPrimitive came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: DrawPrimitive came from unknown IDirect3DDevice9! << ");
 
     return D3D9DrawPrimitive_Original ( This, PrimitiveType,
                                                  StartVertex, PrimitiveCount );
@@ -1155,8 +1155,8 @@ D3D9DrawPrimitive_Detour (IDirect3DDevice9* This,
   tsf::RenderFix::draw_state.draws++;
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[FrameTrace] DrawPrimitive - %X, StartVertex: %lu, PrimitiveCount: %lu",
-                      PrimitiveType, StartVertex, PrimitiveCount );
+    dll_log->Log ( L"[FrameTrace] DrawPrimitive - %X, StartVertex: %lu, PrimitiveCount: %lu",
+                       PrimitiveType, StartVertex, PrimitiveCount );
   }
 
   return D3D9DrawPrimitive_Original ( This, PrimitiveType,
@@ -1195,7 +1195,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: DrawIndexedPrimitive came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: DrawIndexedPrimitive came from unknown IDirect3DDevice9! << ");
 
     return D3D9DrawIndexedPrimitive_Original ( This, Type,
                                                  BaseVertexIndex, MinVertexIndex,
@@ -1227,7 +1227,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
         if (pDst != nullptr)
         {
           if (tsf::RenderFix::tracer.log)
-            dll_log.Log ( L"[FrameTrace] ### Removed Blur (Readbuffer: %ph, Drawbuffer: %ph) ###",
+            dll_log->Log ( L"[FrameTrace] ### Removed Blur (Readbuffer: %ph, Drawbuffer: %ph) ###",
                             pTex, pDst );
 
            IDirect3DTexture9* pProxyTex = nullptr;
@@ -1269,7 +1269,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
            else {
              if (tsf::RenderFix::tracer.log)
-               dll_log.Log (L"[FrameTrace] >>  Blur Proxy Impossible; Resorting to Blit  <<");
+               dll_log->Log (L"[FrameTrace] >>  Blur Proxy Impossible; Resorting to Blit  <<");
 
                D3DVIEWPORT9 vp;
                This->GetViewport (&vp);
@@ -1326,27 +1326,27 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 #endif
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[FrameTrace] DrawIndexedPrimitive   (Type: %s)\n"
-                  L"                         [FrameTrace]                 -"
-                  L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
-                  L"                         [FrameTrace]                 -"
-                  L"    NumVertices: %5lu, startIndex: %5lu,\n"
-                  L"                         [FrameTrace]                 -"
-                  L"    primCount:   %5lu",
-                    SK_D3D9_PrimitiveTypeToStr (Type),
-                      BaseVertexIndex, MinVertexIndex,
-                        NumVertices, startIndex, primCount );
+    dll_log->Log ( L"[FrameTrace] DrawIndexedPrimitive   (Type: %s)\n"
+                   L"                         [FrameTrace]                 -"
+                   L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
+                   L"                         [FrameTrace]                 -"
+                   L"    NumVertices: %5lu, startIndex: %5lu,\n"
+                   L"                         [FrameTrace]                 -"
+                   L"    primCount:   %5lu",
+                     SK_D3D9_PrimitiveTypeToStr (Type),
+                       BaseVertexIndex, MinVertexIndex,
+                         NumVertices, startIndex, primCount );
 
     if (tsf::RenderFix::draw_state.outlines)
-      dll_log.Log ( L"[FrameTrace]  ** Outline        (vs=%X, ps=%X) **",
-                      vs_checksum, ps_checksum );
+      dll_log->Log ( L"[FrameTrace]  ** Outline        (vs=%X, ps=%X) **",
+                       vs_checksum, ps_checksum );
 
     else if (weapon_outline)
-      dll_log.Log ( L"[FrameTrace]  ** Weapon Outline (vs=%X, ps=%X) **",
-                      vs_checksum, ps_checksum );
+      dll_log->Log ( L"[FrameTrace]  ** Weapon Outline (vs=%X, ps=%X) **",
+                       vs_checksum, ps_checksum );
     else if (Type == D3DPT_TRIANGLESTRIP && primCount > 1)
-      dll_log.Log ( L"[FrameTrace]  ** Possible Outline (vs=%X, ps=%X) **",
-                      vs_checksum, ps_checksum );
+      dll_log->Log ( L"[FrameTrace]  ** Possible Outline (vs=%X, ps=%X) **",
+                       vs_checksum, ps_checksum );
   }
 
   if ( config.render.outline_technique == OUTLINE_KALDAIEN ) {
@@ -1376,7 +1376,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
     if (outline_detect && tsf::RenderFix::draw_state.zwrite) {
       weapon_outline                      = true;
       if (tsf::RenderFix::tracer.log)
-        dll_log.Log (L"[FrameTrace] *** Kaldaien Outline ***");
+        dll_log->Log (L"[FrameTrace] *** Kaldaien Outline ***");
     } else {
       weapon_outline                      = false;
       tsf::RenderFix::draw_state.outlines = false;
@@ -1404,7 +1404,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
     // Sword on Fire Warrior (Bestiary #72)
     if (NumVertices == 198 && primCount == 465) {
       if (tsf::RenderFix::tracer.log) {
-        dll_log.Log (L"[FrameTrace] *** Warrior Handle ***");
+        dll_log->Log (L"[FrameTrace] *** Warrior Handle ***");
       }
       disable_outlines = true;
     }
@@ -1506,17 +1506,17 @@ D3D9DrawPrimitiveUP_Detour ( IDirect3DDevice9* This,
                              UINT              VertexStreamZeroStride )
 {
   if (tsf::RenderFix::tracer.log && This == tsf::RenderFix::pDevice) {
-    dll_log.Log ( L"[FrameTrace] DrawPrimitiveUP   (Type: %s) - PrimitiveCount: %lu"/*
-                  L"                         [FrameTrace]                 -"
-                  L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
-                  L"                         [FrameTrace]                 -"
-                  L"    NumVertices: %5lu, startIndex: %5lu,\n"
-                  L"                         [FrameTrace]                 -"
-                  L"    primCount:   %5lu"*/,
-                    SK_D3D9_PrimitiveTypeToStr (PrimitiveType),
-                      PrimitiveCount/*,
-                      BaseVertexIndex, MinVertexIndex,
-                        NumVertices, startIndex, primCount*/ );
+    dll_log->Log ( L"[FrameTrace] DrawPrimitiveUP   (Type: %s) - PrimitiveCount: %lu"/*
+                   L"                         [FrameTrace]                 -"
+                   L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
+                   L"                         [FrameTrace]                 -"
+                   L"    NumVertices: %5lu, startIndex: %5lu,\n"
+                   L"                         [FrameTrace]                 -"
+                   L"    primCount:   %5lu"*/,
+                     SK_D3D9_PrimitiveTypeToStr (PrimitiveType),
+                       PrimitiveCount/*,
+                       BaseVertexIndex, MinVertexIndex,
+                         NumVertices, startIndex, primCount*/ );
   }
 
   tsf::RenderFix::draw_state.draws++;
@@ -1543,17 +1543,17 @@ D3D9DrawIndexedPrimitiveUP_Detour ( IDirect3DDevice9* This,
                                     UINT              VertexStreamZeroStride )
 {
   if (tsf::RenderFix::tracer.log && This == tsf::RenderFix::pDevice) {
-    dll_log.Log ( L"[FrameTrace] DrawIndexedPrimitiveUP   (Type: %s) - NumVertices: %lu, PrimitiveCount: %lu"/*
-                  L"                         [FrameTrace]                 -"
-                  L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
-                  L"                         [FrameTrace]                 -"
-                  L"    NumVertices: %5lu, startIndex: %5lu,\n"
-                  L"                         [FrameTrace]                 -"
-                  L"    primCount:   %5lu"*/,
-                    SK_D3D9_PrimitiveTypeToStr (PrimitiveType),
-                      NumVertices, PrimitiveCount/*,
-                      BaseVertexIndex, MinVertexIndex,
-                        NumVertices, startIndex, primCount*/ );
+    dll_log->Log ( L"[FrameTrace] DrawIndexedPrimitiveUP   (Type: %s) - NumVertices: %lu, PrimitiveCount: %lu"/*
+                   L"                         [FrameTrace]                 -"
+                   L"    BaseIdx:     %5li, MinVtxIdx:  %5lu,\n"
+                   L"                         [FrameTrace]                 -"
+                   L"    NumVertices: %5lu, startIndex: %5lu,\n"
+                   L"                         [FrameTrace]                 -"
+                   L"    primCount:   %5lu"*/,
+                     SK_D3D9_PrimitiveTypeToStr (PrimitiveType),
+                       NumVertices, PrimitiveCount/*,
+                       BaseVertexIndex, MinVertexIndex,
+                         NumVertices, startIndex, primCount*/ );
   }
 
   tsf::RenderFix::draw_state.draws++;
@@ -1580,15 +1580,15 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: SetRenderState came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: SetRenderState came from unknown IDirect3DDevice9! << ");
 
     return D3D9SetRenderState_Original (This, State, Value);
   }
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[FrameTrace] SetRenderState  - State: %24s, Value: %lu",
-                    SK_D3D9_RenderStateToStr (State),
-                      Value );
+    dll_log->Log ( L"[FrameTrace] SetRenderState  - State: %24s, Value: %lu",
+                     SK_D3D9_RenderStateToStr (State),
+                       Value );
   }
 
   switch (State)
@@ -1694,7 +1694,7 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
 {
   // Ignore anything that's not the primary render device.
   if (This != tsf::RenderFix::pDevice) {
-    dll_log.Log (L"[Render Fix] >> WARNING: SetSamplerState came from unknown IDirect3DDevice9! << ");
+    dll_log->Log (L"[Render Fix] >> WARNING: SetSamplerState came from unknown IDirect3DDevice9! << ");
 
     return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
   }
@@ -1705,25 +1705,25 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
     return S_OK;
 
   if (tsf::RenderFix::tracer.log) {
-    dll_log.Log ( L"[FrameTrace] SetSamplerState - %02lu Type: %22s, Value: %lu",
-                    Sampler,
-                      SK_D3D9_SamplerStateTypeToStr (Type),
-                        Value );
+    dll_log->Log ( L"[FrameTrace] SetSamplerState - %02lu Type: %22s, Value: %lu",
+                     Sampler,
+                       SK_D3D9_SamplerStateTypeToStr (Type),
+                         Value );
   }
 
-  //dll_log.Log ( L" [!] IDirect3DDevice9::SetSamplerState (%lu, %lu, %lu)",
+  //dll_log->Log ( L" [!] IDirect3DDevice9::SetSamplerState (%lu, %lu, %lu)",
                   //Sampler, Type, Value );
   if (Type == D3DSAMP_MIPFILTER ||
       Type == D3DSAMP_MINFILTER ||
       Type == D3DSAMP_MAGFILTER ||
       Type == D3DSAMP_MIPMAPLODBIAS) {
-    //dll_log.Log (L" [!] IDirect3DDevice9::SetSamplerState (...)");
+    //dll_log->Log (L" [!] IDirect3DDevice9::SetSamplerState (...)");
     if (Type < 8) {
       bool aniso_override = false;
 
       //if (Value != D3DTEXF_ANISOTROPIC)
         //D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, aniso);
-      //dll_log.Log (L" %s Filter: %x", Type == D3DSAMP_MIPFILTER ? L"Mip" : Type == D3DSAMP_MINFILTER ? L"Min" : L"Mag", Value);
+      //dll_log->Log (L" %s Filter: %x", Type == D3DSAMP_MIPFILTER ? L"Mip" : Type == D3DSAMP_MINFILTER ? L"Min" : L"Mag", Value);
 
       if (Type == D3DSAMP_MIPFILTER) {
         //extern bool __remap_textures;
@@ -1753,7 +1753,7 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
 
   if (Type == D3DSAMP_MAXANISOTROPY) {
     if (tsf::RenderFix::tracer.log)
-      dll_log.Log (L"[Render Fix] Max Anisotropy Set (it's a miracle!): %d", Value);
+      dll_log->Log (L"[Render Fix] Max Anisotropy Set (it's a miracle!): %d", Value);
     Value = tsf::RenderFix::draw_state.max_aniso;
   }
 
@@ -1891,7 +1891,7 @@ interpolate_Detour (int unk0, int unk1)
 #if 0
   __asm { pushad }
 
-  dll_log.Log (L" Interpolate: Offset=%d [%f], This: %ph, unk1: %X  - Ret => %d",
+  dll_log->Log (L" Interpolate: Offset=%d [%f], This: %ph, unk1: %X  - Ret => %d",
    *(DWORD *)unk0, *(float *)((uint8_t *)This+8-0xC), This, unk1, ret);
 
   __asm { popad }

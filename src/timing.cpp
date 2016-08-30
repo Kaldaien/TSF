@@ -50,8 +50,8 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
   uint8_t* end_addr  = (uint8_t *)mem_info.BaseAddress + mem_info.RegionSize;
 
   if (base_addr != (uint8_t *)0x400000) {
-    dll_log.Log ( L"[ Sig Scan ] Expected module base addr. 40000h, but got: %ph",
-                    base_addr );
+    dll_log->Log ( L"[ Sig Scan ] Expected module base addr. 40000h, but got: %ph",
+                     base_addr );
   }
 
   int pages = 0;
@@ -73,17 +73,17 @@ TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask)
   }
 
   if (end_addr > PAGE_WALK_LIMIT) {
-    dll_log.Log ( L"[ Sig Scan ] Module page walk resulted in end addr. out-of-range: %ph",
-                    end_addr );
-    dll_log.Log ( L"[ Sig Scan ]  >> Restricting to %ph",
-                    PAGE_WALK_LIMIT );
+    dll_log->Log ( L"[ Sig Scan ] Module page walk resulted in end addr. out-of-range: %ph",
+                     end_addr );
+    dll_log->Log ( L"[ Sig Scan ]  >> Restricting to %ph",
+                     PAGE_WALK_LIMIT );
     end_addr = PAGE_WALK_LIMIT;
   }
 
-  dll_log.Log ( L"[ Sig Scan ] Module image consists of %lu pages, from %ph to %ph",
-                  pages,
-                    base_addr,
-                      end_addr );
+  dll_log->Log ( L"[ Sig Scan ] Module image consists of %lu pages, from %ph to %ph",
+                   pages,
+                     base_addr,
+                       end_addr );
 #endif
 
   uint8_t*  begin = (uint8_t *)base_addr;
@@ -212,10 +212,10 @@ QueryPerformanceFrequency_Detour (
 
   if ( (uintptr_t)hMod == (uintptr_t)GetModuleHandle (L"TOS.exe") )
   {
-    dll_log.Log ( L"[  60 FPS  ] Performance Frequency Query (called from [%s+%ph])",
-                    wszName,
-                      (uintptr_t)_ReturnAddress () -
-                      (uintptr_t)hMod );
+    dll_log->Log ( L"[  60 FPS  ] Performance Frequency Query (called from [%s+%ph])",
+                     wszName,
+                       (uintptr_t)_ReturnAddress () -
+                       (uintptr_t)hMod );
     //lpPerformanceCount->QuadPart *= 2;
   }
 
@@ -257,8 +257,8 @@ CreateTimerQueueTimer_Override (
       //DueTime = 8;
   }
 
-  dll_log.Log ( L"[  60 FPS  ][!] CreateTimerQueueTimer (... %lu ms, %lu ms, ...)",
-                  DueTime, Period );
+  dll_log->Log ( L"[  60 FPS  ][!] CreateTimerQueueTimer (... %lu ms, %lu ms, ...)",
+                   DueTime, Period );
 
   return CreateTimerQueueTimer_Original (phNewTimer, TimerQueue, Callback, Parameter, DueTime, Period, Flags);
 }
@@ -381,7 +381,7 @@ NamcoLoad_ (void)
   };
 
   if (szName != nullptr) {
-    dll_log.Log (L"[Namco Func] LoadPAC (%hs)", szName);
+    dll_log->Log (L"[Namco Func] LoadPAC (%hs)", szName);
 
     // Lloyd
     if (remap_count (szName)) {
@@ -410,7 +410,7 @@ NamcoLoadPAC_Detour (const char* szName)
   NAMCO_PUSH
 
   if (szName != nullptr) {
-    dll_log.Log (L"[Namco Func] LoadPAC (%hs)", szName);
+    dll_log->Log (L"[Namco Func] LoadPAC (%hs)", szName);
   }
 
   NAMCO_POP
@@ -428,7 +428,7 @@ __cdecl
 sub_5CA6B0_Detour (int x)
 {
   uint8_t* pXXX = (uint8_t *)(LPVOID)0x1C37362;
-  //dll_log.Log (L"%lu", *pXXX);
+  //dll_log->Log (L"%lu", *pXXX);
 //  *pXXX = 0;
   //*pXXX = 1;
 
@@ -441,7 +441,7 @@ sub_5CA6B0_Detour (int x)
   //return x;
   //int orig = x;
   return sub_5CA6B0_Original (__TICK_RATE);//x);
-  //dll_log.Log ("Sub5CA6B0 (%lu) ==> %lu", orig, ret);
+  //dll_log->Log ("Sub5CA6B0 (%lu) ==> %lu", orig, ret);
   //return 1;//ret;
 }
 
@@ -454,7 +454,7 @@ sub_5CB5B0_Detour (void)
 {
   int ret = sub_5CB5B0_Original ();
 
-//  dll_log.Log (L"Sub5CB5B0 () ==> %lu", ret);
+//  dll_log->Log (L"Sub5CB5B0 () ==> %lu", ret);
 
   uint32_t* XXX = (uint32_t *)0x8A3224;
   *XXX = __TICK_RATE;
@@ -496,11 +496,11 @@ sub_49F610_pfn sub_49F610_Original = nullptr;
 int
 __cdecl sub_49F610_Detour (unknown_s* pUnk)
 {
-  dll_log.Log (L"Sub_49F610 (%p -> { %f, %f }) ==> ", pUnk, *pUnk->fUnk0, *pUnk->fUnk1);
+  dll_log->Log (L"Sub_49F610 (%p -> { %f, %f }) ==> ", pUnk, *pUnk->fUnk0, *pUnk->fUnk1);
 
   int ret = sub_49F610_Original (pUnk);
 
-  dll_log.Log (L"\t%lu", ret);
+  dll_log->Log (L"\t%lu", ret);
 
   return ret;
 }
@@ -551,10 +551,10 @@ tsf::TimingFix::Init (void)
         NtSetTimerResolution   != nullptr) {
       ULONG min, max, cur;
       NtQueryTimerResolution (&min, &max, &cur);
-      dll_log.Log ( L"[  Timing  ] Kernel resolution.: %f ms",
+      dll_log->Log ( L"[  Timing  ] Kernel resolution.: %f ms",
                       (float)(cur * 100)/1000000.0f );
       NtSetTimerResolution   (max, TRUE,  &cur);
-      dll_log.Log ( L"[  Timing  ] New resolution....: %f ms",
+      dll_log->Log ( L"[  Timing  ] New resolution....: %f ms",
                       (float)(cur * 100)/1000000.0f );
 
     }
@@ -615,7 +615,7 @@ tsf::TimingFix::Init (void)
   // Install Namco Framerate Limiter Bypass
   //
   if (pLimiterFunc != nullptr) {
-    dll_log.Log ( L"[StutterFix] Scanned Namco Framerate Bug (\"Limiter\"): "
+    dll_log->Log ( L"[StutterFix] Scanned Namco Framerate Bug (\"Limiter\"): "
                   L"%ph",
                     pLimiterFunc );
 

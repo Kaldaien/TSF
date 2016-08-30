@@ -32,21 +32,23 @@ extern HMODULE hModSelf;
 BOOL
 BlacklistLibraryW (LPCWSTR lpFileName)
 {
+#if 0
   if (StrStrIW (lpFileName, L"ltc_help32") ||
       StrStrIW (lpFileName, L"ltc_game32")) {
-    dll_log.Log (L"[Black List] Preventing Raptr's overlay, evil little thing must die!");
+    dll_log->Log (L"[Black List] Preventing Raptr's overlay, evil little thing must die!");
     return TRUE;
   }
 
   if (StrStrIW (lpFileName, L"PlayClaw")) {
-    dll_log.Log (L"[Black List] Incompatible software: PlayClaw disabled");
+    dll_log->Log (L"[Black List] Incompatible software: PlayClaw disabled");
     return TRUE;
   }
 
   if (StrStrIW (lpFileName, L"fraps")) {
-    dll_log.Log (L"[Black List] FRAPS is not compatible with this software");
+    dll_log->Log (L"[Black List] FRAPS is not compatible with this software");
     return TRUE;
   }
+#endif
 
   return FALSE;
 }
@@ -76,7 +78,7 @@ LoadLibraryA_Detour (LPCSTR lpFileName)
   HMODULE hMod = LoadLibraryA_Original (lpFileName);
 
   if (hModEarly != hMod)
-    dll_log.Log (L"[DLL Loader] Game loaded '%#64hs' <LoadLibraryA>", lpFileName);
+    dll_log->Log (L"[DLL Loader] Game loaded '%#64hs' <LoadLibraryA>", lpFileName);
 
   return hMod;
 }
@@ -96,7 +98,7 @@ LoadLibraryW_Detour (LPCWSTR lpFileName)
   HMODULE hMod = LoadLibraryW_Original (lpFileName);
 
   if (hModEarly != hMod)
-    dll_log.Log (L"[DLL Loader] Game loaded '%#64s' <LoadLibraryW>", lpFileName);
+    dll_log->Log (L"[DLL Loader] Game loaded '%#64s' <LoadLibraryW>", lpFileName);
 
   return hMod;
 }
@@ -120,7 +122,7 @@ LoadLibraryExA_Detour (
 
   if (hModEarly != hMod && (! ((dwFlags & LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE) ||
                                (dwFlags & LOAD_LIBRARY_AS_IMAGE_RESOURCE))))
-    dll_log.Log (L"[DLL Loader] Game loaded '%#64hs' <LoadLibraryExA>", lpFileName);
+    dll_log->Log (L"[DLL Loader] Game loaded '%#64hs' <LoadLibraryExA>", lpFileName);
 
   return hMod;
 }
@@ -144,7 +146,7 @@ LoadLibraryExW_Detour (
 
   if (hModEarly != hMod && (! ((dwFlags & LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE) ||
                                (dwFlags & LOAD_LIBRARY_AS_IMAGE_RESOURCE))))
-    dll_log.Log (L"[DLL Loader] Game loaded '%#64s' <LoadLibraryExW>", lpFileName);
+    dll_log->Log (L"[DLL Loader] Game loaded '%#64s' <LoadLibraryExW>", lpFileName);
 
   return hMod;
 }
@@ -167,9 +169,4 @@ TSF_InitCompatBlacklist (void)
   TSFix_CreateDLLHook ( L"kernel32.dll", "LoadLibraryExW",
                         LoadLibraryExW_Detour,
               (LPVOID*)&LoadLibraryExW_Original );
-
-  if (GetModuleHandleW (L"fraps.dll") != NULL) {
-    dll_log.Log (L"[Black List] FRAPS detected; expect the game to crash.");
-    FreeLibrary (GetModuleHandleW (L"fraps.dll"));
-  }
 }
