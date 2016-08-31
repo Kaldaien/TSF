@@ -24,7 +24,6 @@
 
 #include "ini.h"
 
-#define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <vector>
 
@@ -39,12 +38,12 @@ public:
 
   virtual std::wstring get_value_str (void)             = 0;
   virtual void         set_value_str (std::wstring str) = 0;
-
+  
   // Read value from INI
   bool load (void)
   {
     if (ini != nullptr) {
-      INI::File::Section& section = ini->get_section (ini_section);
+      iSK_INISection& section = ini->get_section (ini_section);
 
       if (section.contains_key (ini_key)) {
         set_value_str (section.get_value (ini_key));
@@ -61,11 +60,11 @@ public:
     bool ret = false;
 
     if (ini != nullptr) {
-      INI::File::Section& section = ini->get_section (ini_section);
+      iSK_INISection& section = ini->get_section (ini_section);
 
       // If this operation actually creates a section, we need to make sure
       //   that section has a name!
-      section.name = ini_section;
+      section.set_name (ini_section);
 
       if (section.contains_key (ini_key)) {
         section.get_value (ini_key) = get_value_str ().c_str ();
@@ -82,7 +81,7 @@ public:
     return ret;
   }
 
-  void register_to_ini (INI::File* file, std::wstring section, std::wstring key)
+  void register_to_ini (iSK_INI* file, std::wstring section, std::wstring key)
   {
     ini         = file;
     ini_section = section;
@@ -91,7 +90,7 @@ public:
 
 protected:
 private:
-  INI::File*           ini;
+  iSK_INI*             ini;
   std::wstring         ini_section;
   std::wstring         ini_key;
 };
@@ -105,6 +104,11 @@ public:
   virtual void         set_value     (_T val)           = 0;
   virtual void         set_value_str (std::wstring str) = 0;
 
+  virtual void         store         (_T val)           = 0;
+  virtual void         store_str     (std::wstring str) = 0;
+
+  virtual bool         load          (_T& ref)          = 0;
+
 protected:
   _T                   value;
 };
@@ -115,8 +119,13 @@ public:
   std::wstring get_value_str (void);
   int          get_value     (void);
 
-  void         set_value     (int val);
+  void         set_value     (int          val);
   void         set_value_str (std::wstring str);
+
+  void         store         (int          val);
+  void         store_str     (std::wstring str);
+
+  bool         load          (int& ref);
 
 protected:
   int value;
@@ -128,8 +137,13 @@ public:
   std::wstring get_value_str (void);
   int64_t      get_value     (void);
 
-  void         set_value     (int64_t val);
+  void         set_value     (int64_t      val);
   void         set_value_str (std::wstring str);
+
+  void         store         (int64_t      val);
+  void         store_str     (std::wstring str);
+
+  bool         load          (int64_t&     ref);
 
 protected:
   int64_t value;
@@ -141,8 +155,13 @@ public:
   std::wstring get_value_str (void);
   bool         get_value     (void);
 
-  void         set_value     (bool val);
+  void         set_value     (bool         val);
   void         set_value_str (std::wstring str);
+
+  void         store         (bool         val);
+  void         store_str     (std::wstring str);
+
+  bool         load          (bool&        ref);
 
 protected:
   bool value;
@@ -152,10 +171,15 @@ class ParameterFloat : public Parameter <float>
 {
 public:
   std::wstring get_value_str (void);
-  float        get_value (void);
+  float        get_value     (void);
 
-  void         set_value (float val);
+  void         set_value     (float        val);
   void         set_value_str (std::wstring str);
+
+  void         store         (float        val);
+  void         store_str     (std::wstring str);
+
+  bool         load          (float&       ref);
 
 protected:
   float value;
@@ -169,6 +193,12 @@ public:
 
   void         set_value     (std::wstring str);
   void         set_value_str (std::wstring str);
+
+  void         store         (std::wstring val);
+  void         store_str     (std::wstring str);
+
+  bool         load          (std::wstring& ref);
+
 
 protected:
   std::wstring value;
