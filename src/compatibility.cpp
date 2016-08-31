@@ -32,13 +32,12 @@ extern HMODULE hModSelf;
 BOOL
 BlacklistLibraryW (LPCWSTR lpFileName)
 {
-#if 0
-  if (StrStrIW (lpFileName, L"ltc_help32") ||
-      StrStrIW (lpFileName, L"ltc_game32")) {
-    dll_log->Log (L"[Black List] Preventing Raptr's overlay, evil little thing must die!");
+  if (StrStrIW (lpFileName, L"ltc_game32")) {
+    dll_log->Log (L"[Black List] Preventing Raptr's overlay, it likes to crash games!");
     return TRUE;
   }
 
+#if 0
   if (StrStrIW (lpFileName, L"PlayClaw")) {
     dll_log->Log (L"[Black List] Incompatible software: PlayClaw disabled");
     return TRUE;

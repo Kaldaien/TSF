@@ -1930,37 +1930,9 @@ TSFix_LoadQueuedTextures (void)
       sprintf (szFormatted, " (%lu outstanding)", num_queued);
       mod_text += szFormatted;
     }
-
-    mod_text += "\n\n";
-  }
-
-  if (config.textures.cache && __show_cache) {
-    mod_text += "Texture Cache\n";
-    mod_text += "-------------\n";
-    mod_text += tsf::RenderFix::tex_mgr.osdStats ();
   }
 
   int loads = 0;
-
-  //
-  // If the size changes, check to see if we need a purge - if so, schedule one.
-  //
-  static uint64_t last_size = 0ULL;
-
-  if (last_size != tsf::RenderFix::tex_mgr.cacheSizeTotal () ) {
-    last_size = tsf::RenderFix::tex_mgr.cacheSizeTotal ();
-
-    if ( last_size >
-           (1024ULL * 1024ULL) * (uint64_t)config.textures.max_cache_in_mib )
-      __need_purge = true;
-  }
-
-  if ((! streaming) && (! resampling) && (! pending_loads ())) {
-    if (__need_purge) {
-      tsf::RenderFix::tex_mgr.purge ();
-      __need_purge = false;
-    }
-  }
 
   std::vector <tsf_tex_load_s *> finished;
 
@@ -2014,6 +1986,26 @@ TSFix_LoadQueuedTextures (void)
     ++loads;
 
     delete load;
+  }
+
+  //
+  // If the size changes, check to see if we need a purge - if so, schedule one.
+  //
+  static uint64_t last_size = 0ULL;
+
+  if (last_size != tsf::RenderFix::tex_mgr.cacheSizeTotal () ) {
+    last_size = tsf::RenderFix::tex_mgr.cacheSizeTotal ();
+
+    if ( last_size >
+           (1024ULL * 1024ULL) * (uint64_t)config.textures.max_cache_in_mib )
+      __need_purge = true;
+  }
+
+  if ((! streaming) && (! resampling) && (! pending_loads ())) {
+    if (__need_purge) {
+      tsf::RenderFix::tex_mgr.purge ();
+      __need_purge = false;
+    }
   }
 }
 
@@ -2934,19 +2926,19 @@ tsf::RenderFix::TextureManager::Init (void)
 
   SK_GetCommandProcessor ()->AddVariable (
     "Textures.Remap",
-      new eTB_VarStub <bool> (&__remap_textures) );
+      TSF_CreateVar (SK_IVariable::Boolean, &__remap_textures) );
 
   SK_GetCommandProcessor ()->AddVariable (
     "Textures.Purge",
-      new eTB_VarStub <bool> (&__need_purge) );
+      TSF_CreateVar (SK_IVariable::Boolean, &__need_purge) );
 
   SK_GetCommandProcessor ()->AddVariable (
     "Textures.Trace",
-      new eTB_VarStub <bool> (&__log_used) );
+      TSF_CreateVar (SK_IVariable::Boolean, &__log_used) );
 
   SK_GetCommandProcessor ()->AddVariable (
     "Textures.ShowCache",
-      new eTB_VarStub <bool> (&__show_cache) );
+      TSF_CreateVar (SK_IVariable::Boolean, &__show_cache) );
 }
 
 

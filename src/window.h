@@ -125,6 +125,11 @@ typedef HWND
   void
 );
 
+typedef BOOL
+(WINAPI *SK_IsConsoleVisible_pfn)(
+  void
+);
+
 extern MoveWindow_pfn          MoveWindow_Original;
 extern SetWindowPos_pfn        SetWindowPos_Original;
 extern GetForegroundWindow_pfn GetForegroundWindow_Original;
@@ -132,6 +137,7 @@ extern SetWindowLongA_pfn      SetWindowLongA_Original;
 extern SetWindowLongW_pfn      SetWindowLongW_Original;
 extern IsIconic_pfn            IsIconic_Original;
 extern GetFocus_pfn            GetFocus_Original;
+extern SK_IsConsoleVisible_pfn SK_IsConsoleVisible;
 
 #include "command.h"
 
@@ -168,11 +174,11 @@ namespace tsf
     void Init     ();
     void Shutdown ();
 
-    class CommandProcessor : public eTB_iVariableListener {
+    class CommandProcessor : public SK_IVariableListener {
     public:
       CommandProcessor (void);
 
-      virtual bool OnVarChange (eTB_Variable* var, void* val = NULL);
+      virtual bool OnVarChange (SK_IVariable* var, void* val = NULL);
 
       static CommandProcessor* getInstance (void)
       {
@@ -183,8 +189,8 @@ namespace tsf
       }
 
     protected:
-      eTB_Variable* foreground_fps_;
-      eTB_Variable* background_fps_;
+      SK_IVariable* foreground_fps_;
+      SK_IVariable* background_fps_;
 
     private:
       static CommandProcessor* pCommProc;

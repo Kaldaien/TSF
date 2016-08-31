@@ -666,10 +666,16 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                                  device );
     }
 
-    // Some games don't set this even though it's supposed to be
-    //   required by the D3D9 API...
-    if (pparams->hDeviceWindow != nullptr)
+    if (pparams->hDeviceWindow != nullptr) {
+      if (tsf::RenderFix::hWndDevice == nullptr) {
+        SK_GetCommandProcessor ()->ProcessCommandFormatted (
+          "TargetFPS %f",
+            config.window.foreground_fps
+        );
+      }
+
       tsf::RenderFix::hWndDevice = pparams->hDeviceWindow;
+    }
 
     tsf::window.hwnd = tsf::RenderFix::hWndDevice;
 
@@ -1020,8 +1026,11 @@ D3D9EndScene_Detour (IDirect3DDevice9* This)
 
   HRESULT hr = D3D9EndScene_Original (This);
 
-  extern void TSFix_LoadQueuedTextures (void);
-  TSFix_LoadQueuedTextures ();
+  extern bool pending_loads (void);
+  if (pending_loads ()) {
+    extern void TSFix_LoadQueuedTextures (void);
+    TSFix_LoadQueuedTextures ();
+  }
 
   return hr;
 }
@@ -1795,32 +1804,32 @@ tsf::RenderFix::Init (void)
                 (LPVOID*)&D3D9SetSamplerState_Original );
 
   CommandProcessor*     comm_proc    = CommandProcessor::getInstance ();
-  eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
+  SK_ICommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
 
-  pCommandProc->AddVariable ("Render.DuranteScissor",   new eTB_VarStub <bool> (&config.render.durante_scissor));
-  pCommandProc->AddVariable ("Render.OutlineTechnique", new eTB_VarStub <int>  (&config.render.outline_technique));
+  pCommandProc->AddVariable ("Render.DuranteScissor",   TSF_CreateVar (SK_IVariable::Boolean, &config.render.durante_scissor));
+  pCommandProc->AddVariable ("Render.OutlineTechnique", TSF_CreateVar (SK_IVariable::Int,     &config.render.outline_technique));
 
   // Don't directly modify this state, switching mid-frame would be disasterous...
-  pCommandProc->AddVariable ("Render.MSAA",             new eTB_VarStub <bool> (&use_msaa));//&draw_state.use_msaa));
+  pCommandProc->AddVariable ("Render.MSAA",             TSF_CreateVar (SK_IVariable::Boolean, &use_msaa));//&draw_state.use_msaa));
 
-  pCommandProc->AddVariable ("Trace.NumFrames", new eTB_VarStub <int>  (&tracer.count));
-  pCommandProc->AddVariable ("Trace.Enable",    new eTB_VarStub <bool> (&tracer.log));
+  pCommandProc->AddVariable ("Trace.NumFrames", TSF_CreateVar (SK_IVariable::Int,     &tracer.count));
+  pCommandProc->AddVariable ("Trace.Enable",    TSF_CreateVar (SK_IVariable::Boolean, &tracer.log));
 
-  pCommandProc->AddVariable ("Render.OutlineOffsetC", new eTB_VarStub <float> (&depth_offset1));
-  pCommandProc->AddVariable ("Render.OutlineOffsetS", new eTB_VarStub <float> (&depth_offset2));
+  pCommandProc->AddVariable ("Render.OutlineOffsetC", TSF_CreateVar (SK_IVariable::Float, &depth_offset1));
+  pCommandProc->AddVariable ("Render.OutlineOffsetS", TSF_CreateVar (SK_IVariable::Float, &depth_offset2));
 
   draw_state.max_aniso = config.textures.max_anisotropy;
-  pCommandProc->AddVariable ("Render.MaxAniso",   new eTB_VarStub <int>  (&draw_state.max_aniso));
-  pCommandProc->AddVariable ("Render.RemoveBlur", new eTB_VarStub <bool> (&config.render.remove_blur));
+  pCommandProc->AddVariable ("Render.MaxAniso",   TSF_CreateVar (SK_IVariable::Int,     &draw_state.max_aniso));
+  pCommandProc->AddVariable ("Render.RemoveBlur", TSF_CreateVar (SK_IVariable::Boolean, &config.render.remove_blur));
 
-  pCommandProc->AddVariable ("Render.ConservativeMSAA", new eTB_VarStub <bool> (&config.render.conservative_msaa));
-  pCommandProc->AddVariable ("Render.EarlyResolve",     new eTB_VarStub <bool> (&early_resolve));
+  pCommandProc->AddVariable ("Render.ConservativeMSAA", TSF_CreateVar (SK_IVariable::Boolean, &config.render.conservative_msaa));
+  pCommandProc->AddVariable ("Render.EarlyResolve",     TSF_CreateVar (SK_IVariable::Boolean, &early_resolve));
 
-  pCommandProc->AddVariable ("Debug.OutlineVtx",   new eTB_VarStub <int>(&test_vtx));
-  pCommandProc->AddVariable ("Debug.OutlinePrims", new eTB_VarStub <int>(&test_prims));
+  pCommandProc->AddVariable ("Debug.OutlineVtx",   TSF_CreateVar (SK_IVariable::Int, &test_vtx));
+  pCommandProc->AddVariable ("Debug.OutlinePrims", TSF_CreateVar (SK_IVariable::Int, &test_prims));
 
-  pCommandProc->AddVariable ("Textures.MaxCacheSize", new eTB_VarStub <int> (&config.textures.max_cache_in_mib));
-  pCommandProc->AddVariable ("Textures.DebugTexID",   new eTB_VarStub <int> (&debug_tex_id));
+  pCommandProc->AddVariable ("Textures.MaxCacheSize", TSF_CreateVar (SK_IVariable::Int, &config.textures.max_cache_in_mib));
+  pCommandProc->AddVariable ("Textures.DebugTexID",   TSF_CreateVar (SK_IVariable::Int, &debug_tex_id));
 
   tex_mgr.Init ();
 }
@@ -1836,21 +1845,22 @@ tsf::RenderFix::Shutdown (void)
 float ar;
 
 float         fAnimSpeed = 32767.0;
-eTB_Variable* anim_speed;
+SK_IVariable* anim_speed;
 
 tsf::RenderFix::CommandProcessor::CommandProcessor (void)
 {
-  eTB_CommandProcessor* pCommandProc =
+  SK_ICommandProcessor* pCommandProc =
     SK_GetCommandProcessor ();
 
-  pCommandProc->AddVariable ("Render.AllowBG",   new eTB_VarStub <bool>  (&config.render.allow_background));
+  pCommandProc->AddVariable ("Render.AllowBG",
+    TSF_CreateVar (SK_IVariable::Boolean, &config.render.allow_background));
 
-  anim_speed = new eTB_VarStub <float> (&fAnimSpeed, this);
+  anim_speed = TSF_CreateVar (SK_IVariable::Float, &fAnimSpeed, this);
   pCommandProc->AddVariable ("Render.AnimSpeed", anim_speed);
 }
 
 bool
-tsf::RenderFix::CommandProcessor::OnVarChange (eTB_Variable* var, void* val)
+tsf::RenderFix::CommandProcessor::OnVarChange (SK_IVariable* var, void* val)
 {
   if (var == anim_speed) {
     if (val != nullptr) {
@@ -1993,10 +2003,11 @@ SK_SetupD3D9Hooks (void)
   TSFix_EnableHook ((void *)0x628E70);
 #endif
 
-  eTB_CommandProcessor* pCommandProc =
+  SK_ICommandProcessor* pCommandProc =
     SK_GetCommandProcessor ();
 
-  pCommandProc->AddVariable ("HUD.Show", new eTB_VarStub <bool> (&draw_hud));
+  pCommandProc->AddVariable ( "HUD.Show",
+                                TSF_CreateVar (SK_IVariable::Boolean, &draw_hud) );
 
 }
 

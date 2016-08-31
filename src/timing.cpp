@@ -722,18 +722,20 @@ tsf::TimingFix::Init (void)
 
   }
 
-  eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
+  SK_ICommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
 
-  pCommandProc->AddVariable ("Timing.RouteSixty", new eTB_VarStub <bool>(&game_speed.Half));
-  pCommandProc->AddVariable ("Timing.HyperSpeed", new eTB_VarStub <bool>(&game_speed.Hyper));
+  pCommandProc->AddVariable ("Timing.RouteSixty",
+                              TSF_CreateVar (SK_IVariable::Boolean, &game_speed.Half));
+  pCommandProc->AddVariable ("Timing.HyperSpeed",
+                              TSF_CreateVar (SK_IVariable::Boolean, &game_speed.Hyper));
 
-  pCommandProc->AddVariable ("Timing.BattleFPS",   new eTB_VarStub <float>(&config.framerate.battle));
-  pCommandProc->AddVariable ("Timing.CityFPS",     new eTB_VarStub <float>(&config.framerate.city));
-  pCommandProc->AddVariable ("Timing.CutsceneFPS", new eTB_VarStub <float>(&config.framerate.cutscene));
-  pCommandProc->AddVariable ("Timing.FMVFPS",      new eTB_VarStub <float>(&config.framerate.fmv));
-  pCommandProc->AddVariable ("Timing.MenuFPS",     new eTB_VarStub <float>(&config.framerate.menu));
-  pCommandProc->AddVariable ("Timing.WorldFPS",    new eTB_VarStub <float>(&config.framerate.world));
-  pCommandProc->AddVariable ("Timing.DefaultFPS",  new eTB_VarStub <float>(&config.framerate.default));
+  pCommandProc->AddVariable ("Timing.BattleFPS",   TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.battle));
+  pCommandProc->AddVariable ("Timing.CityFPS",     TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.city));
+  pCommandProc->AddVariable ("Timing.CutsceneFPS", TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.cutscene));
+  pCommandProc->AddVariable ("Timing.FMVFPS",      TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.fmv));
+  pCommandProc->AddVariable ("Timing.MenuFPS",     TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.menu));
+  pCommandProc->AddVariable ("Timing.WorldFPS",    TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.world));
+  pCommandProc->AddVariable ("Timing.DefaultFPS",  TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.default));
 }
 
 void

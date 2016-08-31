@@ -89,12 +89,6 @@ DllThread (LPVOID user)
 
   CoInitialize (nullptr);
 
-  //
-  // Kill Raptr instead of it killing us!
-  //
-  extern void TSF_InitCompatBlacklist (void);
-  TSF_InitCompatBlacklist ();
-
   // Plugin State
   if (TSFix_Init_MinHook () == MH_OK) {
     tsf::TimingFix::Init     ();

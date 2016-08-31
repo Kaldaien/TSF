@@ -66,8 +66,6 @@ typedef HRESULT (WINAPI *IDirectInputDevice8_SetCooperativeLevel_pfn)(
   DWORD                dwFlags
 );
 
-LPVOID
-        DirectInput8Create_Hook                          = nullptr;
 IDirectInput8_CreateDevice_pfn
         IDirectInput8_CreateDevice_Original              = nullptr;
 IDirectInputDevice8_GetDeviceState_pfn
@@ -317,12 +315,6 @@ GetRawInputData_Detour (_In_      HRAWINPUT hRawInput,
 
   int size = GetRawInputData_Original (hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
 
-  // Block keyboard input to the game while the console is active
-  if (tsf::InputManager::Hooker::getInstance ()->isVisible () && uiCommand == RID_INPUT) {
-    *pcbSize = 0;
-    return 0;
-  }
-
   // Fixing Alt-Tab by Hooking This is Not Possible
   //
   //  -- Search through the binary to find the boolean that is set when
@@ -341,11 +333,6 @@ GetAsyncKeyState_Detour (_In_ int vKey)
   // Window is not active, but we are faking it...
   if ((! tsf::window.active) && config.render.allow_background)
     TSFix_ConsumeVKey (vKey);
-
-  // Block keyboard input to the game while the console is active
-  if (tsf::InputManager::Hooker::getInstance ()->isVisible ()) {
-    TSFix_ConsumeVKey (vKey);
-  }
 
   // Block Left Alt
   if (vKey == VK_LMENU)
@@ -429,14 +416,173 @@ HookRawInput (void)
   if (GetRawInputData_Original == nullptr) {
     dll_log->LogEx (true, L"[   Input  ] Installing Deferred Hook: \"GetRawInputData (...)\"... ");
     MH_STATUS status =
-      TSFix_CreateDLLHook ( L"user32.dll", "GetRawInputData",
-                            GetRawInputData_Detour,
-                  (LPVOID*)&GetRawInputData_Original );
+      TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                            "GetRawInputData",
+                             GetRawInputData_Detour,
+                   (LPVOID*)&GetRawInputData_Original );
    dll_log->LogEx (false, L"%hs\n", MH_StatusToString (status));
   }
 }
 
 
+typedef void (CALLBACK *SK_PluginKeyPress_pfn)( BOOL Control,
+                        BOOL Shift,
+                        BOOL Alt,
+                        BYTE vkCode );
+SK_PluginKeyPress_pfn SK_PluginKeyPress_Original = nullptr;
+
+void
+CALLBACK
+SK_TSF_PluginKeyPress ( BOOL Control,
+                        BOOL Shift,
+                        BOOL Alt,
+                        BYTE vkCode )
+{
+  SK_ICommandProcessor* pCommandProc =
+    SK_GetCommandProcessor ();
+
+  if (Alt && vkCode == 'L') {
+    pCommandProc->ProcessCommandLine ("Trace.NumFrames 1");
+    pCommandProc->ProcessCommandLine ("Trace.Enable true");
+  }
+
+// Not really that useful, and we want the 'B' key for something else
+#if 0
+  else if (keys_ [VK_MENU] && vkCode == 'B' && new_press) {
+    pCommandProc->ProcessCommandLine ("Render.AllowBG toggle");
+  }
+#endif
+
+  else if (Alt && vkCode == 'H') {
+    pCommandProc->ProcessCommandLine ("Timing.HyperSpeed toggle");
+  }
+
+  else if (vkCode == 'B') {
+    pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
+    if (! config.render.remove_blur)
+      tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
+  }
+
+  //else if (vkCode == 'C') {
+    //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
+  //}
+
+#if 0
+  else if (vkCode == 'Z') {
+    extern void TSF_Zoom (double incr);
+    TSF_Zoom (-0.01);
+  }
+
+  else if (vkCode == 'X') {
+    extern void TSF_Zoom (double incr);
+    TSF_Zoom (0.01);
+  }
+
+  else if (vkCode == 'C') {
+    extern void TSF_ZoomEx (double incr);
+    TSF_ZoomEx (0.5);
+  }
+#endif
+
+  else if (vkCode == VK_OEM_PERIOD) {
+    pCommandProc->ProcessCommandLine ("Render.OutlineTechnique inc");
+
+    if (config.render.outline_technique > 2)
+      config.render.outline_technique = 0;
+  }
+
+  else if (vkCode == VK_OEM_COMMA) {
+    pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
+  }
+
+  else if (vkCode == '1') {
+    pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 60.0");
+  }
+
+  else if (vkCode == '2') {
+    pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 30.0");
+  }
+
+  else if (vkCode == 'U') {
+    pCommandProc->ProcessCommandLine  ("Textures.Remap toggle");
+    tsf::RenderFix::tex_mgr.updateOSD ();
+  }
+
+  else if (vkCode == 'Z') {
+    pCommandProc->ProcessCommandLine  ("Textures.Purge true");
+    tsf::RenderFix::tex_mgr.updateOSD ();
+  }
+
+  else if (vkCode == 'X') {
+    pCommandProc->ProcessCommandLine  ("Textures.Trace true");
+    tsf::RenderFix::tex_mgr.updateOSD ();
+  }
+
+  else if (vkCode == 'V') {
+    pCommandProc->ProcessCommandLine  ("Textures.ShowCache toggle");
+    tsf::RenderFix::tex_mgr.updateOSD ();
+  }
+
+  else if (vkCode == VK_OEM_6) {
+    extern std::vector <uint32_t> textures_used_last_dump;
+    extern int                    tex_dbg_idx;
+    ++tex_dbg_idx;
+
+    if (tex_dbg_idx > textures_used_last_dump.size ())
+      tex_dbg_idx = textures_used_last_dump.size ();
+
+    extern int debug_tex_id;
+    debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
+
+    tsf::RenderFix::tex_mgr.updateOSD ();
+  }
+
+  else if (vkCode == VK_OEM_4) {
+    extern std::vector <uint32_t> textures_used_last_dump;
+    extern int                    tex_dbg_idx;
+    extern int                    debug_tex_id;
+
+    --tex_dbg_idx;
+
+    if (tex_dbg_idx < 0) {
+      tex_dbg_idx = -1;
+      debug_tex_id = 0;
+    } else {
+      if (tex_dbg_idx > textures_used_last_dump.size ())
+        tex_dbg_idx = textures_used_last_dump.size ();
+
+      debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
+    }
+
+    tsf::RenderFix::tex_mgr.updateOSD ();
+  }
+
+  else if (vkCode == 'N') {
+    SK_ICommandResult result =
+      pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
+
+    float val =
+      *(float *)result.getVariable ()->getValuePointer ();
+
+    val -= 10000.0f;
+
+    pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
+  }
+
+  else if (vkCode == 'M') {
+    SK_ICommandResult result =
+      pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
+
+    float val =
+      *(float *)result.getVariable ()->getValuePointer ();
+
+    val += 10000.0f;
+
+    pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
+  }
+
+  SK_PluginKeyPress_Original (Control, Shift, Alt, vkCode);
+}
 
 void
 tsf::InputManager::Init (void)
@@ -473,504 +619,44 @@ tsf::InputManager::Init (void)
   // Win32 API Input Hooks
   //
 
-  TSFix_CreateDLLHook ( L"user32.dll", "GetAsyncKeyState",
-                        GetAsyncKeyState_Detour,
-              (LPVOID*)&GetAsyncKeyState_Original );
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "GetAsyncKeyState_Detour",
+                         GetAsyncKeyState_Detour,
+               (LPVOID*)&GetAsyncKeyState_Original );
 
-  TSFix_CreateDLLHook ( L"user32.dll", "ClipCursor",
-                        ClipCursor_Detour,
-              (LPVOID*)&ClipCursor_Original );
+  TSFix_CreateDLLHook ( L"user32.dll",
+                        "ClipCursor",
+                         ClipCursor_Detour,
+               (LPVOID*)&ClipCursor_Original );
 
-  TSFix_CreateDLLHook ( L"user32.dll", "SetCursorPos",
-                        SetCursorPos_Detour,
-              (LPVOID*)&SetCursorPos_Original );
+  TSFix_CreateDLLHook ( L"user32.dll",
+                        "SetCursorPos",
+                         SetCursorPos_Detour,
+               (LPVOID*)&SetCursorPos_Original );
 
-  TSFix_CreateDLLHook ( L"user32.dll", "SetPhysicalCursorPos",
-                        SetPhysicalCursorPos_Detour,
-              (LPVOID*)&SetPhysicalCursorPos_Original );
+  TSFix_CreateDLLHook ( L"user32.dll",
+                        "SetPhysicalCursorPos",
+                         SetPhysicalCursorPos_Detour,
+               (LPVOID*)&SetPhysicalCursorPos_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (), "D3D9SetCursorPosition_Override",
-                        D3D9SetCursorPosition_Detour,
-              (LPVOID*)&D3D9SetCursorPosition_Original );
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "D3D9SetCursorPosition_Override",
+                         D3D9SetCursorPosition_Detour,
+               (LPVOID*)&D3D9SetCursorPosition_Original );
 
-  tsf::InputManager::Hooker* pHook =
-    tsf::InputManager::Hooker::getInstance ();
-
-  pHook->Start ();
+  TSFix_CreateDLLHook ( config.system.injector.c_str (),
+                        "SK_PluginKeyPress",
+                         SK_TSF_PluginKeyPress,
+              (LPVOID *)&SK_PluginKeyPress_Original );
 }
 
 void
 tsf::InputManager::Shutdown (void)
 {
-  tsf::InputManager::Hooker* pHook = tsf::InputManager::Hooker::getInstance ();
-
-  pHook->End ();
 }
 
-
-void
-tsf::InputManager::Hooker::Start (void)
-{
-  hMsgPump =
-    (HANDLE)
-      _beginthreadex ( nullptr,
-                        0,
-                          Hooker::MessagePump,
-                            &hooks,
-                              0,
-                                nullptr );
-}
-
-void
-tsf::InputManager::Hooker::End (void)
-{
-  TerminateThread     (hMsgPump, 0);
-  CloseHandle         (hMsgPump);
-
-  UnhookWindowsHookEx (hooks.keyboard);
-  UnhookWindowsHookEx (hooks.mouse);
-}
-
-std::string console_text;
+std::string output;
 std::string mod_text;
-
-void
-tsf::InputManager::Hooker::Draw (void)
-{
-  typedef BOOL (__stdcall *SK_DrawExternalOSD_pfn)(std::string app_name, std::string text);
-
-  static HMODULE               hMod =
-    GetModuleHandle (config.system.injector.c_str ());
-  static SK_DrawExternalOSD_pfn SK_DrawExternalOSD
-    =
-    (SK_DrawExternalOSD_pfn)GetProcAddress (hMod, "SK_DrawExternalOSD");
-
-  std::string output;
-
-  static DWORD last_time = timeGetTime ();
-  static bool  carret    = true;
-
-  if (visible) {
-    output += text;
-
-    // Blink the Carret
-    if (timeGetTime () - last_time > 333) {
-      carret = ! carret;
-
-      last_time = timeGetTime ();
-    }
-
-    if (carret)
-      output += "-";
-
-    // Show Command Results
-    if (command_issued) {
-      output += "\n";
-      output += result_str;
-    }
-  }
-
-  console_text = output;
-
-  if (output.length ())
-    output += "\n\n";
-
-  output += mod_text;
-
-  SK_DrawExternalOSD ("ToZ Fix", output.c_str ());
-}
-
-unsigned int
-__stdcall
-tsf::InputManager::Hooker::MessagePump (LPVOID hook_ptr)
-{
-  hooks_s* pHooks = (hooks_s *)hook_ptr;
-
-  ZeroMemory (text, 4096);
-
-  text [0] = '>';
-
-  extern    HMODULE hDLLMod;
-
-  DWORD dwThreadId;
-
-  int hits = 0;
-
-  DWORD dwTime = timeGetTime ();
-
-  while (true) {
-    // Spin until the game has a render window setup and various
-    //   other resources loaded
-    if (! tsf::RenderFix::pDevice) {
-      Sleep (83);
-      continue;
-    }
-
-    DWORD dwProc;
-
-    dwThreadId =
-      GetWindowThreadProcessId (GetForegroundWindow (), &dwProc);
-
-    // Ugly hack, but a different window might be in the foreground...
-    if (dwProc != GetCurrentProcessId ()) {
-      //dll_log->Log (L" *** Tried to hook the wrong process!!!");
-      Sleep (83);
-      continue;
-    }
-
-    break;
-  }
-
-  //tsf::WindowManager::Init ();
-
-  // Defer initialization of the Window Message redirection stuff until
-  //   we have an actual window!
-  eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor ();
-  pCommandProc->ProcessCommandFormatted ("TargetFPS %f", config.window.foreground_fps);
-
-
-  dll_log->Log ( L"[   Input  ] # Found window in %03.01f seconds, "
-                     L"installing deferred keyboard hook...",
-                   (float)(timeGetTime () - dwTime) / 1000.0f );
-
-  dwTime = timeGetTime ();
-  hits   = 1;
-
-  while (! (pHooks->keyboard = SetWindowsHookEx ( WH_KEYBOARD,
-                                                    KeyboardProc,
-                                                      hDLLMod,
-                                                        dwThreadId ))) {
-    _com_error err (HRESULT_FROM_WIN32 (GetLastError ()));
-
-    dll_log->Log ( L"[   Input  ] @ SetWindowsHookEx failed: 0x%04X (%s)",
-                   err.WCode (), err.ErrorMessage () );
-
-    ++hits;
-
-    if (hits >= 5) {
-      dll_log->Log ( L"[   Input  ] * Failed to install keyboard hook after %lu tries... "
-        L"bailing out!",
-        hits );
-      return 0;
-    }
-
-    Sleep (1);
-  }
-
-  dll_log->Log ( L"[   Input  ] * Installed keyboard hook for command console... "
-                       L"%lu %s (%lu ms!)",
-                 hits,
-                   hits > 1 ? L"tries" : L"try",
-                     timeGetTime () - dwTime );
-
-  // Keep the thread alive indefinitely, we need a thread (even if it does nothing)
-  //   alive in order for the keyboard hook to work.
-  Sleep (INFINITE);
-
-  _endthreadex (0);
-
-  return 0;
-}
-
-LRESULT
-CALLBACK
-tsf::InputManager::Hooker::MouseProc (int nCode, WPARAM wParam, LPARAM lParam)
-{
-  MOUSEHOOKSTRUCT* pmh = (MOUSEHOOKSTRUCT *)lParam;
-
-  return CallNextHookEx (Hooker::getInstance ()->hooks.mouse, nCode, wParam, lParam);
-}
-
-LRESULT
-CALLBACK
-tsf::InputManager::Hooker::KeyboardProc (int nCode, WPARAM wParam, LPARAM lParam)
-{
-  if (nCode == 0) {
-    // If DirectInput isn't going to hook this, we'll do it ourself
-    HookRawInput ();
-
-    BYTE    vkCode   = LOWORD (wParam) & 0xFF;
-    BYTE    scanCode = HIWORD (lParam) & 0x7F;
-    SHORT   repeated = LOWORD (lParam);
-    bool    keyDown  = ! (lParam & 0x80000000);
-
-    if (visible && vkCode == VK_BACK) {
-      if (keyDown) {
-        size_t len = strlen (text);
-               len--;
-
-        if (len < 1)
-          len = 1;
-
-        text [len] = '\0';
-      }
-    }
-
-    // We don't want to distinguish between left and right on these keys, so alias the stuff
-    else if ((vkCode == VK_SHIFT || vkCode == VK_LSHIFT || vkCode == VK_RSHIFT)) {
-      if (keyDown) keys_ [VK_SHIFT] = 0x81; else keys_ [VK_SHIFT] = 0x00;
-    }
-
-    else if ((vkCode == VK_MENU || vkCode == VK_LMENU || vkCode == VK_MENU)) {
-      if (keyDown) keys_ [VK_MENU] = 0x81; else keys_ [VK_MENU] = 0x00;
-    }
-
-    else if ((!repeated) && vkCode == VK_CAPITAL) {
-      if (keyDown) if (keys_ [VK_CAPITAL] == 0x00) keys_ [VK_CAPITAL] = 0x81; else keys_ [VK_CAPITAL] = 0x00;
-    }
-
-    else if ((vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL)) {
-      if (keyDown) keys_ [VK_CONTROL] = 0x81; else keys_ [VK_CONTROL] = 0x00;
-    }
-
-    else if ((vkCode == VK_UP) || (vkCode == VK_DOWN)) {
-      if (keyDown && visible) {
-        if (vkCode == VK_UP)
-          commands.idx--;
-        else
-          commands.idx++;
-
-        // Clamp the index
-        if (commands.idx < 0)
-          commands.idx = 0;
-        else if (commands.idx >= commands.history.size ())
-          commands.idx = commands.history.size () - 1;
-
-        if (commands.history.size ()) {
-          strcpy (&text [1], commands.history [commands.idx].c_str ());
-          command_issued = false;
-        }
-      }
-    }
-
-    else if (visible && vkCode == VK_RETURN) {
-      if (keyDown && LOWORD (lParam) < 2) {
-        size_t len = strlen (text+1);
-        // Don't process empty or pure whitespace command lines
-        if (len > 0 && strspn (text+1, " ") != len) {
-          eTB_CommandResult result = SK_GetCommandProcessor ()->ProcessCommandLine (text+1);
-
-          if (result.getStatus ()) {
-            // Don't repeat the same command over and over
-            if (commands.history.size () == 0 ||
-                commands.history.back () != &text [1]) {
-              commands.history.push_back (&text [1]);
-            }
-
-            commands.idx = commands.history.size ();
-
-            text [1] = '\0';
-
-            command_issued = true;
-          }
-          else {
-            command_issued = false;
-          }
-
-          result_str = result.getWord   () + std::string (" ")   +
-                       result.getArgs   () + std::string (":  ") +
-                       result.getResult ();
-        }
-      }
-    }
-
-    else if (keyDown) {
-      eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor ();
-
-      bool new_press = keys_ [vkCode] != 0x81;
-
-      keys_ [vkCode] = 0x81;
-
-      if (keys_ [VK_CONTROL] && keys_ [VK_SHIFT] ) {
-        if (vkCode == VK_TAB && keys_ [VK_TAB] && new_press) {
-          visible = ! visible;
-
-          // Avoid duplicating a SK feature
-          static HMODULE hD3D9 = GetModuleHandle (config.system.injector.c_str ());
-
-          typedef void (__stdcall *SK_SteamAPI_SetOverlayState_pfn)(bool);
-          static SK_SteamAPI_SetOverlayState_pfn SK_SteamAPI_SetOverlayState =
-              (SK_SteamAPI_SetOverlayState_pfn)
-                GetProcAddress ( hD3D9,
-                                    "SK_SteamAPI_SetOverlayState" );
-
-          SK_SteamAPI_SetOverlayState (visible);
-
-          // Prevent the Steam Overlay from being a real pain
-          return -1;
-        }
-
-        if (keys_ [VK_MENU] && vkCode == 'L' && new_press) {
-          pCommandProc->ProcessCommandLine ("Trace.NumFrames 1");
-          pCommandProc->ProcessCommandLine ("Trace.Enable true");
-        }
-
-// Not really that useful, and we want the 'B' key for something else
-#if 0
-        else if (keys_ [VK_MENU] && vkCode == 'B' && new_press) {
-          pCommandProc->ProcessCommandLine ("Render.AllowBG toggle");
-        }
-#endif
-
-        else if (keys_ [VK_MENU] && vkCode == 'H' && new_press) {
-          pCommandProc->ProcessCommandLine ("Timing.HyperSpeed toggle");
-        }
-
-        else if (vkCode == 'B' && new_press) {
-          pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
-          if (! config.render.remove_blur)
-            tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
-        }
-
-        //else if (vkCode == 'C' && new_press) {
-          //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
-        //}
-
-#if 0
-        else if (vkCode == 'Z') {
-          extern void TSF_Zoom (double incr);
-          TSF_Zoom (-0.01);
-        }
-
-        else if (vkCode == 'X') {
-          extern void TSF_Zoom (double incr);
-          TSF_Zoom (0.01);
-        }
-
-        else if (vkCode == 'C') {
-          extern void TSF_ZoomEx (double incr);
-          TSF_ZoomEx (0.5);
-        }
-#endif
-
-        else if (vkCode == VK_OEM_PERIOD && new_press) {
-          pCommandProc->ProcessCommandLine ("Render.OutlineTechnique inc");
-
-          if (config.render.outline_technique > 2)
-            config.render.outline_technique = 0;
-        }
-
-        else if (vkCode == VK_OEM_COMMA && new_press) {
-          pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
-        }
-
-        else if (vkCode == '1' && new_press) {
-          pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 60.0");
-        }
-
-        else if (vkCode == '2' && new_press) {
-          pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 30.0");
-        }
-
-        else if (vkCode == 'U' && new_press) {
-          pCommandProc->ProcessCommandLine  ("Textures.Remap toggle");
-          tsf::RenderFix::tex_mgr.updateOSD ();
-        }
-
-        else if (vkCode == 'Z' && new_press) {
-          pCommandProc->ProcessCommandLine  ("Textures.Purge true");
-          tsf::RenderFix::tex_mgr.updateOSD ();
-        }
-
-        else if (vkCode == 'X' && new_press) {
-          pCommandProc->ProcessCommandLine  ("Textures.Trace true");
-          tsf::RenderFix::tex_mgr.updateOSD ();
-        }
-
-        else if (vkCode == 'V' && new_press) {
-          pCommandProc->ProcessCommandLine  ("Textures.ShowCache toggle");
-          tsf::RenderFix::tex_mgr.updateOSD ();
-        }
-
-        else if (vkCode == VK_OEM_6 && new_press) {
-          extern std::vector <uint32_t> textures_used_last_dump;
-          extern int                    tex_dbg_idx;
-          ++tex_dbg_idx;
-
-          if (tex_dbg_idx > textures_used_last_dump.size ())
-            tex_dbg_idx = textures_used_last_dump.size ();
-
-          extern int debug_tex_id;
-          debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
-
-          tsf::RenderFix::tex_mgr.updateOSD ();
-        }
-
-        else if (vkCode == VK_OEM_4 && new_press) {
-          extern std::vector <uint32_t> textures_used_last_dump;
-          extern int                    tex_dbg_idx;
-          extern int                    debug_tex_id;
-
-          --tex_dbg_idx;
-
-          if (tex_dbg_idx < 0) {
-            tex_dbg_idx = -1;
-            debug_tex_id = 0;
-          } else {
-            if (tex_dbg_idx > textures_used_last_dump.size ())
-              tex_dbg_idx = textures_used_last_dump.size ();
-
-            debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
-          }
-
-          tsf::RenderFix::tex_mgr.updateOSD ();
-        }
-
-        else if (vkCode == 'N') {
-          eTB_CommandResult result =
-            pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
-
-          float val =
-            ((eTB_VarStub <float> *)result.getVariable ())->getValue ();
-
-          val -= 10000.0f;
-
-          pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
-        }
-
-        else if (vkCode == 'M') {
-          eTB_CommandResult result =
-            pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
-
-          float val =
-            ((eTB_VarStub <float> *)result.getVariable ())->getValue ();
-
-          val += 10000.0f;
-
-          pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
-        }
-      }
-
-      // Don't print the tab character, it's pretty useless.
-      if (visible && vkCode != VK_TAB) {
-        char key_str [2];
-        key_str [1] = '\0';
-
-        if (1 == ToAsciiEx ( vkCode,
-                              scanCode,
-                              keys_,
-                            (LPWORD)key_str,
-                              0,
-                              GetKeyboardLayout (0) ) &&
-                 isprint ( *key_str )) {
-          strncat (text, key_str, 1);
-          command_issued = false;
-        }
-      }
-    }
-
-    else if ((! keyDown))
-      keys_ [vkCode] = 0x00;
-
-    if (visible) return -1;
-  }
-
-  if (keys_ [VK_CONTROL] != 0x00)
-    return -1;
-
-  return CallNextHookEx (Hooker::getInstance ()->hooks.keyboard, nCode, wParam, lParam);
-};
-
 
 void
 TSFix_DrawCommandConsole (void)
@@ -979,22 +665,30 @@ TSFix_DrawCommandConsole (void)
 
   // Skip the first several frames, so that the console appears below the
   //  other OSD.
-  if (draws++ > 200) {
-    tsf::InputManager::Hooker* pHook = tsf::InputManager::Hooker::getInstance ();
-    pHook->Draw ();
+  if (draws++ > 20) {
+    typedef BOOL (__stdcall *SK_DrawExternalOSD_pfn)(std::string app_name, std::string text);
+
+    static HMODULE               hMod =
+      GetModuleHandle (config.system.injector.c_str ());
+    static SK_DrawExternalOSD_pfn SK_DrawExternalOSD
+      =
+      (SK_DrawExternalOSD_pfn)GetProcAddress (hMod, "SK_DrawExternalOSD");
+
+    extern bool __show_cache;
+    if (__show_cache) {
+      output += "Texture Cache\n";
+      output += "-------------\n";
+      output += tsf::RenderFix::tex_mgr.osdStats ();
+      output += "\n\n";
+    }
+
+    // The "mod_text" includes the little spinny wheel while texture streaming
+    //  is going on. That should be displayed unconditionally...
+    output += mod_text;
+
+    SK_DrawExternalOSD ("ToSFix", output);
+
+    mod_text = "";
+    output   = "";
   }
 }
-
-
-tsf::InputManager::Hooker* tsf::InputManager::Hooker::pInputHook;
-
-char                      tsf::InputManager::Hooker::text [4096];
-
-BYTE                      tsf::InputManager::Hooker::keys_ [256]    = { 0 };
-bool                      tsf::InputManager::Hooker::visible        = false;
-
-bool                      tsf::InputManager::Hooker::command_issued = false;
-std::string               tsf::InputManager::Hooker::result_str;
-
-tsf::InputManager::Hooker::command_history_s
-                          tsf::InputManager::Hooker::commands;

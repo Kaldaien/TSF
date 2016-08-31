@@ -37,6 +37,7 @@ GetFocus_pfn            GetFocus_Original            = nullptr;
 MoveWindow_pfn          MoveWindow_Original          = nullptr;
 SetWindowPos_pfn        SetWindowPos_Original        = nullptr;
 SetWindowLongA_pfn      SetWindowLongA_Original      = nullptr;
+SK_IsConsoleVisible_pfn SK_IsConsoleVisible          = nullptr;
 
 LRESULT
 CALLBACK
@@ -436,14 +437,14 @@ DetourWindowProc ( _In_  HWND   hWnd,
   static bool last_active = tsf::window.active;
 
   bool console_visible   =
-    tsf::InputManager::Hooker::getInstance ()->isVisible ();
+    SK_IsConsoleVisible () != 0;
 
   //
   // The window activation state is changing, among other things we can take
   //   this opportunity to setup a special framerate limit.
   //
   if (tsf::window.active != last_active) {
-    eTB_CommandProcessor* pCommandProc =
+    SK_ICommandProcessor* pCommandProc =
       SK_GetCommandProcessor           ();
 
       tsf::InputManager::FixAltTab ();
@@ -588,6 +589,13 @@ tsf::WindowManager::Init (void)
               (LPVOID*)&IsIconic_Original );
 #endif
 
+  SK_IsConsoleVisible =
+    (SK_IsConsoleVisible_pfn)
+      GetProcAddress (
+        GetModuleHandle ( config.system.injector.c_str () ),
+          "SK_IsConsoleVisible"
+      );
+
   CommandProcessor* comm_proc = CommandProcessor::getInstance ();
 }
 
@@ -600,10 +608,10 @@ tsf::WindowManager::Shutdown (void)
 tsf::WindowManager::
   CommandProcessor::CommandProcessor (void)
 {
-  foreground_fps_ = new eTB_VarStub <float> (&config.window.foreground_fps, this);
-  background_fps_ = new eTB_VarStub <float> (&config.window.background_fps, this);
+  foreground_fps_ = TSF_CreateVar (SK_IVariable::Float, &config.window.foreground_fps, this);
+  background_fps_ = TSF_CreateVar (SK_IVariable::Float, &config.window.background_fps, this);
 
-  eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor ();
+  SK_ICommandProcessor* pCommandProc = SK_GetCommandProcessor ();
 
   pCommandProc->AddVariable ("Window.BackgroundFPS", background_fps_);
   pCommandProc->AddVariable ("Window.ForegroundFPS", foreground_fps_);
@@ -616,9 +624,9 @@ tsf::WindowManager::
 
 bool
   tsf::WindowManager::
-    CommandProcessor::OnVarChange (eTB_Variable* var, void* val)
+    CommandProcessor::OnVarChange (SK_IVariable* var, void* val)
 {
-  eTB_CommandProcessor* pCommandProc = SK_GetCommandProcessor ();
+  SK_ICommandProcessor* pCommandProc = SK_GetCommandProcessor ();
 
   bool known = false;
 
