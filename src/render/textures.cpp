@@ -3340,7 +3340,22 @@ SK_TextureWorkerThread::ThreadProc (LPVOID user)
   }
   LeaveCriticalSection (&cs_worker_init);
 
-  InterlockedIncrement (&num_threads_init);
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo (&sysinfo);
+
+  ULONG thread_num    = InterlockedIncrement (&num_threads_init);
+
+  // If a system has more than 4 CPUs (logical or otherwise), let the last one
+  //   be dedicated to rendering.
+  ULONG processor_num = thread_num % ( sysinfo.dwNumberOfProcessors > 4 ?
+                                         sysinfo.dwNumberOfProcessors - 1 :
+                                         sysinfo.dwNumberOfProcessors );
+
+  // Tales of Symphonia and Zestiria both pin the render thread to the last
+  //   CPU... let's try to keep our worker threads OFF that CPU.
+
+  SetThreadIdealProcessor (GetCurrentThread (),      processor_num);
+  SetThreadAffinityMask   (GetCurrentThread (), 1 << processor_num);
 
   // Ghetto sync. barrier, since Windows 7 does not support them...
   while ( InterlockedCompareExchange (

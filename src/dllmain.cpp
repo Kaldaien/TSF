@@ -45,6 +45,8 @@ HMODULE hInjectorDLL = { 0 }; // Handle to Special K
 typedef void (__stdcall *SK_SetPluginName_pfn)(std::wstring name);
 SK_SetPluginName_pfn SK_SetPluginName = nullptr;
 
+std::wstring injector_dll;
+
 DWORD
 WINAPI
 DllThread (LPVOID user)
@@ -67,12 +69,13 @@ DllThread (LPVOID user)
                             TSFIX_VER_STR.c_str () );
 
   if (! TSFix_LoadConfig ()) {
+    config.system.injector = injector_dll;
+
     // Save a new config if none exists
     TSFix_SaveConfig ();
   }
 
-  hInjectorDLL =
-    GetModuleHandle (config.system.injector.c_str ());
+  config.system.injector = injector_dll;
 
   SK_SetPluginName = 
     (SK_SetPluginName_pfn)
@@ -112,6 +115,36 @@ DllThread (LPVOID user)
   return 0;
 }
 
+__declspec (dllexport)
+BOOL
+WINAPI
+SKPlugIn_Init (HMODULE hModSpecialK)
+{
+  wchar_t wszSKFileName [MAX_PATH];
+          wszSKFileName [MAX_PATH - 1] = L'\0';
+
+  GetModuleFileName (hModSpecialK, wszSKFileName, MAX_PATH - 1);
+
+  injector_dll = wszSKFileName;
+
+  hInjectorDLL = hModSpecialK;
+
+#if 1
+  CreateThread ( nullptr,
+                   0,
+                     DllThread,
+                       nullptr,
+                         0x00,
+                           nullptr );
+#else
+
+  // Not really a thread now is it? :P
+  DllThread (nullptr);
+#endif
+
+  return TRUE;
+}
+
 BOOL
 APIENTRY
 DllMain (HMODULE hModule,
@@ -122,32 +155,29 @@ DllMain (HMODULE hModule,
   {
     case DLL_PROCESS_ATTACH:
     {
-      CreateThread ( nullptr,
-                       0,
-                         DllThread,
-                           nullptr,
-                             0x00,
-                               nullptr );
+      hDLLMod = hModule;
     } break;
 
     case DLL_PROCESS_DETACH:
     {
-      tsf::WindowManager::Shutdown ();
-      tsf::RenderFix::Shutdown     ();
-      tsf::InputManager::Shutdown  ();
-      tsf::TimingFix::Shutdown     ();
+      if (dll_log != nullptr) {
+        tsf::WindowManager::Shutdown ();
+        tsf::RenderFix::Shutdown     ();
+        tsf::InputManager::Shutdown  ();
+        tsf::TimingFix::Shutdown     ();
 
-      TSFix_UnInit_MinHook ();
-      TSFix_SaveConfig     ();
+        TSFix_UnInit_MinHook ();
+        TSFix_SaveConfig     ();
 
-      dll_log->LogEx ( false, L"=========== (Version: v %s) "
-                              L"===========\n",
-                               TSFIX_VER_STR.c_str () );
-      dll_log->LogEx ( true,  L"End TSFix Plug-In\n" );
-      dll_log->LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
-                              L"-------\n" );
+        dll_log->LogEx ( false, L"=========== (Version: v %s) "
+                                L"===========\n",
+                                TSFIX_VER_STR.c_str () );
+        dll_log->LogEx ( true,  L"End TSFix Plug-In\n" );
+        dll_log->LogEx ( false, L"------- [Tales of Symphonia \"Fix\"] "
+                                L"-------\n" );
 
-      dll_log->close ();
+        dll_log->close ();
+      }
     } break;
   }
 

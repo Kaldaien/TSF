@@ -716,7 +716,7 @@ tsf::TimingFix::Init (void)
   // Install Stutter Fix
   //
   else {
-    TSFix_CreateDLLHook ( L"d3d9.dll", "QueryPerformanceCounter_Detour",
+    TSFix_CreateDLLHook ( config.system.injector.c_str (), "QueryPerformanceCounter_Detour",
                           QueryPerformanceCounter_Detour, 
                (LPVOID *)&QueryPerformanceCounter_Original );
 

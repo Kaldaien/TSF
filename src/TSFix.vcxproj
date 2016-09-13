@@ -181,7 +181,6 @@
     <ClInclude Include="ini.h" />
     <ClInclude Include="input.h" />
     <ClInclude Include="log.h" />
-    <ClInclude Include="MinHook\include\MinHook.h" />
     <ClInclude Include="parameter.h" />
     <ClInclude Include="render.h" />
     <ClInclude Include="render\textures.h" />
@@ -258,6 +257,9 @@
   <ItemGroup>
     <ResourceCompile Include="..\include\lzma\7zVersion.rc" />
     <ResourceCompile Include="TSFix.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="symbols.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

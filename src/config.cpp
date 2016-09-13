@@ -28,7 +28,7 @@
 static
   iSK_INI* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.9.5";
+std::wstring TSFIX_VER_STR = L"0.9.6";
 tsf_config_s config;
 
 struct {
@@ -105,10 +105,12 @@ static SK_GetConfigPath_pfn SK_GetConfigPath = nullptr;
 bool
 TSFix_LoadConfig (std::wstring name)
 {
+  extern HMODULE hInjectorDLL;
+
   SK_GetConfigPath =
     (SK_GetConfigPath_pfn)
       GetProcAddress (
-        GetModuleHandle ( L"d3d9.dll" ),
+        hInjectorDLL,
           "SK_GetConfigPath"
       );
 

@@ -414,13 +414,13 @@ HookRawInput (void)
 {
   // Defer installation of this hook until DirectInput8 is setup
   if (GetRawInputData_Original == nullptr) {
-    dll_log->LogEx (true, L"[   Input  ] Installing Deferred Hook: \"GetRawInputData (...)\"... ");
+    dll_log->LogEx (true, L"[   Input  ] Installing Deferred Hook: \"GetRawInputData (...)\"...\n");
     MH_STATUS status =
       TSFix_CreateDLLHook ( config.system.injector.c_str (),
                             "GetRawInputData",
                              GetRawInputData_Detour,
                    (LPVOID*)&GetRawInputData_Original );
-   dll_log->LogEx (false, L"%hs\n", MH_StatusToString (status));
+   //dll_log->LogEx (false, L"%hs\n", MH_StatusToString (status));
   }
 }
 
@@ -457,128 +457,131 @@ SK_TSF_PluginKeyPress ( BOOL Control,
     pCommandProc->ProcessCommandLine ("Timing.HyperSpeed toggle");
   }
 
-  else if (vkCode == 'B') {
-    pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
-    if (! config.render.remove_blur)
-      tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
-  }
 
-  //else if (vkCode == 'C') {
-    //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
-  //}
+  if (Control && Shift) {
+    if (vkCode == 'B') {
+      pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
+      if (! config.render.remove_blur)
+        tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
+    }
+
+    //else if (vkCode == 'C') {
+      //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
+    //}
 
 #if 0
-  else if (vkCode == 'Z') {
-    extern void TSF_Zoom (double incr);
-    TSF_Zoom (-0.01);
-  }
+    else if (vkCode == 'Z') {
+      extern void TSF_Zoom (double incr);
+      TSF_Zoom (-0.01);
+    }
 
-  else if (vkCode == 'X') {
-    extern void TSF_Zoom (double incr);
-    TSF_Zoom (0.01);
-  }
+    else if (vkCode == 'X') {
+      extern void TSF_Zoom (double incr);
+      TSF_Zoom (0.01);
+    }
 
-  else if (vkCode == 'C') {
-    extern void TSF_ZoomEx (double incr);
-    TSF_ZoomEx (0.5);
-  }
+    else if (vkCode == 'C') {
+      extern void TSF_ZoomEx (double incr);
+      TSF_ZoomEx (0.5);
+    }
 #endif
 
-  else if (vkCode == VK_OEM_PERIOD) {
-    pCommandProc->ProcessCommandLine ("Render.OutlineTechnique inc");
+    else if (vkCode == VK_OEM_PERIOD) {
+      pCommandProc->ProcessCommandLine ("Render.OutlineTechnique inc");
 
-    if (config.render.outline_technique > 2)
-      config.render.outline_technique = 0;
-  }
+      if (config.render.outline_technique > 2)
+        config.render.outline_technique = 0;
+    }
 
-  else if (vkCode == VK_OEM_COMMA) {
-    pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
-  }
+    else if (vkCode == VK_OEM_COMMA) {
+      pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
+    }
 
-  else if (vkCode == '1') {
-    pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 60.0");
-  }
+    else if (vkCode == '1') {
+      pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 60.0");
+    }
 
-  else if (vkCode == '2') {
-    pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 30.0");
-  }
+    else if (vkCode == '2') {
+      pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 30.0");
+    }
 
-  else if (vkCode == 'U') {
-    pCommandProc->ProcessCommandLine  ("Textures.Remap toggle");
+    else if (vkCode == 'U') {
+      pCommandProc->ProcessCommandLine  ("Textures.Remap toggle");
+      tsf::RenderFix::tex_mgr.updateOSD ();
+    }
+
+    else if (vkCode == 'Z') {
+      pCommandProc->ProcessCommandLine  ("Textures.Purge true");
+      tsf::RenderFix::tex_mgr.updateOSD ();
+    }
+
+    else if (vkCode == 'X') {
+      pCommandProc->ProcessCommandLine  ("Textures.Trace true");
+      tsf::RenderFix::tex_mgr.updateOSD ();
+    }
+
+    else if (vkCode == 'V') {
+      pCommandProc->ProcessCommandLine  ("Textures.ShowCache toggle");
     tsf::RenderFix::tex_mgr.updateOSD ();
-  }
+    }
 
-  else if (vkCode == 'Z') {
-    pCommandProc->ProcessCommandLine  ("Textures.Purge true");
-    tsf::RenderFix::tex_mgr.updateOSD ();
-  }
+    else if (vkCode == VK_OEM_6) {
+      extern std::vector <uint32_t> textures_used_last_dump;
+      extern int                    tex_dbg_idx;
+      ++tex_dbg_idx;
 
-  else if (vkCode == 'X') {
-    pCommandProc->ProcessCommandLine  ("Textures.Trace true");
-    tsf::RenderFix::tex_mgr.updateOSD ();
-  }
-
-  else if (vkCode == 'V') {
-    pCommandProc->ProcessCommandLine  ("Textures.ShowCache toggle");
-    tsf::RenderFix::tex_mgr.updateOSD ();
-  }
-
-  else if (vkCode == VK_OEM_6) {
-    extern std::vector <uint32_t> textures_used_last_dump;
-    extern int                    tex_dbg_idx;
-    ++tex_dbg_idx;
-
-    if (tex_dbg_idx > textures_used_last_dump.size ())
-      tex_dbg_idx = textures_used_last_dump.size ();
-
-    extern int debug_tex_id;
-    debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
-
-    tsf::RenderFix::tex_mgr.updateOSD ();
-  }
-
-  else if (vkCode == VK_OEM_4) {
-    extern std::vector <uint32_t> textures_used_last_dump;
-    extern int                    tex_dbg_idx;
-    extern int                    debug_tex_id;
-
-    --tex_dbg_idx;
-
-    if (tex_dbg_idx < 0) {
-      tex_dbg_idx = -1;
-      debug_tex_id = 0;
-    } else {
       if (tex_dbg_idx > textures_used_last_dump.size ())
         tex_dbg_idx = textures_used_last_dump.size ();
 
+      extern int debug_tex_id;
       debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
+
+      tsf::RenderFix::tex_mgr.updateOSD ();
     }
 
-    tsf::RenderFix::tex_mgr.updateOSD ();
-  }
+    else if (vkCode == VK_OEM_4) {
+      extern std::vector <uint32_t> textures_used_last_dump;
+      extern int                    tex_dbg_idx;
+      extern int                    debug_tex_id;
 
-  else if (vkCode == 'N') {
-    SK_ICommandResult result =
-      pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
+      --tex_dbg_idx;
 
-    float val =
-      *(float *)result.getVariable ()->getValuePointer ();
+      if (tex_dbg_idx < 0) {
+        tex_dbg_idx = -1;
+        debug_tex_id = 0;
+      } else {
+        if (tex_dbg_idx > textures_used_last_dump.size ())
+          tex_dbg_idx = textures_used_last_dump.size ();
 
-    val -= 10000.0f;
+        debug_tex_id = (int)textures_used_last_dump [tex_dbg_idx];
+      }
 
-    pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
-  }
+      tsf::RenderFix::tex_mgr.updateOSD ();
+    }
 
-  else if (vkCode == 'M') {
-    SK_ICommandResult result =
-      pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
+    else if (vkCode == 'N') {
+      SK_ICommandResult result =
+        pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
 
-    float val =
-      *(float *)result.getVariable ()->getValuePointer ();
+      float val =
+        *(float *)result.getVariable ()->getValuePointer ();
 
-    val += 10000.0f;
+      val -= 10000.0f;
 
-    pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
+      pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
+    }
+
+    else if (vkCode == 'M') {
+      SK_ICommandResult result =
+        pCommandProc->ProcessCommandLine ("Render.AnimSpeed");
+
+      float val =
+        *(float *)result.getVariable ()->getValuePointer ();
+
+      val += 10000.0f;
+
+      pCommandProc->ProcessCommandFormatted ("Render.AnimSpeed %f", val);
+    }
   }
 
   SK_PluginKeyPress_Original (Control, Shift, Alt, vkCode);
