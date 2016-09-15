@@ -93,6 +93,16 @@ TSFix_CreateDLLHook ( LPCWSTR pwszModule, LPCSTR  pszProcName,
 
 MH_STATUS
 __stdcall
+TSFix_CreateDLLHook2 ( LPCWSTR pwszModule, LPCSTR  pszProcName,
+                       LPVOID  pDetour,    LPVOID *ppOriginal,
+                       LPVOID *ppFuncAddr = nullptr );
+
+MH_STATUS
+__stdcall
+TSFix_ApplyQueuedHooks (void);
+
+MH_STATUS
+__stdcall
 TSFix_EnableHook (LPVOID pTarget);
 
 MH_STATUS

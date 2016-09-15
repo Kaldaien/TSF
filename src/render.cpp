@@ -1777,31 +1777,31 @@ tsf::RenderFix::Init (void)
   void SK_SetupD3D9Hooks (void);
   SK_SetupD3D9Hooks ();
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "SK_BeginBufferSwap",
-                         D3D9EndFrame_Pre,
-               (LPVOID*)&SK_BeginBufferSwap );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "SK_BeginBufferSwap",
+                          D3D9EndFrame_Pre,
+                (LPVOID*)&SK_BeginBufferSwap );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9Reset_Override",
-                         D3D9Reset_Detour,
-               (LPVOID*)&D3D9Reset_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9Reset_Override",
+                          D3D9Reset_Detour,
+                (LPVOID*)&D3D9Reset_Original );
 
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "SK_EndBufferSwap",
-                         D3D9EndFrame_Post,
-               (LPVOID*)&SK_EndBufferSwap );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "SK_EndBufferSwap",
+                          D3D9EndFrame_Post,
+                (LPVOID*)&SK_EndBufferSwap );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "SK_SetPresentParamsD3D9",
-                         SK_SetPresentParamsD3D9_Detour,
-              (LPVOID *)&SK_SetPresentParamsD3D9_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "SK_SetPresentParamsD3D9",
+                          SK_SetPresentParamsD3D9_Detour,
+               (LPVOID *)&SK_SetPresentParamsD3D9_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetSamplerState_Override",
-                         D3D9SetSamplerState_Detour,
-                (LPVOID*)&D3D9SetSamplerState_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetSamplerState_Override",
+                          D3D9SetSamplerState_Detour,
+                 (LPVOID*)&D3D9SetSamplerState_Original );
 
   CommandProcessor*     comm_proc    = CommandProcessor::getInstance ();
   SK_ICommandProcessor* pCommandProc = SK_GetCommandProcessor        ();
@@ -1830,6 +1830,8 @@ tsf::RenderFix::Init (void)
 
   pCommandProc->AddVariable ("Textures.MaxCacheSize", TSF_CreateVar (SK_IVariable::Int, &config.textures.max_cache_in_mib));
   pCommandProc->AddVariable ("Textures.DebugTexID",   TSF_CreateVar (SK_IVariable::Int, &debug_tex_id));
+
+  TSFix_ApplyQueuedHooks ();
 
   tex_mgr.Init ();
 }
@@ -1928,66 +1930,66 @@ sub_611F10_Detour (void)
 void
 SK_SetupD3D9Hooks (void)
 {
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetViewport_Override",
-                         D3D9SetViewport_Detour,
-               (LPVOID*)&D3D9SetViewport_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetViewport_Override",
+                          D3D9SetViewport_Detour,
+                (LPVOID*)&D3D9SetViewport_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetScissorRect_Override",
-                         D3D9SetScissorRect_Detour,
-               (LPVOID*)&D3D9SetScissorRect_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetScissorRect_Override",
+                          D3D9SetScissorRect_Detour,
+                (LPVOID*)&D3D9SetScissorRect_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetVertexShaderConstantF_Override",
-                         D3D9SetVertexShaderConstantF_Detour,
-               (LPVOID*)&D3D9SetVertexShaderConstantF_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetVertexShaderConstantF_Override",
+                          D3D9SetVertexShaderConstantF_Detour,
+                (LPVOID*)&D3D9SetVertexShaderConstantF_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawPrimitive_Override",
-                         D3D9DrawPrimitive_Detour,
-               (LPVOID*)&D3D9DrawPrimitive_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9DrawPrimitive_Override",
+                          D3D9DrawPrimitive_Detour,
+                (LPVOID*)&D3D9DrawPrimitive_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawIndexedPrimitive_Override",
-                         D3D9DrawIndexedPrimitive_Detour,
-               (LPVOID*)&D3D9DrawIndexedPrimitive_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9DrawIndexedPrimitive_Override",
+                          D3D9DrawIndexedPrimitive_Detour,
+                (LPVOID*)&D3D9DrawIndexedPrimitive_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawPrimitiveUP_Override",
-                         D3D9DrawPrimitiveUP_Detour,
-               (LPVOID*)&D3D9DrawPrimitiveUP_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9DrawPrimitiveUP_Override",
+                          D3D9DrawPrimitiveUP_Detour,
+                (LPVOID*)&D3D9DrawPrimitiveUP_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9DrawIndexedPrimitiveUP_Override",
-                         D3D9DrawIndexedPrimitiveUP_Detour,
-               (LPVOID*)&D3D9DrawIndexedPrimitiveUP_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9DrawIndexedPrimitiveUP_Override",
+                          D3D9DrawIndexedPrimitiveUP_Detour,
+                (LPVOID*)&D3D9DrawIndexedPrimitiveUP_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetRenderState_Override",
-                         D3D9SetRenderState_Detour,
-               (LPVOID*)&D3D9SetRenderState_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetRenderState_Override",
+                          D3D9SetRenderState_Detour,
+                (LPVOID*)&D3D9SetRenderState_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9BeginScene_Override",
-                         D3D9BeginScene_Detour,
-               (LPVOID*)&D3D9BeginScene_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9BeginScene_Override",
+                          D3D9BeginScene_Detour,
+                (LPVOID*)&D3D9BeginScene_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9EndScene_Override",
-                         D3D9EndScene_Detour,
-               (LPVOID*)&D3D9EndScene_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9EndScene_Override",
+                          D3D9EndScene_Detour,
+                (LPVOID*)&D3D9EndScene_Original );
 
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetVertexShader_Override",
-                         D3D9SetVertexShader_Detour,
-               (LPVOID*)&D3D9SetVertexShader_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetVertexShader_Override",
+                          D3D9SetVertexShader_Detour,
+                (LPVOID*)&D3D9SetVertexShader_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetPixelShader_Override",
-                         D3D9SetPixelShader_Detour,
-               (LPVOID*)&D3D9SetPixelShader_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetPixelShader_Override",
+                          D3D9SetPixelShader_Detour,
+                (LPVOID*)&D3D9SetPixelShader_Original );
 
 #if 0
   TSFix_CreateFuncHook ( L"Namco_DrawHUD",
@@ -2009,6 +2011,7 @@ SK_SetupD3D9Hooks (void)
   pCommandProc->AddVariable ( "HUD.Show",
                                 TSF_CreateVar (SK_IVariable::Boolean, &draw_hud) );
 
+  TSFix_ApplyQueuedHooks ();
 }
 
 

@@ -532,9 +532,9 @@ NtSetTimerResolution_pfn   NtSetTimerResolution   = nullptr;
 void
 tsf::TimingFix::Init (void)
 {
-  TSFix_CreateDLLHook ( L"kernel32.dll", "CreateTimerQueueTimer",
-                          CreateTimerQueueTimer_Override,
-               (LPVOID *)&CreateTimerQueueTimer_Original );
+  TSFix_CreateDLLHook2 ( L"kernel32.dll", "CreateTimerQueueTimer",
+                           CreateTimerQueueTimer_Override,
+                (LPVOID *)&CreateTimerQueueTimer_Original );
 
   if (NtDll == 0) {
     NtDll = LoadLibrary (L"ntdll.dll");
@@ -716,9 +716,9 @@ tsf::TimingFix::Init (void)
   // Install Stutter Fix
   //
   else {
-    TSFix_CreateDLLHook ( config.system.injector.c_str (), "QueryPerformanceCounter_Detour",
-                          QueryPerformanceCounter_Detour, 
-               (LPVOID *)&QueryPerformanceCounter_Original );
+    TSFix_CreateDLLHook2 ( config.system.injector.c_str (), "QueryPerformanceCounter_Detour",
+                           QueryPerformanceCounter_Detour, 
+                (LPVOID *)&QueryPerformanceCounter_Original );
 
   }
 
@@ -736,6 +736,8 @@ tsf::TimingFix::Init (void)
   pCommandProc->AddVariable ("Timing.MenuFPS",     TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.menu));
   pCommandProc->AddVariable ("Timing.WorldFPS",    TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.world));
   pCommandProc->AddVariable ("Timing.DefaultFPS",  TSF_CreateVar (SK_IVariable::Boolean, &config.framerate.default));
+
+  TSFix_ApplyQueuedHooks ();
 }
 
 void

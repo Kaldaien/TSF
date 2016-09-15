@@ -2823,48 +2823,41 @@ tsf::RenderFix::TextureManager::Init (void)
   }
 
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9StretchRect_Override",
-                         D3D9StretchRect_Detour,
-               (LPVOID*)&D3D9StretchRect_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9StretchRect_Override",
+                          D3D9StretchRect_Detour,
+                (LPVOID*)&D3D9StretchRect_Original );
 #if 0
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9CreateDepthStencilSurface_Override",
-                         D3D9CreateDepthStencilSurface_Detour,
-               (LPVOID*)&D3D9CreateDepthStencilSurface_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9CreateDepthStencilSurface_Override",
+                          D3D9CreateDepthStencilSurface_Detour,
+                (LPVOID*)&D3D9CreateDepthStencilSurface_Original );
 #endif
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9CreateTexture_Override",
-                         D3D9CreateTexture_Detour,
-               (LPVOID*)&D3D9CreateTexture_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9CreateTexture_Override",
+                          D3D9CreateTexture_Detour,
+                (LPVOID*)&D3D9CreateTexture_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetTexture_Override",
-                         D3D9SetTexture_Detour,
-               (LPVOID*)&D3D9SetTexture_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetTexture_Override",
+                          D3D9SetTexture_Detour,
+                (LPVOID*)&D3D9SetTexture_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetRenderTarget_Override",
-                         D3D9SetRenderTarget_Detour,
-               (LPVOID*)&D3D9SetRenderTarget_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetRenderTarget_Override",
+                          D3D9SetRenderTarget_Detour,
+                (LPVOID*)&D3D9SetRenderTarget_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetDepthStencilSurface_Override",
-                         D3D9SetDepthStencilSurface_Detour,
-               (LPVOID*)&D3D9SetDepthStencilSurface_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetDepthStencilSurface_Override",
+                          D3D9SetDepthStencilSurface_Detour,
+                (LPVOID*)&D3D9SetDepthStencilSurface_Original );
 
-  TSFix_CreateDLLHook ( L"D3DX9_43.DLL",
-                         "D3DXCreateTextureFromFileInMemoryEx",
-                          D3DXCreateTextureFromFileInMemoryEx_Detour,
-               (LPVOID *)&D3DXCreateTextureFromFileInMemoryEx_Original );
-
-#if 0
-  TSFix_CreateDLLHook ( L"msvcr100.dll",
-                         "_endthreadex",
-                          _endthreadex_Detour,
-               (LPVOID *)&_endthreadex_Original );
-#endif
+  TSFix_CreateDLLHook2 ( L"D3DX9_43.DLL",
+                          "D3DXCreateTextureFromFileInMemoryEx",
+                           D3DXCreateTextureFromFileInMemoryEx_Detour,
+                (LPVOID *)&D3DXCreateTextureFromFileInMemoryEx_Original );
 
   D3DXSaveTextureToFile =
     (D3DXSaveTextureToFile_pfn)
@@ -2939,6 +2932,8 @@ tsf::RenderFix::TextureManager::Init (void)
   SK_GetCommandProcessor ()->AddVariable (
     "Textures.ShowCache",
       TSF_CreateVar (SK_IVariable::Boolean, &__show_cache) );
+
+  TSFix_ApplyQueuedHooks ();
 }
 
 

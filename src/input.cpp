@@ -416,10 +416,11 @@ HookRawInput (void)
   if (GetRawInputData_Original == nullptr) {
     dll_log->LogEx (true, L"[   Input  ] Installing Deferred Hook: \"GetRawInputData (...)\"...\n");
     MH_STATUS status =
-      TSFix_CreateDLLHook ( config.system.injector.c_str (),
+      TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
                             "GetRawInputData",
                              GetRawInputData_Detour,
                    (LPVOID*)&GetRawInputData_Original );
+      TSFix_ApplyQueuedHooks ();
    //dll_log->LogEx (false, L"%hs\n", MH_StatusToString (status));
   }
 }
@@ -622,35 +623,37 @@ tsf::InputManager::Init (void)
   // Win32 API Input Hooks
   //
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "GetAsyncKeyState_Detour",
-                         GetAsyncKeyState_Detour,
-               (LPVOID*)&GetAsyncKeyState_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "GetAsyncKeyState_Detour",
+                          GetAsyncKeyState_Detour,
+                (LPVOID*)&GetAsyncKeyState_Original );
 
-  TSFix_CreateDLLHook ( L"user32.dll",
-                        "ClipCursor",
-                         ClipCursor_Detour,
-               (LPVOID*)&ClipCursor_Original );
+  TSFix_CreateDLLHook2 ( L"user32.dll",
+                         "ClipCursor",
+                          ClipCursor_Detour,
+                (LPVOID*)&ClipCursor_Original );
 
-  TSFix_CreateDLLHook ( L"user32.dll",
-                        "SetCursorPos",
-                         SetCursorPos_Detour,
-               (LPVOID*)&SetCursorPos_Original );
+  TSFix_CreateDLLHook2 ( L"user32.dll",
+                         "SetCursorPos",
+                          SetCursorPos_Detour,
+                (LPVOID*)&SetCursorPos_Original );
 
-  TSFix_CreateDLLHook ( L"user32.dll",
-                        "SetPhysicalCursorPos",
-                         SetPhysicalCursorPos_Detour,
-               (LPVOID*)&SetPhysicalCursorPos_Original );
+  TSFix_CreateDLLHook2 ( L"user32.dll",
+                         "SetPhysicalCursorPos",
+                          SetPhysicalCursorPos_Detour,
+                (LPVOID*)&SetPhysicalCursorPos_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "D3D9SetCursorPosition_Override",
-                         D3D9SetCursorPosition_Detour,
-               (LPVOID*)&D3D9SetCursorPosition_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "D3D9SetCursorPosition_Override",
+                          D3D9SetCursorPosition_Detour,
+                (LPVOID*)&D3D9SetCursorPosition_Original );
 
-  TSFix_CreateDLLHook ( config.system.injector.c_str (),
-                        "SK_PluginKeyPress",
-                         SK_TSF_PluginKeyPress,
-              (LPVOID *)&SK_PluginKeyPress_Original );
+  TSFix_CreateDLLHook2 ( config.system.injector.c_str (),
+                         "SK_PluginKeyPress",
+                          SK_TSF_PluginKeyPress,
+               (LPVOID *)&SK_PluginKeyPress_Original );
+
+    TSFix_ApplyQueuedHooks ();
 }
 
 void
