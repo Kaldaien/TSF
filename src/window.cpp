@@ -100,6 +100,9 @@ SetWindowPos_Detour(
                                          uFlags );
   }
 
+  BringWindowToTop (tsf::window.hwnd);
+  SetActiveWindow  (tsf::window.hwnd);
+
 #if 0
   dll_log->Log ( L"[Window Mgr][!] SetWindowPos (...)");
 #endif
@@ -184,6 +187,22 @@ SetWindowPos_Detour(
     else
       return TRUE;
   } else {
+
+    tsf::window.window_rect.top    = Y;
+    tsf::window.window_rect.left   = X;
+    tsf::window.window_rect.bottom = Y + cy;
+    tsf::window.window_rect.right  = X + cx;
+
+    AdjustWindowRect ( &tsf::window.window_rect,
+                         GetWindowLongA (tsf::window.hwnd, GWL_STYLE),
+                           FALSE );
+
+    X = tsf::window.window_rect.left;
+    Y = tsf::window.window_rect.top;
+
+    cx = tsf::window.window_rect.right  - tsf::window.window_rect.left;
+    cy = tsf::window.window_rect.bottom - tsf::window.window_rect.top;
+
     return SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags | SWP_SHOWWINDOW );
   }
 #endif
@@ -236,8 +255,8 @@ tsf::WindowManager::BorderManager::Disable (void)
 
   window.borderless = true;
 
-  //BringWindowToTop (window.hwnd);
-  //SetActiveWindow  (window.hwnd);
+  BringWindowToTop (window.hwnd);
+  SetActiveWindow  (window.hwnd);
 
   DWORD dwNewLong = window.style;
 
@@ -352,12 +371,20 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
       window.window_rect.top    = window.window_rect.bottom - win_height;
 
 
+    if (! window.borderless) {
+      AdjustWindowRect ( &window.window_rect,
+                           GetWindowLongA (tsf::window.hwnd, GWL_STYLE),
+                             FALSE );
+    }
+
+
     SetWindowPos_Original ( tsf::window.hwnd,
                               HWND_TOP,
                                 window.window_rect.left, window.window_rect.top,
                                   window.window_rect.right  - window.window_rect.left,
                                   window.window_rect.bottom - window.window_rect.top,
-                                    SWP_FRAMECHANGED  | SWP_SHOWWINDOW | SWP_NOSENDCHANGING );
+                                    (config.window.borderless ? SWP_FRAMECHANGED : 0x0) |
+                                      SWP_SHOWWINDOW | SWP_NOSENDCHANGING );
 
     float* fAspect = (float *)((uintptr_t)GetModuleHandle (nullptr) + 0x47e080);
 

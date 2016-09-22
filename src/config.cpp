@@ -28,7 +28,7 @@
 static
   iSK_INI* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.9.7";
+std::wstring TSFIX_VER_STR = L"0.9.8";
 tsf_config_s config;
 
 struct {
@@ -99,7 +99,7 @@ struct {
 
 tsf::ParameterFactory g_ParameterFactory;
 
-typedef std::wstring (__stdcall *SK_GetConfigPath_pfn)(void);
+typedef const wchar_t* (__stdcall *SK_GetConfigPath_pfn)(void);
 static SK_GetConfigPath_pfn SK_GetConfigPath = nullptr;
 
 bool
@@ -115,8 +115,13 @@ TSFix_LoadConfig (std::wstring name)
       );
 
   // Load INI File
-  std::wstring full_name = SK_GetConfigPath () + name + L".ini";
-  dll_ini = TSF_CreateINI ((wchar_t *)full_name.c_str ());
+  wchar_t wszFullName [ MAX_PATH + 2 ] = { L'\0' };
+
+  lstrcatW (wszFullName, SK_GetConfigPath ());
+  lstrcatW (wszFullName,       name.c_str ());
+  lstrcatW (wszFullName,             L".ini");
+
+  dll_ini = TSF_CreateINI (wszFullName);
 
   bool empty = dll_ini->get_sections ().empty ();
 
@@ -668,11 +673,13 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   sys.version->store                  (TSFIX_VER_STR);
   sys.injector->store                 (config.system.injector);
 
-  std::wstring full_name = SK_GetConfigPath () + 
-                             name              +
-                               L".ini";
+  wchar_t wszFullName [ MAX_PATH + 2 ] = { L'\0' };
 
-  dll_ini->write (full_name);
+  lstrcatW (wszFullName, SK_GetConfigPath ());
+  lstrcatW (wszFullName,       name.c_str ());
+  lstrcatW (wszFullName,             L".ini");
+
+  dll_ini->write (wszFullName);
 
   if (close_config) {
     if (dll_ini != nullptr) {
