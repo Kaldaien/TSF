@@ -90,10 +90,10 @@ DllThread (LPVOID user)
   if (SK_SetPluginName != nullptr)
     SK_SetPluginName (plugin_name);
 
-  CoInitialize (nullptr);
-
   // Plugin State
   if (TSFix_Init_MinHook () == MH_OK) {
+    CoInitializeEx (nullptr, COINIT_MULTITHREADED);
+
     tsf::TimingFix::Init     ();
     tsf::WindowManager::Init ();
     tsf::InputManager::Init  ();
@@ -101,6 +101,8 @@ DllThread (LPVOID user)
 
     extern void TSFix_PatchZelosAchievement (void);
     TSFix_PatchZelosAchievement ();
+
+    CoUninitialize ();
   }
 
 
@@ -120,7 +122,7 @@ BOOL
 WINAPI
 SKPlugIn_Init (HMODULE hModSpecialK)
 {
-  wchar_t wszSKFileName [MAX_PATH];
+  wchar_t wszSKFileName [MAX_PATH] = { L'\0' };
           wszSKFileName [MAX_PATH - 1] = L'\0';
 
   GetModuleFileName (hModSpecialK, wszSKFileName, MAX_PATH - 1);
@@ -145,6 +147,8 @@ SKPlugIn_Init (HMODULE hModSpecialK)
   return TRUE;
 }
 
+extern "C" BOOL WINAPI _CRT_INIT (HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved);
+
 BOOL
 APIENTRY
 DllMain (HMODULE hModule,
@@ -155,8 +159,14 @@ DllMain (HMODULE hModule,
   {
     case DLL_PROCESS_ATTACH:
     {
+      _CRT_INIT ((HINSTANCE)hModule, ul_reason_for_call, nullptr);
       hDLLMod = hModule;
     } break;
+
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
+      _CRT_INIT ((HINSTANCE)hModule, ul_reason_for_call, nullptr);
+      break;
 
     case DLL_PROCESS_DETACH:
     {
@@ -178,6 +188,7 @@ DllMain (HMODULE hModule,
 
         dll_log->close ();
       }
+      _CRT_INIT ((HINSTANCE)hModule, ul_reason_for_call, nullptr);
     } break;
   }
 

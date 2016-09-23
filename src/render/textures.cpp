@@ -2936,12 +2936,16 @@ tsf::RenderFix::TextureManager::Init (void)
   TSFix_ApplyQueuedHooks ();
 }
 
+// Skip the purge step on shutdown
+bool shutting_down = false;
 
 void
 tsf::RenderFix::TextureManager::Shutdown (void)
 {
   while (! textures_to_resample.empty ())
     textures_to_resample.pop ();
+
+  shutting_down = true;
 
   tex_mgr.reset ();
 
@@ -2966,6 +2970,9 @@ tsf::RenderFix::TextureManager::Shutdown (void)
 void
 tsf::RenderFix::TextureManager::purge (void)
 {
+  if (shutting_down)
+    return;
+
   int      released           = 0;
   int      released_injected  = 0;
   uint64_t reclaimed          = 0;
@@ -3204,6 +3211,11 @@ tsf::RenderFix::TextureManager::reset (void)
                                             / (1024.0 * 1024.0) );
 
   updateOSD ();
+
+  // Commit this immediately, such that D3D9 Reset will not fail in
+  //   fullscreen mode...
+  TSFix_LoadQueuedTextures ();
+  purge                    ();
 
   tex_log->Log (L"[ Tex. Mgr ] ----------- Finished ------------ ");
 }
