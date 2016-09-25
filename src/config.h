@@ -50,6 +50,8 @@ struct tsf_config_s
     // D3D9Ex Stuff, since we can...
     bool     allow_flipex      = true;
     int      backbuffers       = 4;
+
+    bool     anamorphic        = false;
   } render;
 
   struct {

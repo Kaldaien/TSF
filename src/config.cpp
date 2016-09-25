@@ -43,6 +43,8 @@ struct {
   // D3D9Ex Stuff
   tsf::ParameterBool*    allow_flipex;
   tsf::ParameterInt*     backbuffers;
+
+  tsf::ParameterBool*    anamorphic;
 } render;
 
 struct {
@@ -217,6 +219,16 @@ TSFix_LoadConfig (std::wstring name)
     dll_ini,
       L"TSFix.Render",
         L"RefreshRate" );
+
+  render.anamorphic =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Anamorphic Aspect Ratio Correction")
+      );
+  render.anamorphic->register_to_ini (
+    dll_ini,
+      L"TSFix.Render",
+        L"Anamorphic" );
 
 
   window.borderless =
@@ -542,6 +554,8 @@ TSFix_LoadConfig (std::wstring name)
 
   render.refresh_rate->load      (config.render.refresh_rate);
 
+  render.anamorphic->load        (config.render.anamorphic);
+
 
   window.borderless->load        (config.window.borderless);
 
@@ -620,6 +634,8 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   render.backbuffers->store           (config.render.backbuffers);
 
   render.refresh_rate->store          (config.render.refresh_rate);
+
+  render.anamorphic->store            (config.render.anamorphic);
 
 
   window.borderless->store            (config.window.borderless);

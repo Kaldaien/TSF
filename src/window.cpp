@@ -409,13 +409,15 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                                     (config.window.borderless ? SWP_FRAMECHANGED : 0x0) |
                                       SWP_SHOWWINDOW | SWP_NOSENDCHANGING );
 
-    float* fAspect = (float *)((uintptr_t)GetModuleHandle (nullptr) + 0x47e080);
+    if (config.render.anamorphic) {
+      float* fAspect = (float *)((uintptr_t)GetModuleHandle (nullptr) + 0x47e080);
 
-    DWORD dwProtect;
-    VirtualProtect (fAspect, sizeof (float), PAGE_READWRITE, &dwProtect);
-    *fAspect = (float)(window.window_rect.right  - window.window_rect.left) /
-               (float)(window.window_rect.bottom - window.window_rect.top);
-    VirtualProtect (fAspect, sizeof (float), dwProtect, &dwProtect);
+      DWORD dwProtect;
+      VirtualProtect (fAspect, sizeof (float), PAGE_READWRITE, &dwProtect);
+      *fAspect = (float)(window.window_rect.right  - window.window_rect.left) /
+                 (float)(window.window_rect.bottom - window.window_rect.top);
+      VirtualProtect (fAspect, sizeof (float), dwProtect, &dwProtect);
+    }
 
 
     dll_log->Log ( L"[Border Mgr] WINDOW => {Left: %li, Top: %li} - (WxH: %lix%li)",
