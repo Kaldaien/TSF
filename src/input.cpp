@@ -240,6 +240,7 @@ IDirectInput8_CreateDevice_Detour ( IDirectInput8       *This,
 void
 tsf::InputManager::FixAltTab (void)
 {
+#if 0
   // Make sure no reference counters used to determine keyboard state
   //   are mismatched when alt-tabbing.
   for (int i = 0; i < 255; i++) {
@@ -261,6 +262,7 @@ tsf::InputManager::FixAltTab (void)
             MAKEWPARAM (i, 0),
               0xFFFFFFFF );
   }
+#endif
 
   // The game uses DirectInput keyboard state in addition to
    //  Win32 API messages, so set this stuff for consistency.

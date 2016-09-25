@@ -39,12 +39,40 @@ SetWindowPos_pfn        SetWindowPos_Original        = nullptr;
 SetWindowLongA_pfn      SetWindowLongA_Original      = nullptr;
 SK_IsConsoleVisible_pfn SK_IsConsoleVisible          = nullptr;
 
+typedef LRESULT (CALLBACK *DetourWindowProc_pfn)( _In_  HWND   hWnd,
+                   _In_  UINT   uMsg,
+                   _In_  WPARAM wParam,
+                   _In_  LPARAM lParam );
+
+DetourWindowProc_pfn DetourWindowProc_Original = nullptr;
+
+
 LRESULT
 CALLBACK
 DetourWindowProc ( _In_  HWND   hWnd,
                    _In_  UINT   uMsg,
                    _In_  WPARAM wParam,
                    _In_  LPARAM lParam );
+
+DWORD
+WINAPI
+TSFix_RealizeForegroundWindow_THREAD (LPVOID user)
+{
+  BringWindowToTop    (tsf::window.hwnd);
+  SetActiveWindow     (tsf::window.hwnd);
+  SetForegroundWindow (tsf::window.hwnd);
+
+  CloseHandle (GetCurrentThread ());
+
+  return 0;
+}
+
+// Delegate this to a separate thread so as not to deadlock the Windows Message Pump
+void
+TSFix_RealizeForegroundWindow (void)
+{
+  CreateThread (nullptr, 0, TSFix_RealizeForegroundWindow_THREAD, nullptr, 0x00, nullptr);
+}
 
 BOOL
 WINAPI
@@ -99,9 +127,6 @@ SetWindowPos_Detour(
                                        cx, cy,
                                          uFlags );
   }
-
-  BringWindowToTop (tsf::window.hwnd);
-  SetActiveWindow  (tsf::window.hwnd);
 
 #if 0
   dll_log->Log ( L"[Window Mgr][!] SetWindowPos (...)");
@@ -182,10 +207,12 @@ SetWindowPos_Detour(
     return TRUE;
 #else
   if (config.window.borderless) {
+    BOOL bRet = TRUE;
+
     if (! tsf::RenderFix::fullscreen)
-      return SetWindowPos_Original (hWnd, hWndInsertAfter, 0, 0, tsf::RenderFix::width, tsf::RenderFix::height, uFlags | SWP_SHOWWINDOW );
-    else
-      return TRUE;
+      bRet = SetWindowPos_Original (hWnd, hWndInsertAfter, 0, 0, tsf::RenderFix::width, tsf::RenderFix::height, uFlags | SWP_SHOWWINDOW );
+
+    return bRet;
   } else {
 
     tsf::window.window_rect.top    = Y;
@@ -203,7 +230,9 @@ SetWindowPos_Detour(
     cx = tsf::window.window_rect.right  - tsf::window.window_rect.left;
     cy = tsf::window.window_rect.bottom - tsf::window.window_rect.top;
 
-    return SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags | SWP_SHOWWINDOW );
+    BOOL bRet = SetWindowPos_Original (hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags | SWP_SHOWWINDOW );
+
+    return bRet;
   }
 #endif
 }
@@ -255,9 +284,6 @@ tsf::WindowManager::BorderManager::Disable (void)
 
   window.borderless = true;
 
-  BringWindowToTop (window.hwnd);
-  SetActiveWindow  (window.hwnd);
-
   DWORD dwNewLong = window.style;
 
 #if 0
@@ -300,9 +326,6 @@ tsf::WindowManager::BorderManager::Enable (void)
 void
 tsf::WindowManager::BorderManager::AdjustWindow (void)
 {
-  BringWindowToTop (window.hwnd);
-  SetActiveWindow  (window.hwnd);
-
   HMONITOR hMonitor =
     MonitorFromWindow ( tsf::window.hwnd,
                           MONITOR_DEFAULTTONEAREST );
@@ -400,9 +423,6 @@ tsf::WindowManager::BorderManager::AdjustWindow (void)
                        window.window_rect.right - window.window_rect.left,
                          window.window_rect.bottom - window.window_rect.top );
   }
-
-  BringWindowToTop (window.hwnd);
-  SetActiveWindow  (window.hwnd);
 }
 
 void
@@ -459,7 +479,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
                    _In_  LPARAM lParam )
 {
   if (hWnd != tsf::window.hwnd)
-    return CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);
+    tsf::window.hwnd = hWnd;
 
   static bool last_active = tsf::window.active;
 
@@ -510,6 +530,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
     if ((HWND)wParam == tsf::window.hwnd) {
       dll_log->Log (L"[Window Mgr] WM_MOUSEACTIVATE ==> Activate and Eat");
       tsf::window.active = true;
+
       return MA_ACTIVATEANDEAT;
     }
 
@@ -532,16 +553,17 @@ DetourWindowProc ( _In_  HWND   hWnd,
         tsf::window.active = false;
       }
 
-      if (config.render.allow_background)
+      // We must fully consume one of these messages or audio will stop playing
+      //   when the game loses focus, so do not simply pass this through to the
+      //     default window procedure.
+      if (config.render.allow_background) {
+        TSFix_RealizeForegroundWindow ();
         return 0;
+      }
     }
 
-    // We must fully consume one of these messages or audio will stop playing
-    //   when the game loses focus, so do not simply pass this through to the
-    //     default window procedure.
     if (config.render.allow_background)
-      return 0;
-    
+      return 1;
   }
 
   // Block the menu key from messing with stuff
@@ -574,7 +596,7 @@ DetourWindowProc ( _In_  HWND   hWnd,
 #endif
   }
 
-  return CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);
+  return DetourWindowProc_Original (hWnd, uMsg, wParam, lParam);//CallWindowProc (tsf::window.WndProc_Original, hWnd, uMsg, wParam, lParam);
 }
 
 
@@ -611,10 +633,15 @@ tsf::WindowManager::Init (void)
 
 // Not used by ToS
 #if 0
-  TSFix_CreateDLLHook ( L"user32.dll", "IsIconic",
-                        IsIconic_Detour,
-              (LPVOID*)&IsIconic_Original );
+  TSFix_CreateDLLHook2 ( L"user32.dll", "IsIconic",
+                         IsIconic_Detour,
+               (LPVOID*)&IsIconic_Original );
 #endif
+
+  TSFix_CreateDLLHook (config.system.injector.c_str (),
+                        "SK_DetourWindowProc",
+                        DetourWindowProc,
+             (LPVOID *)&DetourWindowProc_Original );
 
   SK_IsConsoleVisible =
     (SK_IsConsoleVisible_pfn)

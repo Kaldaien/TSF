@@ -679,23 +679,6 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
 
     tsf::window.hwnd = tsf::RenderFix::hWndDevice;
 
-    // Setup window message detouring as soon as a window is created..
-    if (tsf::window.WndProc_Original == nullptr) {
-      tsf::window.WndProc_Original =
-        (WNDPROC)GetWindowLong (tsf::RenderFix::hWndDevice, GWL_WNDPROC);
-
-      extern LRESULT
-      CALLBACK
-      DetourWindowProc ( _In_  HWND   hWnd,
-                         _In_  UINT   uMsg,
-                         _In_  WPARAM wParam,
-                         _In_  LPARAM lParam );
-
-      SetWindowLongA_Original ( tsf::RenderFix::hWndDevice,
-                                  GWL_WNDPROC,
-                                    (LONG)DetourWindowProc );
-    }
-
     tsf::RenderFix::pDevice    = device;
 
     tsf::RenderFix::width  = pparams->BackBufferWidth;
