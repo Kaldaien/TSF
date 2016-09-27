@@ -41,8 +41,6 @@ namespace tsf
     } extern tracer;
 
     struct tsf_draw_states_s {
-      bool         has_aniso      = false; // Has he game even once set anisotropy?!
-      int          max_aniso      = 4;
       bool         has_msaa       = false;
       bool         use_msaa       = true;  // Allow MSAA toggle via console
                                            //  without changing the swapchain.

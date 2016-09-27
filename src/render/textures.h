@@ -85,8 +85,6 @@ namespace RenderFix {
     int64_t                  cacheSizeBasic    (void);
     int64_t                  cacheSizeInjected (void);
 
-    int                      numMSAASurfs (void);
-
     void                     addInjected (size_t size) {
       InterlockedIncrement (&injected_count);
       InterlockedAdd64     (&injected_size, size);

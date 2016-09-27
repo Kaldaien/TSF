@@ -48,7 +48,6 @@ struct {
   tsf::ParameterBool*    borderless;
   tsf::ParameterFloat*   foreground_fps;
   tsf::ParameterFloat*   background_fps;
-  tsf::ParameterBool*    background_msaa;
   tsf::ParameterBool*    center;
   tsf::ParameterInt*     x_offset;
   tsf::ParameterInt*     y_offset;
@@ -72,14 +71,12 @@ struct {
 } framerate;
 
 struct {
-  tsf::ParameterInt*     max_anisotropy;
   tsf::ParameterBool*    cache;
   tsf::ParameterBool*    dump;
 #if 0
   tsf::ParameterStringW* dump_ext;
 #endif
   tsf::ParameterBool*    log;
-  tsf::ParameterBool*    full_mipmaps;
   tsf::ParameterInt*     max_cache_size;
   tsf::ParameterInt*     max_decomp_jobs;
 } textures;
@@ -229,16 +226,6 @@ TSFix_LoadConfig (std::wstring name)
       L"TSFix.Window",
         L"BackgroundFPS" );
 
-  window.background_msaa =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"MSAA Disable in BG")
-      );
-  window.background_msaa->register_to_ini (
-    dll_ini,
-      L"TSFix.Window",
-        L"BackgroundMSAA" );
-
   window.center =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -371,16 +358,6 @@ TSFix_LoadConfig (std::wstring name)
       L"TSFix.FrameRate",
         L"World" );
 
-  textures.max_anisotropy =
-    static_cast <tsf::ParameterInt *>
-      (g_ParameterFactory.create_parameter <int> (
-        L"Maximum Anisotropy")
-      );
-  textures.max_anisotropy->register_to_ini (
-    dll_ini,
-      L"TSFix.Textures",
-        L"MaxAnisotropy" );
-
   textures.cache =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -430,16 +407,6 @@ TSFix_LoadConfig (std::wstring name)
     dll_ini,
       L"TSFix.Textures",
         L"Log" );
-
-  textures.full_mipmaps =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"Generate missing mipmaps")
-      );
-  textures.full_mipmaps->register_to_ini (
-    dll_ini,
-      L"TSFix.Textures",
-        L"FullMipmaps" );
 
 #if 0
   textures.cleanup =
@@ -522,11 +489,6 @@ TSFix_LoadConfig (std::wstring name)
   render.outline_technique->load (config.render.outline_technique);
   render.postproc_ratio->load    (config.render.postproc_ratio);
 
-  //render.msaa_samples->load      (config.render.msaa_samples);
-  //render.msaa_quality->load      (config.render.msaa_quality);
-
-  //render.remove_blur->load       (config.render.remove_blur);
-
   render.allow_flipex->load      (config.render.allow_flipex);
   render.backbuffers->load       (config.render.backbuffers);
 
@@ -539,12 +501,6 @@ TSFix_LoadConfig (std::wstring name)
 
   window.foreground_fps->load    (config.window.foreground_fps);
   window.background_fps->load    (config.window.background_fps);
-
-  bool msaa;
-  if (window.background_msaa->load (msaa)) {
-    config.window.disable_bg_msaa = 
-      (! msaa);
-  }
 
   window.center->load            (config.window.center);
   window.x_offset->load          (config.window.x_offset);
@@ -568,18 +524,11 @@ TSFix_LoadConfig (std::wstring name)
   //stutter.shortest_sleep->load (config.stutter.shortest_sleep);
 
 
-  textures.max_anisotropy->load  (config.textures.max_anisotropy);
   textures.cache->load           (config.textures.cache);
   textures.dump->load            (config.textures.dump);
-  textures.full_mipmaps->load    (config.textures.full_mipmaps);
   textures.log->load             (config.textures.log);
   textures.max_cache_size->load  (config.textures.max_cache_in_mib);
   textures.max_decomp_jobs->load (config.textures.max_decomp_jobs);
-
-  // When this option is set, it is essential to force 16x AF on
-  if (config.textures.full_mipmaps) {
-    config.textures.max_anisotropy = 16;
-  }
 
 
   input.block_left_alt->load     (config.input.block_left_alt);
@@ -603,9 +552,6 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
 
   render.outline_technique->store     (config.render.outline_technique);
   render.postproc_ratio->set_value    (config.render.postproc_ratio);
-
-  //render.msaa_samples->store          (config.render.msaa_samples);
-  //render.msaa_quality->store          (config.render.msaa_quality);
 
   render.allow_flipex->store          (config.render.allow_flipex);
   render.backbuffers->store           (config.render.backbuffers);
@@ -642,16 +588,8 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   //stutter.shortest_sleep->store       (config.stutter.shortest_sleep);
 
 
-
-  //
-  // This gets set dynamically depending on certain settings, don't
-  //   save this...
-  //
-  //textures.max_anisotropy->store    (config.textures.max_anisotropy);
-
   textures.log->store                 (config.textures.log);
   textures.dump->store                (config.textures.dump);
-  textures.full_mipmaps->store        (config.textures.full_mipmaps);
 
   textures.cache->store               (config.textures.cache);
   textures.max_cache_size->store      (config.textures.max_cache_in_mib);
