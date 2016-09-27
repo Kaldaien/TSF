@@ -39,13 +39,8 @@ struct tsf_config_s
     bool     allow_background  = true;
     int      outline_technique = OUTLINE_KALDAIEN;
     float    postproc_ratio    = 0.5f;
-    int      msaa_samples      = 0;
-    int      msaa_quality      = 0;
     bool     durante_scissor   = false;
-    bool     remove_blur       = true;
     int      refresh_rate      = 0;
-
-    bool     conservative_msaa = true;
 
     // D3D9Ex Stuff, since we can...
     bool     allow_flipex      = true;
@@ -62,6 +57,7 @@ struct tsf_config_s
     bool     center            = true;
     int      x_offset          = 0;
     int      y_offset          = 0;
+    bool     fix_taskbar       = false;
   } window;
 
   struct {

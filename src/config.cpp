@@ -28,16 +28,13 @@
 static
   iSK_INI* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.9.9";
+std::wstring TSFIX_VER_STR = L"0.9.10";
 tsf_config_s config;
 
 struct {
   tsf::ParameterBool*    allow_background;
   tsf::ParameterInt*     outline_technique;
   tsf::ParameterFloat*   postproc_ratio;
-  tsf::ParameterInt*     msaa_samples;
-  tsf::ParameterInt*     msaa_quality;
-  tsf::ParameterBool*    remove_blur;
   tsf::ParameterInt*     refresh_rate;
 
   // D3D9Ex Stuff
@@ -55,6 +52,7 @@ struct {
   tsf::ParameterBool*    center;
   tsf::ParameterInt*     x_offset;
   tsf::ParameterInt*     y_offset;
+  tsf::ParameterBool*    fix_taskbar;
 } window;
 
 struct {
@@ -160,36 +158,6 @@ TSFix_LoadConfig (std::wstring name)
       L"TSFix.Render",
         L"PostProcessRatio" );
 
-  render.msaa_samples =
-    static_cast <tsf::ParameterInt *>
-      (g_ParameterFactory.create_parameter <int> (
-        L"MSAA Sample Count")
-      );
-  render.msaa_samples->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"MSAA_Samples" );
-
-  render.msaa_quality =
-    static_cast <tsf::ParameterInt *>
-      (g_ParameterFactory.create_parameter <int> (
-        L"MSAA Quality")
-      );
-  render.msaa_quality->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"MSAA_Quality" );
-
-  render.remove_blur =
-    static_cast <tsf::ParameterBool *>
-      (g_ParameterFactory.create_parameter <bool> (
-        L"Remove Blur")
-      );
-  render.remove_blur->register_to_ini (
-    dll_ini,
-      L"TSFix.Render",
-        L"RemoveBlur" );
-
   render.allow_flipex =
     static_cast <tsf::ParameterBool *>
       (g_ParameterFactory.create_parameter <bool> (
@@ -290,6 +258,16 @@ TSFix_LoadConfig (std::wstring name)
     dll_ini,
       L"TSFix.Window",
         L"XOffset" );
+
+  window.fix_taskbar =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Fix Taskbar Problems When AllowBackground is Enabled")
+      );
+  window.fix_taskbar->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"FixTaskbar" );
 
   window.y_offset =
     static_cast <tsf::ParameterInt *>
@@ -544,10 +522,10 @@ TSFix_LoadConfig (std::wstring name)
   render.outline_technique->load (config.render.outline_technique);
   render.postproc_ratio->load    (config.render.postproc_ratio);
 
-  render.msaa_samples->load      (config.render.msaa_samples);
-  render.msaa_quality->load      (config.render.msaa_quality);
+  //render.msaa_samples->load      (config.render.msaa_samples);
+  //render.msaa_quality->load      (config.render.msaa_quality);
 
-  render.remove_blur->load       (config.render.remove_blur);
+  //render.remove_blur->load       (config.render.remove_blur);
 
   render.allow_flipex->load      (config.render.allow_flipex);
   render.backbuffers->load       (config.render.backbuffers);
@@ -571,6 +549,8 @@ TSFix_LoadConfig (std::wstring name)
   window.center->load            (config.window.center);
   window.x_offset->load          (config.window.x_offset);
   window.y_offset->load          (config.window.y_offset);
+
+  window.fix_taskbar->load       (config.window.fix_taskbar);
 
 
   framerate.default->load        (config.framerate.default);
@@ -624,11 +604,8 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   render.outline_technique->store     (config.render.outline_technique);
   render.postproc_ratio->set_value    (config.render.postproc_ratio);
 
-  render.msaa_samples->store          (config.render.msaa_samples);
-  render.msaa_quality->store          (config.render.msaa_quality);
-
-  // *** NOTE: Legacy ==> Pending REMOVAL
-  render.remove_blur->store           (config.render.remove_blur);
+  //render.msaa_samples->store          (config.render.msaa_samples);
+  //render.msaa_quality->store          (config.render.msaa_quality);
 
   render.allow_flipex->store          (config.render.allow_flipex);
   render.backbuffers->store           (config.render.backbuffers);
@@ -646,6 +623,8 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   window.center->store                (config.window.center);
   window.x_offset->store              (config.window.x_offset);
   window.y_offset->store              (config.window.y_offset);
+
+  window.fix_taskbar->store           (config.window.fix_taskbar);
 
 
   framerate.default->store            (config.framerate.default);

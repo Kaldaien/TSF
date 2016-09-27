@@ -99,9 +99,6 @@ DllThread (LPVOID user)
     tsf::InputManager::Init  ();
     tsf::RenderFix::Init     ();
 
-    extern void TSFix_PatchZelosAchievement (void);
-    TSFix_PatchZelosAchievement ();
-
     CoUninitialize ();
   }
 

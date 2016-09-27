@@ -626,6 +626,7 @@ tsf::TimingFix::Init (void)
                            &lpvDontCare );
     TSFix_EnableHook     (pLimiterFunc);
 
+#if 0
 #if 1
 
     TSFix_CreateFuncHook ( L"NamcoLimiterTest",
@@ -650,6 +651,7 @@ tsf::TimingFix::Init (void)
                            sub_5CAE30_Detour,
                 (LPVOID *)&sub_5CAE30_Original );
     TSFix_EnableHook ((LPVOID)0x5CAE30);
+#endif
 #endif
 
 #if 0

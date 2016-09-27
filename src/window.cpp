@@ -559,7 +559,8 @@ DetourWindowProc ( _In_  HWND   hWnd,
       //   when the game loses focus, so do not simply pass this through to the
       //     default window procedure.
       if (config.render.allow_background) {
-        TSFix_RealizeForegroundWindow ();
+        if (config.window.fix_taskbar)
+          TSFix_RealizeForegroundWindow ();
         return 0;
       }
     }

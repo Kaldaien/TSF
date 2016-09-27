@@ -602,15 +602,22 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
       pparams->SwapEffect           = D3DSWAPEFFECT_FLIPEX;
       pparams->BackBufferCount      = config.render.backbuffers;
       pparams->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+
+      dll_log->Log (L"[Render Fix] Forcing MSAA OFF in order to use FlipEx");
+      pparams->MultiSampleQuality   = 0;
+      pparams->MultiSampleType      = D3DMULTISAMPLE_NONE;
     }
 
     // Do not use Flip EX in fullscreen mode
     else {
-      pparams->SwapEffect           = D3DSWAPEFFECT_FLIP;
+      if (config.render.allow_flipex)
+        pparams->SwapEffect         = D3DSWAPEFFECT_FLIP;
+
       pparams->BackBufferCount      = 1;
       pparams->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
     }
 
+#if 0
     //
     // MSAA Override
     //
@@ -651,6 +658,7 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
         pD3D9->Release ();
       }
     }
+#endif
 
     if (device != nullptr) {
       dll_log->Log ( L"[Render Fix] %% Caught D3D9 Swapchain :: Fullscreen=%s "
@@ -971,15 +979,18 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
 
   tsf::RenderFix::draw_state.draws = 0;
 
+#if 0
   bool msaa = false;
 
   if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.has_msaa &&
                                         tsf::RenderFix::draw_state.use_msaa) {
     msaa = true;
   }
+#endif
 
   HRESULT result = D3D9BeginScene_Original (This);
 
+#if 0
   // Don't do this until resources are allocated.
   if (tsf::RenderFix::tex_mgr.numMSAASurfs () > 0) {
     // Turn this on/off at the beginning of every frame
@@ -987,6 +998,7 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
                                     D3DRS_MULTISAMPLEANTIALIAS,
                                       msaa );
   }
+#endif
 
   return result;
 }
@@ -1197,6 +1209,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
   tsf::RenderFix::draw_state.draws++;
 
+#if 0
   if (config.render.remove_blur && 
     /*Type == D3DPT_TRIANGLELIST && NumVertices == 3 && primCount == 1 &&*/
       (ps_checksum == 0x1e8447cc && vs_checksum == 0x2def1491)) {
@@ -1283,6 +1296,7 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
 
     return S_OK;
   }
+#endif
 
   // These are outlines that would not normally be detected because the polygon
   //   winding direction is not reversed...
@@ -1613,12 +1627,14 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
       tsf::RenderFix::draw_state.srcblend = Value;
       break;
     case D3DRS_MULTISAMPLEANTIALIAS:
+#if 0
       if ( config.render.msaa_samples > 0      &&
            tsf::RenderFix::draw_state.has_msaa &&
            tsf::RenderFix::draw_state.use_msaa )
         return D3D9SetRenderState_Original (This, State, 1);
       else
         return D3D9SetRenderState_Original (This, State, 0);
+#endif
       break;
   }
 
@@ -1793,7 +1809,7 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.OutlineTechnique", TSF_CreateVar (SK_IVariable::Int,     &config.render.outline_technique));
 
   // Don't directly modify this state, switching mid-frame would be disasterous...
-  pCommandProc->AddVariable ("Render.MSAA",             TSF_CreateVar (SK_IVariable::Boolean, &use_msaa));//&draw_state.use_msaa));
+//  pCommandProc->AddVariable ("Render.MSAA",             TSF_CreateVar (SK_IVariable::Boolean, &use_msaa));//&draw_state.use_msaa));
 
   pCommandProc->AddVariable ("Trace.NumFrames", TSF_CreateVar (SK_IVariable::Int,     &tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    TSF_CreateVar (SK_IVariable::Boolean, &tracer.log));
@@ -1803,10 +1819,10 @@ tsf::RenderFix::Init (void)
 
   draw_state.max_aniso = config.textures.max_anisotropy;
   pCommandProc->AddVariable ("Render.MaxAniso",   TSF_CreateVar (SK_IVariable::Int,     &draw_state.max_aniso));
-  pCommandProc->AddVariable ("Render.RemoveBlur", TSF_CreateVar (SK_IVariable::Boolean, &config.render.remove_blur));
+//  pCommandProc->AddVariable ("Render.RemoveBlur", TSF_CreateVar (SK_IVariable::Boolean, &config.render.remove_blur));
 
-  pCommandProc->AddVariable ("Render.ConservativeMSAA", TSF_CreateVar (SK_IVariable::Boolean, &config.render.conservative_msaa));
-  pCommandProc->AddVariable ("Render.EarlyResolve",     TSF_CreateVar (SK_IVariable::Boolean, &early_resolve));
+//  pCommandProc->AddVariable ("Render.ConservativeMSAA", TSF_CreateVar (SK_IVariable::Boolean, &config.render.conservative_msaa));
+  //pCommandProc->AddVariable ("Render.EarlyResolve",     TSF_CreateVar (SK_IVariable::Boolean, &early_resolve));
 
   pCommandProc->AddVariable ("Debug.OutlineVtx",   TSF_CreateVar (SK_IVariable::Int, &test_vtx));
   pCommandProc->AddVariable ("Debug.OutlinePrims", TSF_CreateVar (SK_IVariable::Int, &test_prims));

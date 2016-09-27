@@ -462,11 +462,6 @@ SK_TSF_PluginKeyPress ( BOOL Control,
 
 
   if (Control && Shift) {
-    if (vkCode == 'B') {
-      pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
-      if (! config.render.remove_blur)
-        tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
-    }
 
     //else if (vkCode == 'C') {
       //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
@@ -489,16 +484,18 @@ SK_TSF_PluginKeyPress ( BOOL Control,
     }
 #endif
 
-    else if (vkCode == VK_OEM_PERIOD) {
+    if (vkCode == VK_OEM_PERIOD) {
       pCommandProc->ProcessCommandLine ("Render.OutlineTechnique inc");
 
       if (config.render.outline_technique > 2)
         config.render.outline_technique = 0;
     }
 
+#if 0
     else if (vkCode == VK_OEM_COMMA) {
       pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
     }
+#endif
 
     else if (vkCode == '1') {
       pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 60.0");
