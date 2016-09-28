@@ -462,11 +462,6 @@ SK_TSF_PluginKeyPress ( BOOL Control,
 
 
   if (Control && Shift) {
-
-    //else if (vkCode == 'C') {
-      //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
-    //}
-
 #if 0
     else if (vkCode == 'Z') {
       extern void TSF_Zoom (double incr);
@@ -491,11 +486,9 @@ SK_TSF_PluginKeyPress ( BOOL Control,
         config.render.outline_technique = 0;
     }
 
-#if 0
     else if (vkCode == VK_OEM_COMMA) {
       pCommandProc->ProcessCommandLine ("Render.MSAA toggle");
     }
-#endif
 
     else if (vkCode == '1') {
       pCommandProc->ProcessCommandLine ("Timing.DefaultFPS 60.0");
@@ -522,7 +515,7 @@ SK_TSF_PluginKeyPress ( BOOL Control,
 
     else if (vkCode == 'V') {
       pCommandProc->ProcessCommandLine  ("Textures.ShowCache toggle");
-    tsf::RenderFix::tex_mgr.updateOSD ();
+      tsf::RenderFix::tex_mgr.updateOSD ();
     }
 
     else if (vkCode == VK_OEM_6) {

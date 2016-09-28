@@ -42,6 +42,9 @@ struct tsf_config_s
     bool     durante_scissor   = false;
     int      refresh_rate      = 0;
 
+    int      msaa_samples      = 0;
+    int      msaa_quality      = 0;
+
     // D3D9Ex Stuff, since we can...
     bool     allow_flipex      = true;
     int      backbuffers       = 4;

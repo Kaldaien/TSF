@@ -41,7 +41,7 @@ namespace tsf
     } extern tracer;
 
     struct tsf_draw_states_s {
-      bool         has_msaa       = false;
+      bool         has_msaa       = true;
       bool         use_msaa       = true;  // Allow MSAA toggle via console
                                            //  without changing the swapchain.
       D3DVIEWPORT9 vp             = { 0 };
@@ -59,10 +59,6 @@ namespace tsf
 
       int          last_vs_vec4   = 0; // Number of vectors in the last call to
                                        //   set vertex shader constant...
-
-      std::pair <IDirect3DTexture9*, IDirect3DTexture9*>
-                   blur_proxy; // If non-null, then bypass the blur
-                               //   filter via texture indirection.
 
       int          draws          = 0; // Number of draw calls
       int          frames         = 0;

@@ -487,8 +487,7 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   tsf::RenderFix::draw_state.frames++;
 
   // Push any changes to this state at the very end of a frame.
-  tsf::RenderFix::draw_state.use_msaa = use_msaa &&
-                                        tsf::RenderFix::draw_state.has_msaa;
+  tsf::RenderFix::draw_state.use_msaa = use_msaa;
 
   extern bool pending_loads (void);
   if (pending_loads ()) {
@@ -570,7 +569,6 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
 
   // We must let this go, it's not valid anymore.
-  tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
   tsf::RenderFix::active_samplers.clear ();
   //tsf::RenderFix::tex_mgr.reset         ();
 
@@ -580,6 +578,11 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
     BOOL win7 = (LOBYTE (LOWORD (GetVersion ())) == 6  &&
                  HIBYTE (LOWORD (GetVersion ())) >= 1) ||
                  LOBYTE (LOWORD (GetVersion () > 6));
+
+    if (pparams->MultiSampleType == D3DMULTISAMPLE_NONMASKABLE) {
+      dll_log->Log (L"WRONG");
+      pparams->MultiSampleType = D3DMULTISAMPLE_NONE;
+    }
 
     if (win7 && config.render.allow_flipex && ( (! tsf::RenderFix::fullscreen)  ||
                                                  config.render.allow_background ||
@@ -792,23 +795,29 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
   }
 
   // ...
-  if (pViewport->Width == 1280 && pViewport->Height == 720) {
+  if (pViewport->Width == tsf::RenderFix::width && pViewport->Height == tsf::RenderFix::height) {
     tsf::RenderFix::draw_state.postprocessing = false;
     tsf::RenderFix::draw_state.fullscreen     = true; // TODO: Check viewport against rendertarget
 
     D3DVIEWPORT9 newView = *pViewport;
 
+#if 0
     float x_scale = (float)tsf::RenderFix::width  / 1280.0f;
     float y_scale = (float)tsf::RenderFix::height / 720.0f;
 
     newView.Width  = newView.Width  * x_scale - (newView.X * 2.0f);
     newView.Height = newView.Height * y_scale - (newView.Y * 2.0f);
+#endif
 
     return D3D9SetViewport_Original (This, &newView);
   }
 
   // Effects
+#if 0
   if (pViewport->Width == 512 && pViewport->Height == 256) {
+#else
+  if (pViewport->Width == 960 && pViewport->Height == 540) {
+#endif
     tsf::RenderFix::draw_state.postprocessing = true;
     tsf::RenderFix::draw_state.fullscreen     = false;
 
@@ -924,15 +933,6 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
 
   tsf::RenderFix::draw_state.draws = 0;
 
-#if 0
-  bool msaa = false;
-
-  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.has_msaa &&
-                                        tsf::RenderFix::draw_state.use_msaa) {
-    msaa = true;
-  }
-#endif
-
   HRESULT result = D3D9BeginScene_Original (This);
 
   return result;
@@ -948,11 +948,6 @@ D3D9EndScene_Detour (IDirect3DDevice9* This)
   if (This != tsf::RenderFix::pDevice) {
     return D3D9EndScene_Original (This);
   }
-
-  // Don't use MSAA for stuff drawn directly to the framebuffer
-  D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
-                                  D3DRS_MULTISAMPLEANTIALIAS,
-                                    false );
 
   HRESULT hr = D3D9EndScene_Original (This);
 
@@ -1473,13 +1468,10 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
       tsf::RenderFix::draw_state.srcblend = Value;
       break;
     case D3DRS_MULTISAMPLEANTIALIAS:
-#if 0
-      if ( tsf::RenderFix::draw_state.has_msaa &&
-           tsf::RenderFix::draw_state.use_msaa )
+      if ( tsf::RenderFix::draw_state.use_msaa )
         return D3D9SetRenderState_Original (This, State, 1);
       else
         return D3D9SetRenderState_Original (This, State, 0);
-#endif
       break;
   }
 
@@ -1622,7 +1614,7 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.OutlineTechnique", TSF_CreateVar (SK_IVariable::Int,     &config.render.outline_technique));
 
   // Don't directly modify this state, switching mid-frame would be disasterous...
-//  pCommandProc->AddVariable ("Render.MSAA",             TSF_CreateVar (SK_IVariable::Boolean, &use_msaa));//&draw_state.use_msaa));
+  pCommandProc->AddVariable ("Render.MSAA",             TSF_CreateVar (SK_IVariable::Boolean, &use_msaa));
 
   pCommandProc->AddVariable ("Trace.NumFrames", TSF_CreateVar (SK_IVariable::Int,     &tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    TSF_CreateVar (SK_IVariable::Boolean, &tracer.log));

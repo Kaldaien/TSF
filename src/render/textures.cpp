@@ -723,6 +723,7 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                        SK_D3D9_PoolToStr   (Pool) );
   }
 
+#if 0
   // Resize the primary framebuffer
   if (Width == 1280 && Height == 720) {
     if (((Usage & D3DUSAGE_RENDERTARGET) && (Format == D3DFMT_A8R8G8B8 ||
@@ -734,6 +735,9 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
   }
 
   else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
+#else
+  if (Width == 960 && Height == 540 && (Usage & D3DUSAGE_RENDERTARGET)) {
+#endif
     Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
     Height = tsf::RenderFix::height * config.render.postproc_ratio;
   }
