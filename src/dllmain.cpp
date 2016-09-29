@@ -47,6 +47,9 @@ SK_SetPluginName_pfn SK_SetPluginName = nullptr;
 
 std::wstring injector_dll;
 
+typedef HRESULT (__stdcall *SK_UpdateSoftware_pfn)(const wchar_t* wszProduct);
+typedef bool    (__stdcall *SK_FetchVersionInfo_pfn)(const wchar_t* wszProduct);
+
 DWORD
 WINAPI
 DllThread (LPVOID user)
@@ -110,6 +113,27 @@ DllThread (LPVOID user)
                           QueryPerformanceFrequency_Detour, 
                (LPVOID *)&QueryPerformanceFrequency_Original );
 #endif
+
+  SK_UpdateSoftware_pfn SK_UpdateSoftware =
+    (SK_UpdateSoftware_pfn)
+      GetProcAddress ( hInjectorDLL,
+                         "SK_UpdateSoftware" );
+
+  SK_FetchVersionInfo_pfn SK_FetchVersionInfo =
+    (SK_FetchVersionInfo_pfn)
+      GetProcAddress ( hInjectorDLL,
+                         "SK_FetchVersionInfo" );
+
+  if (! wcsstr (injector_dll.c_str (), L"SpecialK")) {
+    if ( SK_FetchVersionInfo != nullptr &&
+         SK_UpdateSoftware   != nullptr ) {
+      if (SK_FetchVersionInfo (L"TSF")) {
+        SK_UpdateSoftware (L"TSF");
+      }
+    }
+  }
+
+  CloseHandle (GetCurrentThread ());
 
   return 0;
 }

@@ -816,7 +816,7 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
 #if 0
   if (pViewport->Width == 512 && pViewport->Height == 256) {
 #else
-  if (pViewport->Width == 960 && pViewport->Height == 540) {
+  if (pViewport->Width == (tsf::RenderFix::width / 2) && pViewport->Height == (tsf::RenderFix::height / 2)) {
 #endif
     tsf::RenderFix::draw_state.postprocessing = true;
     tsf::RenderFix::draw_state.fullscreen     = false;

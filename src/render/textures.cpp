@@ -736,7 +736,8 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
 
   else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
 #else
-  if (Width == 960 && Height == 540 && (Usage & D3DUSAGE_RENDERTARGET)) {
+  if ( Width  == (tsf::RenderFix::width  / 2) &&
+       Height == (tsf::RenderFix::height / 2) && (Usage & D3DUSAGE_RENDERTARGET) ) {
 #endif
     Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
     Height = tsf::RenderFix::height * config.render.postproc_ratio;
