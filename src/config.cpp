@@ -28,7 +28,7 @@
 static
   iSK_INI* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.10.0";
+std::wstring TSFIX_VER_STR = L"0.10.1";
 tsf_config_s config;
 
 struct {
@@ -55,6 +55,7 @@ struct {
   tsf::ParameterBool*    center;
   tsf::ParameterInt*     x_offset;
   tsf::ParameterInt*     y_offset;
+  tsf::ParameterBool*    fix_taskbar;
 } window;
 
 struct {
@@ -300,6 +301,16 @@ TSFix_LoadConfig (std::wstring name)
     dll_ini,
       L"TSFix.Window",
         L"YOffset" );
+
+  window.fix_taskbar =
+    static_cast <tsf::ParameterBool *>
+      (g_ParameterFactory.create_parameter <bool> (
+        L"Fix Taskbar Problems When AllowBackground is Enabled")
+      );
+  window.fix_taskbar->register_to_ini (
+    dll_ini,
+      L"TSFix.Window",
+        L"FixTaskbar" );
 
 
   stutter.bypass =
@@ -572,6 +583,8 @@ TSFix_LoadConfig (std::wstring name)
   window.x_offset->load          (config.window.x_offset);
   window.y_offset->load          (config.window.y_offset);
 
+  window.fix_taskbar->load       (config.window.fix_taskbar);
+
 
   framerate.default->load        (config.framerate.default);
   framerate.battle->load         (config.framerate.battle);
@@ -646,6 +659,8 @@ TSFix_SaveConfig (std::wstring name, bool close_config) {
   window.center->store                (config.window.center);
   window.x_offset->store              (config.window.x_offset);
   window.y_offset->store              (config.window.y_offset);
+
+  window.fix_taskbar->store           (config.window.fix_taskbar);
 
 
   framerate.default->store            (config.framerate.default);

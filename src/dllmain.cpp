@@ -105,7 +105,7 @@ DllThread (LPVOID user)
     extern void TSFix_PatchZelosAchievement (void);
     TSFix_PatchZelosAchievement ();
 
-    CoUninitialize ();
+    //CoUninitialize ();
   }
 
 
@@ -144,8 +144,8 @@ BOOL
 WINAPI
 SKPlugIn_Init (HMODULE hModSpecialK)
 {
-  wchar_t wszSKFileName [MAX_PATH] = { L'\0' };
-          wszSKFileName [MAX_PATH - 1] = L'\0';
+  wchar_t wszSKFileName [  MAX_PATH  ] = { L'\0' };
+          wszSKFileName [MAX_PATH - 1] =   L'\0';
 
   GetModuleFileName (hModSpecialK, wszSKFileName, MAX_PATH - 1);
 
@@ -153,7 +153,7 @@ SKPlugIn_Init (HMODULE hModSpecialK)
 
   hInjectorDLL = hModSpecialK;
 
-#if 1
+#if 0
   CreateThread ( nullptr,
                    0,
                      DllThread,
@@ -161,7 +161,6 @@ SKPlugIn_Init (HMODULE hModSpecialK)
                          0x00,
                            nullptr );
 #else
-
   // Not really a thread now is it? :P
   DllThread (nullptr);
 #endif

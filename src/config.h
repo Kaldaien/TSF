@@ -62,6 +62,7 @@ struct tsf_config_s
     bool     center            = true;
     int      x_offset          = 0;
     int      y_offset          = 0;
+    bool     fix_taskbar       = false;
   } window;
 
   struct {
