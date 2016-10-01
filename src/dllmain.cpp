@@ -42,13 +42,13 @@
 HMODULE hDLLMod      = { 0 }; // Handle to SELF
 HMODULE hInjectorDLL = { 0 }; // Handle to Special K
 
+typedef HRESULT (__stdcall *SK_UpdateSoftware_pfn)(const wchar_t* wszProduct);
+typedef bool    (__stdcall *SK_FetchVersionInfo_pfn)(const wchar_t* wszProduct);
+
 typedef void (__stdcall *SK_SetPluginName_pfn)(std::wstring name);
 SK_SetPluginName_pfn SK_SetPluginName = nullptr;
 
 std::wstring injector_dll;
-
-typedef HRESULT (__stdcall *SK_UpdateSoftware_pfn)(const wchar_t* wszProduct);
-typedef bool    (__stdcall *SK_FetchVersionInfo_pfn)(const wchar_t* wszProduct);
 
 DWORD
 WINAPI
@@ -102,6 +102,9 @@ DllThread (LPVOID user)
     tsf::InputManager::Init  ();
     tsf::RenderFix::Init     ();
 
+    extern void TSFix_PatchZelosAchievement (void);
+    TSFix_PatchZelosAchievement ();
+
     CoUninitialize ();
   }
 
@@ -132,8 +135,6 @@ DllThread (LPVOID user)
       }
     }
   }
-
-  CloseHandle (GetCurrentThread ());
 
   return 0;
 }

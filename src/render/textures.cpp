@@ -490,6 +490,29 @@ struct render_target_ref_s {
   int                draws; // If this number doesn't change, we're clean
 } render_targets [MAX_D3D9_RTS];
 
+std::set           <IDirect3DSurface9*>                     dirty_surfs;
+std::set           <IDirect3DSurface9*>                     msaa_surfs;       // Smurfs? :)
+std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*> msaa_backing_map;
+std::unordered_map <IDirect3DSurface9*, IDirect3DTexture9*> msaa_backing_map_rev;
+std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*> rt_msaa;
+
+IDirect3DTexture9*
+GetMSAABackingTexture (IDirect3DSurface9* pSurf)
+{
+  std::unordered_map <IDirect3DSurface9*, IDirect3DTexture9*>::iterator it =
+    msaa_backing_map_rev.find (pSurf);
+
+  if (it != msaa_backing_map_rev.end ())
+    return it->second;
+
+  return nullptr;
+}
+
+int
+tsf::RenderFix::TextureManager::numMSAASurfs (void)
+{
+  return msaa_surfs.size ();
+}
 
 int
 tsf::RenderFix::TextureManager::numInjectedTextures (void)
@@ -521,6 +544,62 @@ tsf::RenderFix::TextureManager::cacheSizeTotal (void)
 
 std::set <UINT> tsf::RenderFix::active_samplers;
 extern IDirect3DTexture9* pFontTex;
+
+
+void
+ResolveAllDirty (void)
+{
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.use_msaa) {
+    std::set <IDirect3DSurface9*>::iterator dirty = dirty_surfs.begin ();
+
+    while (dirty != dirty_surfs.end ()) {
+      if (msaa_backing_map_rev.find (*dirty) != msaa_backing_map_rev.end ()) {
+
+        IDirect3DTexture9* pTexture = msaa_backing_map_rev.find (*dirty)->second;
+        IDirect3DSurface9* pSurf    = nullptr;
+
+        if (SUCCEEDED (pTexture->GetSurfaceLevel (0, &pSurf)) && pSurf != nullptr) {
+//          tex_log->Log (L"End-Frame MSAA Resolve (StretchRect)");
+          D3D9StretchRect_Original ( tsf::RenderFix::pDevice,
+                                       *dirty, nullptr,
+                                       pSurf,  nullptr,
+                                       D3DTEXF_NONE );
+
+          // Render target is now clean, we've resolved it to its texture
+          dirty = dirty_surfs.erase (dirty);
+          pSurf->Release ();
+          continue;
+        }
+      }
+      ++dirty;
+    }
+  }
+}
+
+#if 0
+void
+FlushOrphanedRTs (void)
+{
+  if (config.render.msaa_samples > 0) {
+    std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*>::iterator it =
+      rt_msaa.begin ();
+
+    while (it != rt_msaa.end ()) {
+      if (it->first != nullptr) {
+        if (it->first->Release () > 0) {
+          it->first->AddRef ();
+        } else {
+          tex_log->Log (L"[ MSAA Mgr ] Periodic orphan flush activated for %p", it->second);
+          it->second->Release ();
+          it = rt_msaa.erase (it);
+          continue;
+        }
+      }
+      ++it;
+    }
+  }
+}
+#endif
 
 int debug_tex_id;
 uint32_t current_tex;
@@ -597,6 +676,45 @@ D3D9SetTexture_Detour (
   else                     tsf::RenderFix::active_samplers.erase  (Sampler);
 #endif
 
+  if ( tsf::RenderFix::draw_state.blur_proxy.first != nullptr &&
+       tsf::RenderFix::draw_state.blur_proxy.first == pTexture ) {
+    if (tsf::RenderFix::tracer.log)
+      dll_log->Log ( L"[FrameTrace] --> Proxying %ph through %ph <--",
+                               tsf::RenderFix::draw_state.blur_proxy.first,
+                                 tsf::RenderFix::draw_state.blur_proxy.second );
+
+    // Intentionally run this through the HOOKED function
+    return This->SetTexture (Sampler, tsf::RenderFix::draw_state.blur_proxy.second);
+  }
+
+  //
+  // MSAA Blit (Before binding a texture, do MSAA resolve from its backing store)
+  //
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.use_msaa) {
+    std::unordered_map <IDirect3DTexture9*, IDirect3DSurface9*>::iterator multisample_surf =
+      msaa_backing_map.find ((IDirect3DTexture9 *)pTexture);
+
+    if (multisample_surf != msaa_backing_map.end ()) {
+      IDirect3DSurface9* pSingleSurf = nullptr;
+
+      //
+      // Only do this if the rendertarget is dirty...
+      //
+      if (dirty_surfs.find (multisample_surf->second) != dirty_surfs.end ()) {
+        if (SUCCEEDED (((IDirect3DTexture9 *)pTexture)->GetSurfaceLevel (0, &pSingleSurf))) {
+//          tex_log->Log (L"MSAA Resolve (StretchRect)");
+          D3D9StretchRect_Original (This, multisample_surf->second, nullptr,
+                                          pSingleSurf,              nullptr,
+                                          D3DTEXF_NONE);
+          pSingleSurf->Release ();
+        }
+
+        // Render target is now clean, we've resolved it to its texture
+        dirty_surfs.erase (multisample_surf->second);
+      }
+    }
+  }
+
   return D3D9SetTexture_Original (This, Sampler, pTexture);
 }
 
@@ -664,6 +782,38 @@ D3D9SetRenderTarget_Detour (
 #endif
   }
 
+  //
+  // MSAA Override
+  //
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.use_msaa) {
+    render_target_ref_s rt_ref =
+      render_targets [RenderTargetIndex];
+
+    if (rt_ref.surf != nullptr && rt_ref.draws < tsf::RenderFix::draw_state.draws)
+      dirty_surfs.insert (rt_ref.surf);
+
+    render_targets [RenderTargetIndex].surf  = nullptr;
+    render_targets [RenderTargetIndex].draws = tsf::RenderFix::draw_state.draws;
+
+    if (rt_msaa.find (pRenderTarget) != rt_msaa.end ()) {
+//      tex_log->Log (L"MSAA RenderTarget Override");
+      IDirect3DSurface9* pSurf = rt_msaa [pRenderTarget];
+
+      render_targets [RenderTargetIndex] =
+        render_target_ref_s {
+          pSurf,
+          tsf::RenderFix::draw_state.draws
+      };
+
+      // On the off chance that the optimization work above to detect draw calls
+      //   misses something...
+      if (! config.render.conservative_msaa)
+        dirty_surfs.insert (pSurf);
+
+      return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pSurf);
+    }
+  }
+
   return D3D9SetRenderTarget_Original (This, RenderTargetIndex, pRenderTarget);
 }
 
@@ -683,6 +833,17 @@ D3D9SetDepthStencilSurface_Detour (
   if (tsf::RenderFix::tracer.log) {
     dll_log->Log ( L"[FrameTrace] SetDepthStencilSurface   (%ph)",
                      pNewZStencil );
+  }
+
+
+  //
+  // MSAA Depth/Stencil Override
+  //
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.use_msaa) {
+    if (rt_msaa.find (pNewZStencil) != rt_msaa.end ()) {
+      return D3D9SetDepthStencilSurface_Original ( This,
+                                                     rt_msaa [pNewZStencil] );
+    }
   }
 
   return D3D9SetDepthStencilSurface_Original (This, pNewZStencil);
@@ -723,7 +884,9 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                        SK_D3D9_PoolToStr   (Pool) );
   }
 
-#if 0
+  bool create_msaa_surf = config.render.msaa_samples > 0 &&
+                          tsf::RenderFix::draw_state.has_msaa;
+
   // Resize the primary framebuffer
   if (Width == 1280 && Height == 720) {
     if (((Usage & D3DUSAGE_RENDERTARGET) && (Format == D3DFMT_A8R8G8B8 ||
@@ -731,27 +894,94 @@ D3D9CreateTexture_Detour (IDirect3DDevice9   *This,
                                              Format == D3DFMT_D24S8) {
       Width  = tsf::RenderFix::width;
       Height = tsf::RenderFix::height;
+
+      // Don't waste bandwidth on the HDR post-process
+      if (Format == D3DFMT_R32F)
+        create_msaa_surf = false;
+    } else {
+      // Not a rendertarget!
+      create_msaa_surf = false;
     }
   }
 
   else if (Width == 512 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
-#else
-  if ( Width  == (tsf::RenderFix::width  / 2) &&
-       Height == (tsf::RenderFix::height / 2) && (Usage & D3DUSAGE_RENDERTARGET) ) {
-#endif
     Width  = tsf::RenderFix::width  * config.render.postproc_ratio;
     Height = tsf::RenderFix::height * config.render.postproc_ratio;
+
+    // No geometry is rendered in this surface, it's a weird ghetto motion blur pass
+    create_msaa_surf = false;
   }
 
   else if (Width == 256 && Height == 256 && (Usage & D3DUSAGE_RENDERTARGET)) {
     Width  = Width;//  * config.render.postproc_ratio;
     Height = Height;// * config.render.postproc_ratio;
+
+    // I don't even know what this surface is for, much less why you'd
+    //   want to multisample it.
+    create_msaa_surf = false;
+  }
+
+  else {
+    create_msaa_surf = false;
   }
 
   HRESULT result =
     D3D9CreateTexture_Original ( This, Width, Height,
                                    Levels, Usage, Format,
                                      Pool, ppTexture, pSharedHandle );
+
+  if (create_msaa_surf) {
+    IDirect3DSurface9* pSurf;
+
+    HRESULT hr = E_FAIL;
+
+    if (! (Usage & D3DUSAGE_DEPTHSTENCIL)) {
+      hr = 
+        D3D9CreateRenderTarget_Original ( This,
+                                            Width, Height, Format,
+                                              (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
+                                                                   config.render.msaa_quality,
+                                                FALSE,
+                                                  &pSurf, nullptr);
+    } else {
+      hr = 
+        D3D9CreateDepthStencilSurface_Original ( This,
+                                                   Width, Height, Format,
+                                                     (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
+                                                                          config.render.msaa_quality,
+                                                       FALSE,
+                                                         &pSurf, nullptr);
+    }
+
+    if (SUCCEEDED (hr)) {
+      msaa_surfs.insert       (pSurf);
+      msaa_backing_map.insert (
+        std::pair <IDirect3DTexture9*, IDirect3DSurface9*> (
+          *ppTexture, pSurf
+        )
+      );
+      msaa_backing_map_rev.insert (
+        std::pair <IDirect3DSurface9*,IDirect3DTexture9*> (
+          pSurf, *ppTexture
+        )
+      );
+
+      IDirect3DSurface9* pFakeSurf = nullptr;
+      (*ppTexture)->GetSurfaceLevel (0, &pFakeSurf);
+      rt_msaa.insert (
+        std::pair <IDirect3DSurface9*, IDirect3DSurface9*> (
+          pFakeSurf, pSurf
+        )
+      );
+    } else {
+      tex_log->Log ( L"[ MSAA Mgr ] >> ERROR: Unable to Create MSAA Surface for Render Target: "
+                     L"(%d x %d), Format: %s, Usage: [%s], Pool: %s",
+                         Width, Height,
+                           SK_D3D9_FormatToStr (Format).c_str (),
+                           SK_D3D9_UsageToStr  (Usage).c_str (),
+                           SK_D3D9_PoolToStr   (Pool) );
+    }
+  }
 
   return result;
 }
@@ -1864,6 +2094,12 @@ D3DXCreateTextureFromFileInMemoryEx_Detour (
         (! injectable_textures.count (checksum)) )
     Usage = D3DUSAGE_DYNAMIC;
 
+  // Generate complete mipmap chains for best image quality
+  //  (will increase load-time on uncached textures)
+  if ((Pool == D3DPOOL_DEFAULT) && config.textures.full_mipmaps) {
+    resample = true;
+  }
+
   HRESULT         hr           = E_FAIL;
   tsf_tex_load_s* load_op      = nullptr;
 
@@ -2926,6 +3162,44 @@ tsf::RenderFix::TextureManager::reset (void)
   if (ext_refs > 0) {
     tex_log->Log ( L"[ Tex. Mgr ] >> WARNING: The game is still holding references (%d) to %d textures !!!",
                      ext_refs, ext_textures );
+  }
+
+  // If there are extra references, chances are this will fail as well -- let's
+  //   skip it.
+  if ((! ext_refs) && config.render.msaa_samples > 0) {
+    tex_log->Log ( L"[ MSAA Mgr ]   Releasing MSAA surfaces...");
+
+    int count = 0,
+        refs  = 0;
+
+    std::unordered_map <IDirect3DSurface9*, IDirect3DSurface9*>::iterator it =
+      rt_msaa.begin ();
+
+    while (it != rt_msaa.end ()) {
+      ++count;
+
+      if ((*it).first != nullptr) {
+        refs += (*it).first->Release ();
+      }
+      else
+        refs++;
+
+      if ((*it).second != nullptr) {
+        refs += (*it).second->Release ();
+      }
+      else
+        refs++;
+
+      it = rt_msaa.erase (it);
+    }
+
+    dirty_surfs.clear          ();
+    msaa_surfs.clear           ();
+    msaa_backing_map.clear     ();
+    msaa_backing_map_rev.clear ();
+
+    tex_log->Log ( L"[ MSAA Mgr ]   %4d surfaces (%4d zombies)",
+                       count, refs );
   }
 
   tex_log->Log ( L"[ Mem. Mgr ] === Memory Management Summary ===");

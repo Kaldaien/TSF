@@ -462,6 +462,16 @@ SK_TSF_PluginKeyPress ( BOOL Control,
 
 
   if (Control && Shift) {
+    if (vkCode == 'B') {
+      pCommandProc->ProcessCommandLine ("Render.RemoveBlur toggle");
+      if (! config.render.remove_blur)
+        tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
+    }
+
+    //else if (vkCode == 'C') {
+      //pCommandProc->ProcessCommandLine ("Render.ConservativeMSAA toggle");
+    //}
+
 #if 0
     else if (vkCode == 'Z') {
       extern void TSF_Zoom (double incr);
@@ -479,7 +489,7 @@ SK_TSF_PluginKeyPress ( BOOL Control,
     }
 #endif
 
-    if (vkCode == VK_OEM_PERIOD) {
+    else if (vkCode == VK_OEM_PERIOD) {
       pCommandProc->ProcessCommandLine ("Render.OutlineTechnique inc");
 
       if (config.render.outline_technique > 2)
@@ -515,7 +525,7 @@ SK_TSF_PluginKeyPress ( BOOL Control,
 
     else if (vkCode == 'V') {
       pCommandProc->ProcessCommandLine  ("Textures.ShowCache toggle");
-      tsf::RenderFix::tex_mgr.updateOSD ();
+    tsf::RenderFix::tex_mgr.updateOSD ();
     }
 
     else if (vkCode == VK_OEM_6) {

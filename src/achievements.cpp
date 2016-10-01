@@ -31,7 +31,6 @@
 void
 TSFix_PatchZelosAchievement (void)
 {
-#if 0
   extern void* TSF_Scan (uint8_t* pattern, size_t len, uint8_t* mask);
 
   char* str = 
@@ -45,5 +44,4 @@ TSFix_PatchZelosAchievement (void)
   } else {
     dll_log->Log (L"[  Achiev  ] Could not locate Harem Master achievement bug", str);
   }
-#endif
 }

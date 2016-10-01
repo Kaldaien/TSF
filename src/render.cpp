@@ -378,6 +378,14 @@ void
 STDMETHODCALLTYPE
 D3D9EndFrame_Pre (void)
 {
+  // Add a constant amount of MSAA work at the end of each frame,
+  //   in practive this is not a valid optimization. Deferring the resolve
+  //     until late in the next frame generally works better...
+  if (early_resolve) {
+    extern void ResolveAllDirty (void);
+    ResolveAllDirty ();
+  }
+
   tsf::RenderFix::dwRenderThreadID = GetCurrentThreadId ();
 
   extern std::set <uint32_t> textures_used;
@@ -487,7 +495,12 @@ D3D9EndFrame_Post (HRESULT hr, IUnknown* device)
   tsf::RenderFix::draw_state.frames++;
 
   // Push any changes to this state at the very end of a frame.
-  tsf::RenderFix::draw_state.use_msaa = use_msaa;
+  tsf::RenderFix::draw_state.use_msaa = use_msaa &&
+                                        tsf::RenderFix::draw_state.has_msaa;
+
+  //  Is the window in the foreground? (NV compatibility hack)
+  if ((! tsf::window.active) && config.window.disable_bg_msaa)
+    tsf::RenderFix::draw_state.use_msaa = false;
 
   extern bool pending_loads (void);
   if (pending_loads ()) {
@@ -569,6 +582,7 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
   memcpy (&present_params, pparams, sizeof D3DPRESENT_PARAMETERS);
 
   // We must let this go, it's not valid anymore.
+  tsf::RenderFix::draw_state.blur_proxy.first = nullptr;
   tsf::RenderFix::active_samplers.clear ();
   //tsf::RenderFix::tex_mgr.reset         ();
 
@@ -579,11 +593,6 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
                  HIBYTE (LOWORD (GetVersion ())) >= 1) ||
                  LOBYTE (LOWORD (GetVersion () > 6));
 
-    if (pparams->MultiSampleType == D3DMULTISAMPLE_NONMASKABLE) {
-      dll_log->Log (L"WRONG");
-      pparams->MultiSampleType = D3DMULTISAMPLE_NONE;
-    }
-
     if (win7 && config.render.allow_flipex && ( (! tsf::RenderFix::fullscreen)  ||
                                                  config.render.allow_background ||
                                                  config.window.borderless ) ) {
@@ -593,19 +602,54 @@ SK_SetPresentParamsD3D9_Detour (IDirect3DDevice9*      device,
       pparams->SwapEffect           = D3DSWAPEFFECT_FLIPEX;
       pparams->BackBufferCount      = config.render.backbuffers;
       pparams->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
-
-      dll_log->Log (L"[Render Fix] Forcing MSAA OFF in order to use FlipEx");
-      pparams->MultiSampleQuality   = 0;
-      pparams->MultiSampleType      = D3DMULTISAMPLE_NONE;
     }
 
     // Do not use Flip EX in fullscreen mode
     else {
-      if (config.render.allow_flipex)
-        pparams->SwapEffect         = D3DSWAPEFFECT_FLIP;
-
+      pparams->SwapEffect           = D3DSWAPEFFECT_FLIP;
       pparams->BackBufferCount      = 1;
       pparams->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+    }
+
+    //
+    // MSAA Override
+    //
+    if (config.render.msaa_samples > 0 && device != nullptr) {
+      IDirect3D9* pD3D9 = nullptr;
+      if (SUCCEEDED (device->GetDirect3D (&pD3D9))) {
+        DWORD dwQualityLevels;
+        if (SUCCEEDED ( pD3D9->CheckDeviceMultiSampleType (
+                0, D3DDEVTYPE_HAL, D3DFMT_A8R8G8B8,
+                  false /* Full-Scene */,
+                    (D3DMULTISAMPLE_TYPE)config.render.msaa_samples,
+                      &dwQualityLevels )
+                      )
+           ) {
+          dll_log->Log ( L"[Render Fix] >> Render device has %d quality level(s) available "
+                         L"for %d-Sample MSAA.",
+                           dwQualityLevels, config.render.msaa_samples );
+
+          if (dwQualityLevels > 0) {
+            // After range restriction, write the correct value back to the config
+            //   file
+            config.render.msaa_quality = min ( dwQualityLevels-1,
+                                                  config.render.msaa_quality );
+
+            dll_log->Log ( L"[Render Fix]  (*) Selected %dxMSAA Quality Level: %d",
+                             config.render.msaa_samples,
+                               config.render.msaa_quality );
+            tsf::RenderFix::draw_state.has_msaa = true;
+          }
+        }
+
+        else {
+            dll_log->Log ( L"[Render Fix]  ### Requested %dxMSAA Quality Level: %d invalid",
+                             config.render.msaa_samples,
+                               config.render.msaa_quality );
+        }
+
+        pD3D9->Release ();
+      }
     }
 
     if (device != nullptr) {
@@ -795,29 +839,23 @@ D3D9SetViewport_Detour (IDirect3DDevice9* This,
   }
 
   // ...
-  if (pViewport->Width == tsf::RenderFix::width && pViewport->Height == tsf::RenderFix::height) {
+  if (pViewport->Width == 1280 && pViewport->Height == 720) {
     tsf::RenderFix::draw_state.postprocessing = false;
     tsf::RenderFix::draw_state.fullscreen     = true; // TODO: Check viewport against rendertarget
 
     D3DVIEWPORT9 newView = *pViewport;
 
-#if 0
     float x_scale = (float)tsf::RenderFix::width  / 1280.0f;
     float y_scale = (float)tsf::RenderFix::height / 720.0f;
 
     newView.Width  = newView.Width  * x_scale - (newView.X * 2.0f);
     newView.Height = newView.Height * y_scale - (newView.Y * 2.0f);
-#endif
 
     return D3D9SetViewport_Original (This, &newView);
   }
 
   // Effects
-#if 0
   if (pViewport->Width == 512 && pViewport->Height == 256) {
-#else
-  if (pViewport->Width == (tsf::RenderFix::width / 2) && pViewport->Height == (tsf::RenderFix::height / 2)) {
-#endif
     tsf::RenderFix::draw_state.postprocessing = true;
     tsf::RenderFix::draw_state.fullscreen     = false;
 
@@ -933,7 +971,22 @@ D3D9BeginScene_Detour (IDirect3DDevice9* This)
 
   tsf::RenderFix::draw_state.draws = 0;
 
+  bool msaa = false;
+
+  if (config.render.msaa_samples > 0 && tsf::RenderFix::draw_state.has_msaa &&
+                                        tsf::RenderFix::draw_state.use_msaa) {
+    msaa = true;
+  }
+
   HRESULT result = D3D9BeginScene_Original (This);
+
+  // Don't do this until resources are allocated.
+  if (tsf::RenderFix::tex_mgr.numMSAASurfs () > 0) {
+    // Turn this on/off at the beginning of every frame
+    D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                    D3DRS_MULTISAMPLEANTIALIAS,
+                                      msaa );
+  }
 
   return result;
 }
@@ -948,6 +1001,11 @@ D3D9EndScene_Detour (IDirect3DDevice9* This)
   if (This != tsf::RenderFix::pDevice) {
     return D3D9EndScene_Original (This);
   }
+
+  // Don't use MSAA for stuff drawn directly to the framebuffer
+  D3D9SetRenderState_Original ( tsf::RenderFix::pDevice,
+                                  D3DRS_MULTISAMPLEANTIALIAS,
+                                    false );
 
   HRESULT hr = D3D9EndScene_Original (This);
 
@@ -1138,6 +1196,93 @@ D3D9DrawIndexedPrimitive_Detour (IDirect3DDevice9* This,
   }
 
   tsf::RenderFix::draw_state.draws++;
+
+  if (config.render.remove_blur && 
+    /*Type == D3DPT_TRIANGLELIST && NumVertices == 3 && primCount == 1 &&*/
+      (ps_checksum == 0x1e8447cc && vs_checksum == 0x2def1491)) {
+    IDirect3DTexture9* pTex = nullptr;
+
+    This->GetTexture (0, (IDirect3DBaseTexture9 **)&pTex);
+
+    if (pTex != nullptr)
+    {
+      IDirect3DSurface9* pSrc = nullptr;
+
+      pTex->GetSurfaceLevel (0, &pSrc);
+
+      if (pSrc != nullptr)
+      {
+        IDirect3DSurface9* pDst = nullptr;
+
+        This->GetRenderTarget (0, &pDst);
+
+        if (pDst != nullptr)
+        {
+          if (tsf::RenderFix::tracer.log)
+            dll_log->Log ( L"[FrameTrace] ### Removed Blur (Readbuffer: %ph, Drawbuffer: %ph) ###",
+                            pTex, pDst );
+
+           IDirect3DTexture9* pProxyTex = nullptr;
+
+           // Since StretchRect is most expensive when used with MSAA,
+           //   as a last resort let's use the MSAA texture map to see
+           //     if we can bypass the blur without any actual work.
+           extern IDirect3DTexture9*
+           GetMSAABackingTexture (IDirect3DSurface9* pSurf);
+
+           pProxyTex = GetMSAABackingTexture (pDst);
+
+           // No MSAA backing texture, let's try the driver.
+           if (pProxyTex == nullptr) {
+             pDst->GetContainer (__uuidof (IDirect3DTexture9), (void **)&pProxyTex);
+
+             if (pProxyTex != nullptr)
+               pProxyTex->Release ();
+           }
+
+           if (pProxyTex != nullptr)
+           {
+             tsf::RenderFix::draw_state.blur_proxy.first  = pProxyTex;
+             tsf::RenderFix::draw_state.blur_proxy.second = pTex;
+
+             // We cannot do this indefinitely, we need at least one copy per-frame.
+             if (blur_bypass == 1) {
+               D3DVIEWPORT9 vp;
+               This->GetViewport (&vp);
+
+               RECT rectOut = { vp.X,            vp.Y,
+                                vp.X + vp.Width, vp.Y + vp.Height };
+
+               This->StretchRect (pSrc, nullptr, pDst, &rectOut, D3DTEXF_NONE);
+             }
+
+             blur_bypass++;
+           }
+
+           else {
+             if (tsf::RenderFix::tracer.log)
+               dll_log->Log (L"[FrameTrace] >>  Blur Proxy Impossible; Resorting to Blit  <<");
+
+               D3DVIEWPORT9 vp;
+               This->GetViewport (&vp);
+
+               RECT rectOut = { vp.X,            vp.Y,
+                                vp.X + vp.Width, vp.Y + vp.Height };
+
+               This->StretchRect (pSrc, nullptr, pDst, &rectOut, D3DTEXF_NONE);
+           }
+
+          pDst->Release ();
+        }
+
+        pSrc->Release ();
+      }
+
+      pTex->Release ();
+    }
+
+    return S_OK;
+  }
 
   // These are outlines that would not normally be detected because the polygon
   //   winding direction is not reversed...
@@ -1468,7 +1613,9 @@ D3D9SetRenderState_Detour (IDirect3DDevice9*  This,
       tsf::RenderFix::draw_state.srcblend = Value;
       break;
     case D3DRS_MULTISAMPLEANTIALIAS:
-      if ( tsf::RenderFix::draw_state.use_msaa )
+      if ( config.render.msaa_samples > 0      &&
+           tsf::RenderFix::draw_state.has_msaa &&
+           tsf::RenderFix::draw_state.use_msaa )
         return D3D9SetRenderState_Original (This, State, 1);
       else
         return D3D9SetRenderState_Original (This, State, 0);
@@ -1564,10 +1711,42 @@ D3D9SetSamplerState_Detour (IDirect3DDevice9*   This,
       Type == D3DSAMP_MIPMAPLODBIAS) {
     //dll_log->Log (L" [!] IDirect3DDevice9::SetSamplerState (...)");
     if (Type < 8) {
+      bool aniso_override = false;
+
+      //if (Value != D3DTEXF_ANISOTROPIC)
+        //D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, aniso);
+      //dll_log->Log (L" %s Filter: %x", Type == D3DSAMP_MIPFILTER ? L"Mip" : Type == D3DSAMP_MINFILTER ? L"Min" : L"Mag", Value);
+
       if (Type == D3DSAMP_MIPFILTER) {
-        Value = D3DTEXF_LINEAR;
+        //extern bool __remap_textures;
+
+        //if (__remap_textures)
+          Value = D3DTEXF_LINEAR;
+        //else
+          //Value = D3DTEXF_NONE;
+
+        //if (Value != D3DTEXF_NONE)
+          //aniso_override = false;
+      }
+
+      if (Type == D3DSAMP_MAGFILTER ||
+          Type == D3DSAMP_MINFILTER) {
+        if (Value == D3DTEXF_LINEAR) {
+          aniso_override = true;
+        }
+      }
+
+      if (aniso_override && config.textures.max_anisotropy != 0) {
+        Value = D3DTEXF_ANISOTROPIC;
+        D3D9SetSamplerState_Original (This, Sampler, D3DSAMP_MAXANISOTROPY, tsf::RenderFix::draw_state.max_aniso);
       }
     }
+  }
+
+  if (Type == D3DSAMP_MAXANISOTROPY) {
+    if (tsf::RenderFix::tracer.log)
+      dll_log->Log (L"[Render Fix] Max Anisotropy Set (it's a miracle!): %d", Value);
+    Value = tsf::RenderFix::draw_state.max_aniso;
   }
 
   return D3D9SetSamplerState_Original (This, Sampler, Type, Value);
@@ -1614,13 +1793,20 @@ tsf::RenderFix::Init (void)
   pCommandProc->AddVariable ("Render.OutlineTechnique", TSF_CreateVar (SK_IVariable::Int,     &config.render.outline_technique));
 
   // Don't directly modify this state, switching mid-frame would be disasterous...
-  pCommandProc->AddVariable ("Render.MSAA",             TSF_CreateVar (SK_IVariable::Boolean, &use_msaa));
+  pCommandProc->AddVariable ("Render.MSAA",             TSF_CreateVar (SK_IVariable::Boolean, &use_msaa));//&draw_state.use_msaa));
 
   pCommandProc->AddVariable ("Trace.NumFrames", TSF_CreateVar (SK_IVariable::Int,     &tracer.count));
   pCommandProc->AddVariable ("Trace.Enable",    TSF_CreateVar (SK_IVariable::Boolean, &tracer.log));
 
   pCommandProc->AddVariable ("Render.OutlineOffsetC", TSF_CreateVar (SK_IVariable::Float, &depth_offset1));
   pCommandProc->AddVariable ("Render.OutlineOffsetS", TSF_CreateVar (SK_IVariable::Float, &depth_offset2));
+
+  draw_state.max_aniso = config.textures.max_anisotropy;
+  pCommandProc->AddVariable ("Render.MaxAniso",   TSF_CreateVar (SK_IVariable::Int,     &draw_state.max_aniso));
+  pCommandProc->AddVariable ("Render.RemoveBlur", TSF_CreateVar (SK_IVariable::Boolean, &config.render.remove_blur));
+
+  pCommandProc->AddVariable ("Render.ConservativeMSAA", TSF_CreateVar (SK_IVariable::Boolean, &config.render.conservative_msaa));
+  pCommandProc->AddVariable ("Render.EarlyResolve",     TSF_CreateVar (SK_IVariable::Boolean, &early_resolve));
 
   pCommandProc->AddVariable ("Debug.OutlineVtx",   TSF_CreateVar (SK_IVariable::Int, &test_vtx));
   pCommandProc->AddVariable ("Debug.OutlinePrims", TSF_CreateVar (SK_IVariable::Int, &test_prims));
