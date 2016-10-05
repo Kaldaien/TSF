@@ -28,7 +28,7 @@
 static
   iSK_INI* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.10.2";
+std::wstring TSFIX_VER_STR = L"0.10.3";
 tsf_config_s config;
 
 struct {

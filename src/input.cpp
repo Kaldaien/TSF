@@ -674,13 +674,13 @@ TSFix_DrawCommandConsole (void)
   // Skip the first several frames, so that the console appears below the
   //  other OSD.
   if (draws++ > 20) {
-    typedef BOOL (__stdcall *SK_DrawExternalOSD_pfn)(std::string app_name, std::string text);
+    typedef BOOL (__stdcall *SKX_DrawExternalOSD_pfn)(const char* szAppName, const char* szText);
 
     static HMODULE               hMod =
       GetModuleHandle (config.system.injector.c_str ());
-    static SK_DrawExternalOSD_pfn SK_DrawExternalOSD
+    static SKX_DrawExternalOSD_pfn SKX_DrawExternalOSD
       =
-      (SK_DrawExternalOSD_pfn)GetProcAddress (hMod, "SK_DrawExternalOSD");
+      (SKX_DrawExternalOSD_pfn)GetProcAddress (hMod, "SKX_DrawExternalOSD");
 
     extern bool __show_cache;
     if (__show_cache) {
@@ -694,7 +694,7 @@ TSFix_DrawCommandConsole (void)
     //  is going on. That should be displayed unconditionally...
     output += mod_text;
 
-    SK_DrawExternalOSD ("ToSFix", output);
+    SKX_DrawExternalOSD ("ToSFix", output.c_str ());
 
     mod_text = "";
     output   = "";
