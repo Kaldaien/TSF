@@ -25,10 +25,12 @@
 #include "ini.h"
 #include "log.h"
 
+#include "DLL_VERSION.H"
+
 static
   iSK_INI* 
              dll_ini       = nullptr;
-std::wstring TSFIX_VER_STR = L"0.10.3";
+std::wstring TSFIX_VER_STR = TSF_VERSION_STR_W;
 tsf_config_s config;
 
 struct {
